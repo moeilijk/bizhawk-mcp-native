@@ -264,6 +264,8 @@ namespace BizHawkMcp.Tests
 		public readonly List<string> Messages = new();
 		public int ClearTextCalls;
 		public (int x, int y, string text, int? fontsize)? LastDraw;
+		public (int x, int y, int w, int h)? LastRect;
+		public (int x1, int y1, int x2, int y2)? LastLine;
 
 		public void AddMessage(string message, int? duration = null) => Messages.Add(message);
 
@@ -271,6 +273,12 @@ namespace BizHawkMcp.Tests
 
 		public void DrawString(int x, int y, string message, System.Drawing.Color? forecolor = null, System.Drawing.Color? backcolor = null, int? fontsize = null, string fontfamily = null, string fontstyle = null, string horizalign = null, string vertalign = null, DisplaySurfaceID? surfaceID = null)
 			=> LastDraw = (x, y, message, fontsize);
+
+		public void DrawRectangle(int x, int y, int width, int height, System.Drawing.Color? line = null, System.Drawing.Color? background = null, DisplaySurfaceID? surfaceID = null)
+			=> LastRect = (x, y, width, height);
+
+		public void DrawLine(int x1, int y1, int x2, int y2, System.Drawing.Color? color = null, DisplaySurfaceID? surfaceID = null)
+			=> LastLine = (x1, y1, x2, y2);
 	}
 
 	public sealed class FakeInputApi : IInputApi

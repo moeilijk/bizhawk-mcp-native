@@ -34,13 +34,15 @@ namespace BizHawkMcp
 		[
 			Tool("bizhawk_ping", "Ping the tool. Returns \"pong\" if the plugin and server are alive.", []),
 			Tool("bizhawk_get_info", "ROM info, framecount, pause state, current endianness and active memory domain (JSON).", []),
-			Tool("bizhawk_read_memory", "Read u8/u16/u32 from a memory domain. Endianness follows the core default (big-endian on Genesis/SNES/N64) unless bizhawk_set_big_endian overrode it. Bus domains accept 32-bit disassembly addresses (e.g. 0xFFFFF832): the 68K's 24-bit bus masks them, so 0xFFFFF832 == 0xFFF832.", [
+			Tool("bizhawk_read_memory", "Read u8/u16/u32 from a memory domain. Endianness follows the core default (big-endian on Genesis/SNES/N64) unless bizhawk_set_big_endian overrode it. Bus domains accept 32-bit disassembly addresses (e.g. 0xFFFFF832): the 68K's 24-bit bus masks them, so 0xFFFFF832 == 0xFFF832. Either \"address\" or a symbol \"name\" (from bizhawk_symbols_set) is required.", [
 				Param("address", "integer", "Offset in the domain, 0-based. For bus domains (e.g. M68K BUS) use the raw bus address (e.g. 0xFFFBCA); 32-bit forms (0xFFFFFBCA) are masked like the hardware."),
+				Param("name", "string", "Symbol name registered via bizhawk_symbols_set (overrides address/domain)."),
 				Param("width", "integer", "8, 16 or 32.", 8),
 				Param("domain", "string", "Optional domain (defaults to BizHawk's current one)."),
 			]),
-			Tool("bizhawk_write_memory", "Write u8/u16/u32 to a memory domain. Endianness follows the core default unless bizhawk_set_big_endian overrode it. Bus domains mask 32-bit addresses as in read.", [
+			Tool("bizhawk_write_memory", "Write u8/u16/u32 to a memory domain. Endianness follows the core default unless bizhawk_set_big_endian overrode it. Bus domains mask 32-bit addresses as in read. Either \"address\" or a symbol \"name\" is required.", [
 				Param("address", "integer", "Offset in the domain, 0-based. For bus domains use the raw bus address."),
+				Param("name", "string", "Symbol name registered via bizhawk_symbols_set (overrides address/domain)."),
 				Param("width", "integer", "8, 16 or 32.", 8),
 				Param("value", "integer", "Value to write (must fit the width)."),
 				Param("domain", "string", "Optional domain."),
@@ -91,14 +93,24 @@ namespace BizHawkMcp
 				Param("value", "number", "Float value to write."),
 				Param("domain", "string", "Optional domain."),
 			]),
-			Tool("bizhawk_read_many", "Read several addresses in one call (up to 256). Returns JSON: [{address, width, value, domain}]. Endianness as bizhawk_read_memory.", [
-				Param("items", "array", "Array of {\"address\": int, \"width\"?: 8|16|32, \"domain\"?: string}."),
+			Tool("bizhawk_read_many", "Read several addresses in one call (up to 256). Returns JSON: [{address, width, value, domain}]. Endianness as bizhawk_read_memory. Set \"consistent\": true to pause during the batch so all reads come from the same frame.", [
+				Param("items", "array", "Array of {\"address\": int | \"name\": string, \"width\"?: 8|16|32, \"domain\"?: string}."),
+				Param("consistent", "boolean", "Pause emulation for the duration of the batch so reads are frame-consistent.", false),
 			]),
 			Tool("bizhawk_write_range", "Write a contiguous byte range from a values array (up to 4096 bytes).", [
 				Param("address", "integer", "Start offset in the domain, 0-based."),
 				Param("values", "array", "Byte values (0..255) to write in order."),
 				Param("domain", "string", "Optional domain."),
 			]),
+			Tool("bizhawk_dump_memory", "Dump an entire memory domain to a host-side file (also exposed as a bizhawk:// resource). Omit \"path\" to save into the host temp dir (bizhawk-mcp).", [
+				Param("domain", "string", "Domain name to dump (defaults to current)."),
+				Param("path", "string", "Optional absolute path writable by EmuHawk, e.g. C:/temp/ram.bin."),
+			]),
+			Tool("bizhawk_symbols_set", "Register symbol names for addresses (from Ghidra exports, fixtures, etc.). Symbols can then be used as \"name\" in read_memory/write_memory/read_many instead of raw addresses.", [
+				Param("symbols", "array", "Array of {\"name\": string, \"address\": int, \"width\"?: 8|16|32, \"domain\"?: string}."),
+			]),
+			Tool("bizhawk_symbols_list", "List registered symbols (JSON).", []),
+			Tool("bizhawk_symbols_clear", "Remove all registered symbols.", []),
 			Tool("bizhawk_read_palette", "Read a core's color palette as hex RGB strings. Genesis: CRAM (64 colors, 16-bit BGR). SNES: CGRAM (256 colors, 16-bit BGR555). Other systems: unsupported.", [
 				Param("count", "integer", "Number of colors to read, 1..256.", 64),
 				Param("domain", "string", "Optional palette domain (defaults to CRAM on GEN, CGRAM on SNES)."),
@@ -147,6 +159,21 @@ namespace BizHawkMcp
 				Param("fontsize", "integer", "Optional font size in pixels."),
 			]),
 			Tool("bizhawk_clear_overlay", "Remove all text drawn on the video output.", []),
+			Tool("bizhawk_overlay_rect", "Draw a rectangle on the video output (hitboxes, regions). Cleared with bizhawk_clear_overlay.", [
+				Param("x", "integer", "X position."),
+				Param("y", "integer", "Y position."),
+				Param("width", "integer", "Width in pixels."),
+				Param("height", "integer", "Height in pixels."),
+				Param("color", "string", "Optional line color, e.g. \"#FF0000\"."),
+				Param("fill", "string", "Optional fill color, e.g. \"#00FF0080\" (ARGB)."),
+			]),
+			Tool("bizhawk_overlay_line", "Draw a line on the video output. Cleared with bizhawk_clear_overlay.", [
+				Param("x1", "integer", "Start X."),
+				Param("y1", "integer", "Start Y."),
+				Param("x2", "integer", "End X."),
+				Param("y2", "integer", "End Y."),
+				Param("color", "string", "Optional color, e.g. \"#00FF00\"."),
+			]),
 			Tool("bizhawk_osd_message", "Show a message in the emulator's OSD (on-screen display).", [
 				Param("message", "string", "Text to show."),
 				Param("duration", "integer", "Optional duration in ms."),
@@ -218,6 +245,10 @@ namespace BizHawkMcp
 				"bizhawk_write_float" => _ui.Invoke(() => WriteFloat(args)),
 				"bizhawk_read_many" => _ui.Invoke(() => ReadMany(args)),
 				"bizhawk_write_range" => _ui.Invoke(() => WriteRange(args)),
+				"bizhawk_dump_memory" => _ui.Invoke(() => DumpMemory(args)),
+				"bizhawk_symbols_set" => _ui.Invoke(() => SymbolsSet(args)),
+				"bizhawk_symbols_list" => _ui.Invoke(SymbolsList),
+				"bizhawk_symbols_clear" => _ui.Invoke(SymbolsClear),
 				"bizhawk_read_palette" => _ui.Invoke(() => ReadPalette(args)),
 				"bizhawk_press_buttons" => _ui.Invoke(() => PressButtons(args)),
 				"bizhawk_frame_advance" => _ui.Invoke(() => FrameAdvance(args)),
@@ -236,6 +267,8 @@ namespace BizHawkMcp
 				"bizhawk_shutdown" => Shutdown(),
 				"bizhawk_overlay_text" => _ui.Invoke(() => OverlayText(args)),
 				"bizhawk_clear_overlay" => _ui.Invoke(() => ClearOverlay()),
+				"bizhawk_overlay_rect" => _ui.Invoke(() => OverlayRect(args)),
+				"bizhawk_overlay_line" => _ui.Invoke(() => OverlayLine(args)),
 				"bizhawk_osd_message" => _ui.Invoke(() => OsdMessage(args)),
 				"bizhawk_movie_info" => _ui.Invoke(MovieInfo),
 				"bizhawk_movie_input" => _ui.Invoke(() => MovieInput(args)),
@@ -278,10 +311,7 @@ namespace BizHawkMcp
 		{
 			EnsureEndianness();
 			var a = Required(args);
-			long address = RequireLong(a, "address");
-			int width = RequireInt(a, "width", 8);
-			string? domain = OptionalString(a, "domain");
-			address = ValidateAddress(address, width, domain);
+			var (address, width, domain) = ResolveTarget(a);
 			ulong value = width switch
 			{
 				8 => _tool.Memory!.ReadByte(address, domain),
@@ -296,11 +326,8 @@ namespace BizHawkMcp
 		{
 			EnsureEndianness();
 			var a = Required(args);
-			long address = RequireLong(a, "address");
-			int width = RequireInt(a, "width", 8);
+			var (address, width, domain) = ResolveTarget(a);
 			ulong value = RequireULong(a, "value");
-			string? domain = OptionalString(a, "domain");
-			address = ValidateAddress(address, width, domain);
 			ulong max = width switch
 			{
 				8 => 0xFFUL,
@@ -328,6 +355,45 @@ namespace BizHawkMcp
 			var sb = new System.Text.StringBuilder(length * 3);
 			for (var i = 0; i < length; i++) sb.Append(_tool.Memory!.ReadByte(address + i, domain).ToString("X2")).Append(' ');
 			return sb.ToString().TrimEnd();
+		}
+
+		private string DumpMemory(JsonElement? args)
+		{
+			string? domain = null;
+			if (args is { } a && a.ValueKind == JsonValueKind.Object) domain = OptionalString(a, "domain");
+			uint size = _tool.Memory!.GetMemoryDomainSize(domain);
+
+			string? path = null;
+			if (args is { } b && b.ValueKind == JsonValueKind.Object) path = OptionalString(b, "path");
+			if (string.IsNullOrEmpty(path))
+			{
+				var dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "bizhawk-mcp");
+				System.IO.Directory.CreateDirectory(dir);
+				path = System.IO.Path.Combine(dir, $"dump-{domain ?? _tool.Memory!.GetCurrentMemoryDomain()}-{DateTime.Now:yyyyMMdd-HHmmss}.bin");
+			}
+
+			// read the whole domain in chunks via ReadByteRange and write to disk
+			using (var fs = new System.IO.FileStream(path, System.IO.FileMode.Create, System.IO.FileAccess.Write))
+			{
+				const int chunk = 0x10000;
+				for (long off = 0; off < size; off += chunk)
+				{
+					int len = (int)Math.Min(chunk, size - off);
+					var bytes = _tool.Memory!.ReadByteRange(off, len, domain);
+					var buf = new byte[len];
+					for (var i = 0; i < len; i++) buf[i] = bytes[i];
+					fs.Write(buf, 0, len);
+				}
+			}
+
+			string uri = RegisterArtifact(path, "application/octet-stream", $"memory dump {domain ?? _tool.Memory!.GetCurrentMemoryDomain()} ({size} bytes)");
+			return JsonRpc.Pretty(new Dictionary<string, object?>
+			{
+				["path"] = path,
+				["size"] = size,
+				["domain"] = domain ?? _tool.Memory!.GetCurrentMemoryDomain(),
+				["resource"] = uri,
+			});
 		}
 
 		private string ListMemoryDomains()
@@ -540,25 +606,31 @@ namespace BizHawkMcp
 			if (items.GetArrayLength() is < 1 or > 256)
 				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "items must contain 1..256 entries");
 
-			var results = new List<object?>();
-			foreach (var item in items.EnumerateArray())
+			bool consistent = a.TryGetProperty("consistent", out var c) && c.ValueKind == JsonValueKind.True;
+			bool wasPaused = _tool.EmuClient!.IsPaused();
+			if (consistent && !wasPaused) _tool.EmuClient!.Pause();
+			try
 			{
-				if (item.ValueKind != JsonValueKind.Object)
-					throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "each item must be an object");
-				long address = RequireLong(item, "address");
-				int width = RequireInt(item, "width", 8);
-				string? domain = OptionalString(item, "domain");
-				if (width is not (8 or 16 or 32)) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "width must be 8, 16 or 32");
-				address = ValidateAddress(address, width, domain);
-				ulong value = width switch
+				var results = new List<object?>();
+				foreach (var item in items.EnumerateArray())
 				{
-					8 => _tool.Memory!.ReadByte(address, domain),
-					16 => _tool.Memory!.ReadU16(address, domain),
-					_ => _tool.Memory!.ReadU32(address, domain),
-				};
-				results.Add(new Dictionary<string, object?> { ["address"] = address, ["width"] = width, ["value"] = value, ["domain"] = domain });
+					if (item.ValueKind != JsonValueKind.Object)
+						throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "each item must be an object");
+					var (address, width, domain) = ResolveTarget(item);
+					ulong value = width switch
+					{
+						8 => _tool.Memory!.ReadByte(address, domain),
+						16 => _tool.Memory!.ReadU16(address, domain),
+						_ => _tool.Memory!.ReadU32(address, domain),
+					};
+					results.Add(new Dictionary<string, object?> { ["address"] = address, ["width"] = width, ["value"] = value, ["domain"] = domain });
+				}
+				return JsonRpc.Pretty(new Dictionary<string, object?> { ["reads"] = results });
 			}
-			return JsonRpc.Pretty(new Dictionary<string, object?> { ["reads"] = results });
+			finally
+			{
+				if (consistent && !wasPaused) _tool.EmuClient!.Unpause();
+			}
 		}
 
 		private string WriteRange(JsonElement? args)
@@ -799,6 +871,31 @@ namespace BizHawkMcp
 			return "ok";
 		}
 
+		private string OverlayRect(JsonElement? args)
+		{
+			var a = Required(args);
+			int x = RequireInt(a, "x", 0);
+			int y = RequireInt(a, "y", 0);
+			int width = RequireInt(a, "width", 0);
+			int height = RequireInt(a, "height", 0);
+			var line = ParseColor(a);
+			var fill = ParseColorArg(a, "fill");
+			_tool.Gui!.DrawRectangle(x, y, width, height, line, fill);
+			return "ok";
+		}
+
+		private string OverlayLine(JsonElement? args)
+		{
+			var a = Required(args);
+			int x1 = RequireInt(a, "x1", 0);
+			int y1 = RequireInt(a, "y1", 0);
+			int x2 = RequireInt(a, "x2", 0);
+			int y2 = RequireInt(a, "y2", 0);
+			var color = ParseColor(a);
+			_tool.Gui!.DrawLine(x1, y1, x2, y2, color);
+			return "ok";
+		}
+
 		private string ClearOverlay()
 		{
 			_tool.Gui!.ClearText();
@@ -907,6 +1004,92 @@ namespace BizHawkMcp
 		}
 
 		private readonly List<Watch> _watches = new();
+
+		// ── symbols ────────────────────────────────────────────────────────────
+		// name → (address, width, domain). Lets agents use names from Ghidra /
+		// fixtures in read_memory/write_memory/read_many instead of raw addresses.
+
+		private sealed class Symbol
+		{
+			public long Address;
+			public int Width;
+			public string? Domain;
+		}
+
+		private readonly Dictionary<string, Symbol> _symbols = new(StringComparer.OrdinalIgnoreCase);
+
+		private string SymbolsSet(JsonElement? args)
+		{
+			var a = Required(args);
+			if (!a.TryGetProperty("symbols", out var syms) || syms.ValueKind != JsonValueKind.Array)
+				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "symbols must be an array");
+			if (syms.GetArrayLength() is < 1 or > 4096)
+				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "symbols must contain 1..4096 entries");
+
+			var added = 0;
+			foreach (var s in syms.EnumerateArray())
+			{
+				if (s.ValueKind != JsonValueKind.Object)
+					throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "each symbol must be an object");
+				string name = RequireString(s, "name");
+				long address = RequireLong(s, "address");
+				int width = RequireInt(s, "width", 8);
+				string? domain = OptionalString(s, "domain");
+				if (width is not (8 or 16 or 32)) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"symbol {name}: width must be 8, 16 or 32");
+				_symbols[name] = new Symbol { Address = address, Width = width, Domain = domain };
+				added++;
+			}
+			return $"registered {added} symbol(s)";
+		}
+
+		private string SymbolsList()
+		{
+			var list = new List<object?>();
+			foreach (var kv in _symbols)
+			{
+				var s = kv.Value;
+				list.Add(new Dictionary<string, object?>
+				{
+					["name"] = kv.Key,
+					["address"] = s.Address,
+					["width"] = s.Width,
+					["domain"] = s.Domain,
+				});
+			}
+			return JsonRpc.Pretty(new Dictionary<string, object?> { ["symbols"] = list });
+		}
+
+		private string SymbolsClear()
+		{
+			int n = _symbols.Count;
+			_symbols.Clear();
+			return $"cleared {n} symbol(s)";
+		}
+
+		// Resolves a read/write request: either an explicit address (with
+		// optional width/domain) or a symbol name. Returns the effective
+		// (address, width, domain) triple, masking bus addresses.
+		private (long address, int width, string? domain) ResolveTarget(JsonElement a)
+		{
+			string? name = OptionalString(a, "name");
+			if (name != null)
+			{
+				if (!_symbols.TryGetValue(name, out var s))
+					throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"unknown symbol: {name}");
+				int width = RequireInt(a, "width", s.Width);
+				if (width is not (8 or 16 or 32)) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "width must be 8, 16 or 32");
+				string? domain = OptionalString(a, "domain") ?? s.Domain;
+				long address = ValidateAddress(s.Address, width, domain);
+				return (address, width, domain);
+			}
+
+			long addr = RequireLong(a, "address");
+			int w = RequireInt(a, "width", 8);
+			if (w is not (8 or 16 or 32)) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "width must be 8, 16 or 32");
+			string? dom = OptionalString(a, "domain");
+			addr = ValidateAddress(addr, w, dom);
+			return (addr, w, dom);
+		}
 
 		private static (int width, string? domain) WatchWidth(JsonElement a)
 		{
@@ -1256,6 +1439,13 @@ namespace BizHawkMcp
 		private static System.Drawing.Color? ParseColor(JsonElement a)
 		{
 			if (!a.TryGetProperty("color", out var v) || v.ValueKind != JsonValueKind.String) return null;
+			try { return System.Drawing.ColorTranslator.FromHtml(v.GetString()!); }
+			catch { throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"invalid color: {v.GetString()}"); }
+		}
+
+		private static System.Drawing.Color? ParseColorArg(JsonElement a, string arg)
+		{
+			if (!a.TryGetProperty(arg, out var v) || v.ValueKind != JsonValueKind.String) return null;
 			try { return System.Drawing.ColorTranslator.FromHtml(v.GetString()!); }
 			catch { throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"invalid color: {v.GetString()}"); }
 		}

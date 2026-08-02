@@ -86,14 +86,18 @@ Because the server lives inside EmuHawk, every opencode session connects to the 
 |---|---|---|
 | `bizhawk_ping` | — | `pong` |
 | `bizhawk_get_info` | — | ROM name/hash, system, framecount, pause state, active memory domain + size, server URL |
-| `bizhawk_read_memory` | `address`, `width` (8/16/32), `domain?` | unsigned value |
-| `bizhawk_write_memory` | `address`, `width`, `value`, `domain?` | `ok` |
+| `bizhawk_read_memory` | `address` **ou** `name`, `width` (8/16/32), `domain?` | unsigned value |
+| `bizhawk_write_memory` | `address` **ou** `name`, `width`, `value`, `domain?` | `ok` |
 | `bizhawk_read_signed` | `address`, `width` (8/16/24/32), `domain?` | signed value |
 | `bizhawk_write_signed` | `address`, `width`, `value`, `domain?` | `ok` |
 | `bizhawk_read_float` | `address`, `domain?` | float value |
 | `bizhawk_write_float` | `address`, `value`, `domain?` | `ok` |
-| `bizhawk_read_many` | `items` (array of addr/width/domain) | values (JSON) |
+| `bizhawk_read_many` | `items` (addr/name + width/domain), `consistent?` | values (JSON, frame-consistent when `consistent`) |
 | `bizhawk_write_range` | `address`, `values` (bytes), `domain?` | `wrote N byte(s)` |
+| `bizhawk_dump_memory` | `domain?`, `path?` | `{path, size, resource}` (JSON) |
+| `bizhawk_symbols_set` | `symbols` (name/address/width/domain) | `registered N symbol(s)` |
+| `bizhawk_symbols_list` | — | registered symbols (JSON) |
+| `bizhawk_symbols_clear` | — | `cleared N symbol(s)` |
 | `bizhawk_read_palette` | `count?`, `domain?` | hex RGB colors (JSON; GEN/SNES) |
 | `bizhawk_hash_region` | `address`, `length`, `domain?` | SHA1 of region |
 | `bizhawk_read_range` | `address`, `length` (1–4096), `domain?` | hex dump |
@@ -113,6 +117,8 @@ Because the server lives inside EmuHawk, every opencode session connects to the 
 | `bizhawk_disassemble` | `pc`, `name?` | disassembly line |
 | `bizhawk_lag_count` | — | lag state + count (JSON) |
 | `bizhawk_overlay_text` | `x`, `y`, `text`, `color?`, `fontsize?` | draws on video output |
+| `bizhawk_overlay_rect` | `x`, `y`, `width`, `height`, `color?`, `fill?` | rectangle on video output |
+| `bizhawk_overlay_line` | `x1`, `y1`, `x2`, `y2`, `color?` | line on video output |
 | `bizhawk_clear_overlay` | — | clears drawn text |
 | `bizhawk_osd_message` | `message`, `duration?` | OSD message |
 | `bizhawk_movie_info` | — | TAS movie info (JSON) |

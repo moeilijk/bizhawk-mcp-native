@@ -305,6 +305,97 @@ namespace BizHawkMcp.Tests
 			Assert.True(_apis.EmuClientApi.OsdEnabled);
 		}
 
+		[Fact]
+		public void Symbols_set_then_read_and_write_by_name()
+		{
+			_apis.MemoryApi.Bytes[0xFFFBCA] = 0x12;
+			_ts.Call("bizhawk_symbols_set", TestHelpers.Js("{\"symbols\":[{\"name\":\"mainFunction\",\"address\":16776138,\"width\":8,\"domain\":\"M68K BUS\"}]}"));
+			// 16776138 = 0xFFFBCA
+			var res = Parse(_ts.Call("bizhawk_read_memory", TestHelpers.Js("{\"name\":\"mainFunction\"}")));
+			Assert.Equal((ulong)0x12, res.GetProperty("value").GetUInt64());
+
+			_ts.Call("bizhawk_write_memory", TestHelpers.Js("{\"name\":\"mainFunction\",\"value\":153}"));
+			Assert.Equal((byte)0x99, _apis.MemoryApi.Bytes[0xFFFBCA]);
+		}
+
+		[Fact]
+		public void Symbols_read_many_accepts_names()
+		{
+			_apis.MemoryApi.Bytes[10] = 0x11;
+			_apis.MemoryApi.Bytes[20] = 0x22;
+			_ts.Call("bizhawk_symbols_set", TestHelpers.Js("{\"symbols\":[{\"name\":\"a\",\"address\":10},{\"name\":\"b\",\"address\":20}]}"));
+			var res = Parse(_ts.Call("bizhawk_read_many", TestHelpers.Js("{\"items\":[{\"name\":\"a\"},{\"name\":\"b\"}]}")));
+			Assert.Equal((ulong)0x11, res.GetProperty("reads")[0].GetProperty("value").GetUInt64());
+			Assert.Equal((ulong)0x22, res.GetProperty("reads")[1].GetProperty("value").GetUInt64());
+		}
+
+		[Fact]
+		public void Symbols_unknown_name_rejected()
+		{
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_read_memory", TestHelpers.Js("{\"name\":\"nope\"}")));
+			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
+		}
+
+		[Fact]
+		public void Symbols_list_and_clear()
+		{
+			_ts.Call("bizhawk_symbols_set", TestHelpers.Js("{\"symbols\":[{\"name\":\"a\",\"address\":10}]}"));
+			var listed = Parse(_ts.Call("bizhawk_symbols_list", null));
+			Assert.Equal("a", listed.GetProperty("symbols")[0].GetProperty("name").GetString());
+			_ts.Call("bizhawk_symbols_clear", null);
+			var cleared = Parse(_ts.Call("bizhawk_symbols_list", null));
+			Assert.Empty(cleared.GetProperty("symbols").EnumerateArray());
+		}
+
+		[Fact]
+		public void Dump_memory_writes_file_and_resource()
+		{
+			_apis.MemoryApi.Bytes[0] = 0xDE;
+			_apis.MemoryApi.Bytes[1] = 0xAD;
+			var res = Parse(_ts.Call("bizhawk_dump_memory", TestHelpers.Js("{\"domain\":\"68K RAM\"}")));
+			var path = res.GetProperty("path").GetString();
+			Assert.Contains("bizhawk-mcp", path);
+			Assert.Equal(65536L, res.GetProperty("size").GetInt64());
+			var fileBytes = System.IO.File.ReadAllBytes(path);
+			Assert.Equal((byte)0xDE, fileBytes[0]);
+			Assert.Equal((byte)0xAD, fileBytes[1]);
+
+			var listed = _ts.ListResources();
+			var listDoc = JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize(listed));
+			Assert.Contains(listDoc.RootElement.GetProperty("resources").EnumerateArray(), r => r.GetProperty("mimeType").GetString() == "application/octet-stream");
+		}
+
+		[Fact]
+		public void Read_many_consistent_pauses_and_resumes()
+		{
+			_apis.EmuClientApi.Paused = false;
+			var res = Parse(_ts.Call("bizhawk_read_many", TestHelpers.Js("{\"items\":[{\"address\":10}],\"consistent\":true}")));
+			Assert.Equal(1, res.GetProperty("reads").GetArrayLength());
+			// paused during the batch (Pause called), resumed after (Unpause called)
+			Assert.Equal(1, _apis.EmuClientApi.PauseCalls);
+			Assert.Equal(1, _apis.EmuClientApi.UnpauseCalls);
+			Assert.False(_apis.EmuClientApi.Paused);
+		}
+
+		[Fact]
+		public void Read_many_consistent_keeps_pause_when_already_paused()
+		{
+			_apis.EmuClientApi.Paused = true;
+			_ts.Call("bizhawk_read_many", TestHelpers.Js("{\"items\":[{\"address\":10}],\"consistent\":true}"));
+			Assert.Equal(0, _apis.EmuClientApi.PauseCalls);
+			Assert.Equal(0, _apis.EmuClientApi.UnpauseCalls);
+			Assert.True(_apis.EmuClientApi.Paused);
+		}
+
+		[Fact]
+		public void Overlay_rect_and_line_draw()
+		{
+			_ts.Call("bizhawk_overlay_rect", TestHelpers.Js("{\"x\":1,\"y\":2,\"width\":10,\"height\":20,\"color\":\"#FF0000\"}"));
+			Assert.Equal((1, 2, 10, 20), _apis.GuiApi.LastRect);
+			_ts.Call("bizhawk_overlay_line", TestHelpers.Js("{\"x1\":0,\"y1\":0,\"x2\":5,\"y2\":5}"));
+			Assert.Equal((0, 0, 5, 5), _apis.GuiApi.LastLine);
+		}
+
 	}
 
 	public class WatcherToolTests
