@@ -92,6 +92,9 @@ Because the server lives inside EmuHawk, every opencode session connects to the 
 | `bizhawk_write_signed` | `address`, `width`, `value`, `domain?` | `ok` |
 | `bizhawk_read_float` | `address`, `domain?` | float value |
 | `bizhawk_write_float` | `address`, `value`, `domain?` | `ok` |
+| `bizhawk_read_many` | `items` (array of addr/width/domain) | values (JSON) |
+| `bizhawk_write_range` | `address`, `values` (bytes), `domain?` | `wrote N byte(s)` |
+| `bizhawk_read_palette` | `count?`, `domain?` | hex RGB colors (JSON; GEN/SNES) |
 | `bizhawk_hash_region` | `address`, `length`, `domain?` | SHA1 of region |
 | `bizhawk_read_range` | `address`, `length` (1–4096), `domain?` | hex dump |
 | `bizhawk_use_memory_domain` | `domain` | confirmation |

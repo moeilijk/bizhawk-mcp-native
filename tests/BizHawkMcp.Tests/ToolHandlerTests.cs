@@ -221,6 +221,90 @@ namespace BizHawkMcp.Tests
 			Assert.Equal(3.5f, res.GetProperty("value").GetSingle());
 		}
 
+		[Fact]
+		public void Read_many_reads_all_items()
+		{
+			_apis.MemoryApi.Bytes[10] = 0x11;
+			_apis.MemoryApi.Bytes[20] = 0x22;
+			_apis.MemoryApi.Bytes[30] = 0x33;
+			var res = Parse(_ts.Call("bizhawk_read_many", TestHelpers.Js("{\"items\":[{\"address\":10,\"width\":8},{\"address\":20,\"width\":8},{\"address\":30,\"width\":8}]}")));
+			var reads = res.GetProperty("reads");
+			Assert.Equal(3, reads.GetArrayLength());
+			Assert.Equal((ulong)0x11, reads[0].GetProperty("value").GetUInt64());
+			Assert.Equal((ulong)0x33, reads[2].GetProperty("value").GetUInt64());
+		}
+
+		[Fact]
+		public void Read_many_rejects_bad_item()
+		{
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_read_many", TestHelpers.Js("{\"items\":[{\"address\":10,\"width\":7}]}")));
+			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
+		}
+
+		[Fact]
+		public void Write_range_writes_bytes_in_order()
+		{
+			_ts.Call("bizhawk_write_range", TestHelpers.Js("{\"address\":100,\"values\":[1,2,3,4]}"));
+			Assert.Equal((byte)1, _apis.MemoryApi.Bytes[100]);
+			Assert.Equal((byte)4, _apis.MemoryApi.Bytes[103]);
+		}
+
+		[Fact]
+		public void Write_range_rejects_out_of_byte_values()
+		{
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_write_range", TestHelpers.Js("{\"address\":100,\"values\":[1,300]}")));
+			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
+		}
+
+		[Fact]
+		public void Palette_genesis_parses_bgr_to_rgb()
+		{
+			// CRAM entry 0x0007 = R=7, G=0, B=0 → #FF0000 (stored big-endian: 00 07)
+			_apis.MemoryApi.Bytes[0] = 0x00;
+			_apis.MemoryApi.Bytes[1] = 0x07;
+			var res = Parse(_ts.Call("bizhawk_read_palette", TestHelpers.Js("{\"count\":1}")));
+			Assert.Equal("GEN", res.GetProperty("system").GetString());
+			Assert.Equal("#FF0000", res.GetProperty("colors")[0].GetString());
+		}
+
+		[Fact]
+		public void Palette_genesis_blue_entry_maps_to_blue()
+		{
+			// 0x1C00 = B=7, G=0, R=0 → #0000FF
+			_apis.MemoryApi.Bytes[0] = 0x1C;
+			_apis.MemoryApi.Bytes[1] = 0x00;
+			var res = Parse(_ts.Call("bizhawk_read_palette", TestHelpers.Js("{\"count\":1}")));
+			Assert.Equal("#0000FF", res.GetProperty("colors")[0].GetString());
+		}
+
+		[Fact]
+		public void Palette_snes_parses_bgr555()
+		{
+			// CGRAM entry: 0x001F = R=31, G=0, B=0 → #FF0000 (little-endian stored)
+			_apis.EmulationApi.SystemId = "SNES";
+			_apis.MemoryApi.Bytes[0] = 0x1F;
+			_apis.MemoryApi.Bytes[1] = 0x00;
+			var res = Parse(_ts.Call("bizhawk_read_palette", TestHelpers.Js("{\"count\":1}")));
+			Assert.Equal("#FF0000", res.GetProperty("colors")[0].GetString());
+		}
+
+		[Fact]
+		public void Palette_unsupported_system_rejected()
+		{
+			_apis.EmulationApi.SystemId = "NES";
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_read_palette", null));
+			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
+		}
+
+		[Fact]
+		public void Screenshot_toggles_osd_off_and_back_on()
+		{
+			var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "test-osd.png");
+			_ts.Call("bizhawk_screenshot", TestHelpers.Js($"{{\"path\":\"{path}\"}}"));
+			Assert.Equal(new[] { false, true }, _apis.EmuClientApi.OsdChanges.ToArray());
+			Assert.True(_apis.EmuClientApi.OsdEnabled);
+		}
+
 	}
 
 	public class WatcherToolTests
@@ -392,7 +476,21 @@ namespace BizHawkMcp.Tests
 		public void Get_registers_returns_map()
 		{
 			var res = Parse(_ts.Call("bizhawk_get_registers", null));
-			Assert.Equal((ulong)0xFFFBCA, res.GetProperty("registers").GetProperty("PC").GetUInt64());
+			Assert.Equal((ulong)0xFFFBCA, res.GetProperty("registers").GetProperty("M68K PC").GetUInt64());
+		}
+
+		[Fact]
+		public void Trace_finds_prefixed_core_register_names()
+		{
+			// gpgx names registers "M68K PC" etc.; the trace must match the
+			// suffix, not just the bare "PC" key (regression: PC sampled as 0).
+			_apis.EmuClientApi.Paused = true;
+			var res = Parse(_ts.Call("bizhawk_trace", TestHelpers.Js("{\"count\":2,\"step\":1}")));
+			var sample = res.GetProperty("samples")[0];
+			Assert.Equal((ulong)0xFFFBCA, sample.GetProperty("pc").GetUInt64());
+			Assert.Equal("MOVE.L D0,D1", sample.GetProperty("disasm").GetString());
+			Assert.Equal((ulong)0xFFFFFDFA, sample.GetProperty("sp").GetUInt64());
+			Assert.Equal((ulong)0x2000, sample.GetProperty("sr").GetUInt64());
 		}
 
 		[Fact]

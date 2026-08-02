@@ -91,6 +91,18 @@ namespace BizHawkMcp
 				Param("value", "number", "Float value to write."),
 				Param("domain", "string", "Optional domain."),
 			]),
+			Tool("bizhawk_read_many", "Read several addresses in one call (up to 256). Returns JSON: [{address, width, value, domain}]. Endianness as bizhawk_read_memory.", [
+				Param("items", "array", "Array of {\"address\": int, \"width\"?: 8|16|32, \"domain\"?: string}."),
+			]),
+			Tool("bizhawk_write_range", "Write a contiguous byte range from a values array (up to 4096 bytes).", [
+				Param("address", "integer", "Start offset in the domain, 0-based."),
+				Param("values", "array", "Byte values (0..255) to write in order."),
+				Param("domain", "string", "Optional domain."),
+			]),
+			Tool("bizhawk_read_palette", "Read a core's color palette as hex RGB strings. Genesis: CRAM (64 colors, 16-bit BGR). SNES: CGRAM (256 colors, 16-bit BGR555). Other systems: unsupported.", [
+				Param("count", "integer", "Number of colors to read, 1..256.", 64),
+				Param("domain", "string", "Optional palette domain (defaults to CRAM on GEN, CGRAM on SNES)."),
+			]),
 			Tool("bizhawk_press_buttons", "Set joypad state for the NEXT frame.", [
 				Param("buttons", "object", "Map of button name -> pressed bool, e.g. {\"A\": true, \"Right\": true}."),
 				Param("controller", "integer", "Optional controller index (1-based).", 1),
@@ -108,8 +120,8 @@ namespace BizHawkMcp
 				Param("controller", "integer", "Optional controller index (1-based).", 1),
 			]),
 			Tool("bizhawk_get_registers", "CPU registers as a map of name -> value.", []),
-			Tool("bizhawk_set_register", "Write a CPU register.", [
-				Param("register", "string", "Register name, e.g. \"PC\", \"A\"."),
+			Tool("bizhawk_set_register", "Write a CPU register. Use the exact key from bizhawk_get_registers (e.g. \"M68K PC\" on Genesis). Note: some cores (gpgx) do not implement register writes at all — check the response.", [
+				Param("register", "string", "Register name, e.g. \"M68K PC\", \"M68K A0\"."),
 				Param("value", "integer", "Value to write."),
 			]),
 			Tool("bizhawk_disassemble", "Disassemble the instruction at a program counter address.", [
@@ -204,6 +216,9 @@ namespace BizHawkMcp
 				"bizhawk_write_signed" => _ui.Invoke(() => WriteSigned(args)),
 				"bizhawk_read_float" => _ui.Invoke(() => ReadFloat(args)),
 				"bizhawk_write_float" => _ui.Invoke(() => WriteFloat(args)),
+				"bizhawk_read_many" => _ui.Invoke(() => ReadMany(args)),
+				"bizhawk_write_range" => _ui.Invoke(() => WriteRange(args)),
+				"bizhawk_read_palette" => _ui.Invoke(() => ReadPalette(args)),
 				"bizhawk_press_buttons" => _ui.Invoke(() => PressButtons(args)),
 				"bizhawk_frame_advance" => _ui.Invoke(() => FrameAdvance(args)),
 				"bizhawk_pause" => _ui.Invoke(() => PauseTool()),
@@ -517,6 +532,109 @@ namespace BizHawkMcp
 			return "ok";
 		}
 
+		private string ReadMany(JsonElement? args)
+		{
+			var a = Required(args);
+			if (!a.TryGetProperty("items", out var items) || items.ValueKind != JsonValueKind.Array)
+				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "items must be an array");
+			if (items.GetArrayLength() is < 1 or > 256)
+				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "items must contain 1..256 entries");
+
+			var results = new List<object?>();
+			foreach (var item in items.EnumerateArray())
+			{
+				if (item.ValueKind != JsonValueKind.Object)
+					throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "each item must be an object");
+				long address = RequireLong(item, "address");
+				int width = RequireInt(item, "width", 8);
+				string? domain = OptionalString(item, "domain");
+				if (width is not (8 or 16 or 32)) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "width must be 8, 16 or 32");
+				address = ValidateAddress(address, width, domain);
+				ulong value = width switch
+				{
+					8 => _tool.Memory!.ReadByte(address, domain),
+					16 => _tool.Memory!.ReadU16(address, domain),
+					_ => _tool.Memory!.ReadU32(address, domain),
+				};
+				results.Add(new Dictionary<string, object?> { ["address"] = address, ["width"] = width, ["value"] = value, ["domain"] = domain });
+			}
+			return JsonRpc.Pretty(new Dictionary<string, object?> { ["reads"] = results });
+		}
+
+		private string WriteRange(JsonElement? args)
+		{
+			var a = Required(args);
+			long address = RequireLong(a, "address");
+			if (!a.TryGetProperty("values", out var values) || values.ValueKind != JsonValueKind.Array)
+				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "values must be an array");
+			int len = values.GetArrayLength();
+			if (len is < 1 or > 4096) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "values must contain 1..4096 bytes");
+			string? domain = OptionalString(a, "domain");
+			address = ValidateAddress(address, 8, domain);
+			var bytes = new byte[len];
+			var i = 0;
+			foreach (var el in values.EnumerateArray())
+			{
+				if (el.ValueKind != JsonValueKind.Number) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "values must be numbers");
+				long v = el.GetInt64();
+				if (v is < 0 or > 0xFF) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"value {v} does not fit a byte");
+				bytes[i++] = (byte)v;
+			}
+			_tool.Memory!.WriteByteRange(address, bytes, domain);
+			return $"wrote {len} byte(s) at {address}";
+		}
+
+		private static int To8Bit(int v, int mask) => (v * 255) / mask;
+
+		private string ReadPalette(JsonElement? args)
+		{
+			var a = Required(args);
+			int count = RequireInt(a, "count", 64);
+			if (count is < 1 or > 256) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "count must be 1..256");
+			var sys = _tool.Emulation!.GetSystemId();
+			string domain;
+			int entryBits;
+			bool bigEndian;
+			switch (sys)
+			{
+				case "GEN":
+				case "SMD":
+					domain = "CRAM";
+					entryBits = 3;   // 16-bit BGR, 3 bits per channel (R=0-2, G=5-7, B=10-12)
+					bigEndian = true;
+					break;
+				case "SNES":
+				case "SNESBG":
+					domain = "CGRAM";
+					entryBits = 5;   // 16-bit BGR555, 5 bits per channel
+					bigEndian = false;
+					break;
+				default:
+					throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"palette not supported for system {sys}");
+			}
+
+			string? overrideDomain = OptionalString(a, "domain");
+			if (overrideDomain != null) domain = overrideDomain;
+
+			// read raw bytes and assemble the 16-bit entry in the palette's own
+			// endianness (independent of bizhawk_set_big_endian)
+			var colors = new List<string>();
+			for (var i = 0; i < count; i++)
+			{
+				long addr = i * 2;
+				ValidateAddress(addr, 16, domain);
+				byte lo = (byte)_tool.Memory!.ReadByte(addr, domain);
+				byte hi = (byte)_tool.Memory!.ReadByte(addr + 1, domain);
+				int entry = bigEndian ? (lo << 8) | hi : (lo | (hi << 8));
+				int mask = (1 << entryBits) - 1;
+				int r = entry & mask;
+				int g = (entry >> 5) & mask;
+				int b = (entry >> 10) & mask;
+				colors.Add($"#{To8Bit(r, mask):X2}{To8Bit(g, mask):X2}{To8Bit(b, mask):X2}");
+			}
+			return JsonRpc.Pretty(new Dictionary<string, object?> { ["system"] = sys, ["domain"] = domain, ["colors"] = colors });
+		}
+
 		private string PressButtons(JsonElement? args)
 		{
 			var a = Required(args);
@@ -585,13 +703,25 @@ namespace BizHawkMcp
 			return JsonRpc.Pretty(new Dictionary<string, object?> { ["registers"] = _tool.Emulation!.GetRegisters() });
 		}
 
+		// Core register names are prefixed (gpgx: "M68K PC", "M68K A0", ...),
+		// so match the bare name either exactly or as a key ending in it.
+		private static ulong FindRegister(IReadOnlyDictionary<string, ulong> regs, string name)
+		{
+			if (regs.TryGetValue(name, out var v)) return v;
+			foreach (var kv in regs)
+				if (kv.Key.EndsWith(name, StringComparison.OrdinalIgnoreCase)) return kv.Value;
+			return 0;
+		}
+
 		private string SetRegister(JsonElement? args)
 		{
 			var a = Required(args);
 			string register = RequireString(a, "register");
 			int value = RequireInt(a, "value", 0);
+			// EmulationApi.SetRegister swallows NotImplementedException (cores
+			// like gpgx don't support it), so we can't detect failure here.
 			_tool.Emulation!.SetRegister(register, value);
-			return $"register {register} set to {value}";
+			return $"register {register} set to {value} (may be unsupported by this core)";
 		}
 
 		private string Disassemble(JsonElement? args)
@@ -624,7 +754,15 @@ namespace BizHawkMcp
 				path = System.IO.Path.Combine(dir, $"shot-{DateTime.Now:yyyyMMdd-HHmmss-fff}.png");
 			}
 
-			_tool.EmuClient!.Screenshot(path);
+			_tool.EmuClient!.SetScreenshotOSD(false);
+			try
+			{
+				_tool.EmuClient!.Screenshot(path);
+			}
+			finally
+			{
+				_tool.EmuClient!.SetScreenshotOSD(true);
+			}
 			string uri = RegisterArtifact(path, "image/png", $"screenshot {System.IO.Path.GetFileName(path)}");
 			return JsonRpc.Pretty(new Dictionary<string, object?>
 			{
@@ -921,13 +1059,15 @@ namespace BizHawkMcp
 					System.Windows.Forms.Application.DoEvents();
 					if (i % step != 0) continue;
 					var regs = _tool.Emulation!.GetRegisters();
-					ulong pc = regs.TryGetValue("PC", out var p) ? p : 0;
+					ulong pc = FindRegister(regs, "PC");
 					var (disasm, _) = _tool.Emulation!.Disassemble((uint)pc);
 					samples.Add(new Dictionary<string, object?>
 					{
 						["frame"] = _tool.Emulation!.FrameCount(),
 						["pc"] = pc,
 						["disasm"] = disasm,
+						["sp"] = FindRegister(regs, "SP"),
+						["sr"] = FindRegister(regs, "SR"),
 					});
 				}
 			}

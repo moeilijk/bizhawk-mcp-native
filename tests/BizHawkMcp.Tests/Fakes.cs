@@ -173,6 +173,15 @@ namespace BizHawkMcp.Tests
 
 		public void SpeedMode(int percent) => SpeedModePercent = percent;
 
+		public bool OsdEnabled = true;
+		public readonly List<bool> OsdChanges = new();
+
+		public void SetScreenshotOSD(bool value)
+		{
+			OsdEnabled = value;
+			OsdChanges.Add(value);
+		}
+
 		public void Screenshot(string path = null)
 		{
 			Screenshots.Add(path);
@@ -186,7 +195,7 @@ namespace BizHawkMcp.Tests
 		public int FrameCountValue = 1000;
 		public bool Lagged;
 		public int LagCountValue;
-		public IReadOnlyDictionary<string, ulong> Registers = new Dictionary<string, ulong> { ["PC"] = 0xFFFBCA, ["A0"] = 0x1234 };
+		public IReadOnlyDictionary<string, ulong> Registers = new Dictionary<string, ulong> { ["M68K PC"] = 0xFFFBCA, ["M68K A0"] = 0x1234, ["M68K SR"] = 0x2000, ["M68K SP"] = 0xFFFFFDFA };
 		public string? RegisterToSet;
 		public int RegisterValue;
 

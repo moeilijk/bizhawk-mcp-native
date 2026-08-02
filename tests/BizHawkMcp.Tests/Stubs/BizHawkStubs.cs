@@ -72,6 +72,7 @@ namespace BizHawk.Client.Common
 		void TogglePause();
 		void SpeedMode(int percent);
 		void Screenshot(string path = null);
+		void SetScreenshotOSD(bool value);
 	}
 
 	public interface IJoypadApi
