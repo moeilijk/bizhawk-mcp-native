@@ -102,9 +102,20 @@ namespace BizHawkMcp
 				Param("values", "array", "Byte values (0..255) to write in order."),
 				Param("domain", "string", "Optional domain."),
 			]),
+			Tool("bizhawk_write_many", "Write several values in one call (up to 256; non-contiguous). Each item accepts \"address\" or symbol \"name\", width and value.", [
+				Param("items", "array", "Array of {\"address\": int | \"name\": string, \"width\"?: 8|16|32, \"value\": int, \"domain\"?: string}."),
+			]),
 			Tool("bizhawk_dump_memory", "Dump an entire memory domain to a host-side file (also exposed as a bizhawk:// resource). Omit \"path\" to save into the host temp dir (bizhawk-mcp).", [
 				Param("domain", "string", "Domain name to dump (defaults to current)."),
 				Param("path", "string", "Optional absolute path writable by EmuHawk, e.g. C:/temp/ram.bin."),
+			]),
+			Tool("bizhawk_ram_snapshot", "Capture the full contents of a memory domain as a snapshot for later diffing (bizhawk_ram_diff). One snapshot per domain is kept.", [
+				Param("domain", "string", "Domain name (defaults to current)."),
+				Param("label", "string", "Optional label for the snapshot."),
+			]),
+			Tool("bizhawk_ram_diff", "Compare the current contents of a domain against its snapshot (taken with bizhawk_ram_snapshot) and list changed addresses (JSON).", [
+				Param("domain", "string", "Domain name (defaults to current)."),
+				Param("max_results", "integer", "Stop after this many changes, 1..4096.", 256),
 			]),
 			Tool("bizhawk_symbols_set", "Register symbol names for addresses (from Ghidra exports, fixtures, etc.). Symbols can then be used as \"name\" in read_memory/write_memory/read_many instead of raw addresses.", [
 				Param("symbols", "array", "Array of {\"name\": string, \"address\": int, \"width\"?: 8|16|32, \"domain\"?: string}."),
@@ -245,7 +256,10 @@ namespace BizHawkMcp
 				"bizhawk_write_float" => _ui.Invoke(() => WriteFloat(args)),
 				"bizhawk_read_many" => _ui.Invoke(() => ReadMany(args)),
 				"bizhawk_write_range" => _ui.Invoke(() => WriteRange(args)),
+				"bizhawk_write_many" => _ui.Invoke(() => WriteMany(args)),
 				"bizhawk_dump_memory" => _ui.Invoke(() => DumpMemory(args)),
+				"bizhawk_ram_snapshot" => _ui.Invoke(() => RamSnapshot(args)),
+				"bizhawk_ram_diff" => _ui.Invoke(() => RamDiff(args)),
 				"bizhawk_symbols_set" => _ui.Invoke(() => SymbolsSet(args)),
 				"bizhawk_symbols_list" => _ui.Invoke(SymbolsList),
 				"bizhawk_symbols_clear" => _ui.Invoke(SymbolsClear),
@@ -393,6 +407,102 @@ namespace BizHawkMcp
 				["size"] = size,
 				["domain"] = domain ?? _tool.Memory!.GetCurrentMemoryDomain(),
 				["resource"] = uri,
+			});
+		}
+
+		// ── RAM snapshots / diffs ─────────────────────────────────────────────
+		// Capture a domain's bytes in memory, then compare later to find what
+		// changed (dynamic structures, level layout population, ...).
+
+		private sealed class RamSnapshotData
+		{
+			public string Domain = "";
+			public string? Label;
+			public byte[] Bytes = Array.Empty<byte>();
+		}
+
+		private readonly Dictionary<string, RamSnapshotData> _ramSnapshots = new(StringComparer.OrdinalIgnoreCase);
+
+		private string RamSnapshot(JsonElement? args)
+		{
+			string? domain = null;
+			if (args is { } a && a.ValueKind == JsonValueKind.Object) domain = OptionalString(a, "domain");
+			string name = domain ?? _tool.Memory!.GetCurrentMemoryDomain();
+			uint size = _tool.Memory!.GetMemoryDomainSize(domain);
+
+			var bytes = new byte[size];
+			const int chunk = 0x10000;
+			for (long off = 0; off < size; off += chunk)
+			{
+				int len = (int)Math.Min(chunk, size - off);
+				var part = _tool.Memory!.ReadByteRange(off, len, domain);
+				for (var i = 0; i < len; i++) bytes[off + i] = part[i];
+			}
+
+			string? label = null;
+			if (args is { } b && b.ValueKind == JsonValueKind.Object) label = OptionalString(b, "label");
+			_ramSnapshots[name] = new RamSnapshotData { Domain = name, Label = label, Bytes = bytes };
+			return $"snapshot of {name} captured ({size} bytes)";
+		}
+
+		private string RamDiff(JsonElement? args)
+		{
+			string? domain = null;
+			int maxResults = 256;
+			if (args is { } a && a.ValueKind == JsonValueKind.Object)
+			{
+				domain = OptionalString(a, "domain");
+				maxResults = RequireInt(a, "max_results", 256);
+			}
+			if (maxResults is < 1 or > 4096) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "max_results must be 1..4096");
+
+			string name = domain ?? _tool.Memory!.GetCurrentMemoryDomain();
+			if (!_ramSnapshots.TryGetValue(name, out var snap))
+				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"no snapshot for domain {name}; call bizhawk_ram_snapshot first");
+
+			uint size = _tool.Memory!.GetMemoryDomainSize(domain);
+			var changes = new List<object?>();
+			var prev = snap.Bytes;
+			var cur = new byte[Math.Max(prev.Length, (int)size)];
+			const int chunk = 0x10000;
+			for (long off = 0; off < size; off += chunk)
+			{
+				int len = (int)Math.Min(chunk, size - off);
+				var part = _tool.Memory!.ReadByteRange(off, len, domain);
+				for (var i = 0; i < len; i++) cur[off + i] = part[i];
+			}
+
+			int limit = Math.Min(prev.Length, cur.Length);
+			for (long off = 0; off < limit && changes.Count < maxResults; off++)
+			{
+				if (prev[off] == cur[off]) continue;
+				// coalesce contiguous runs into one entry
+				long start = off;
+				while (off < limit && prev[off] != cur[off]) off++;
+				long end = off - 1;
+				var oldBytes = new byte[end - start + 1];
+				var newBytes = new byte[end - start + 1];
+				for (long i = start; i <= end; i++)
+				{
+					oldBytes[i - start] = prev[i];
+					newBytes[i - start] = cur[i];
+				}
+				changes.Add(new Dictionary<string, object?>
+				{
+					["start"] = start,
+					["length"] = end - start + 1,
+					["old"] = Hex(oldBytes),
+					["new"] = Hex(newBytes),
+				});
+				off--; // the for-loop increments past the run
+			}
+
+			return JsonRpc.Pretty(new Dictionary<string, object?>
+			{
+				["domain"] = name,
+				["label"] = snap.Label,
+				["count"] = changes.Count,
+				["changes"] = changes,
 			});
 		}
 
@@ -656,7 +766,47 @@ namespace BizHawkMcp
 			return $"wrote {len} byte(s) at {address}";
 		}
 
+		private string WriteMany(JsonElement? args)
+		{
+			var a = Required(args);
+			if (!a.TryGetProperty("items", out var items) || items.ValueKind != JsonValueKind.Array)
+				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "items must be an array");
+			if (items.GetArrayLength() is < 1 or > 256)
+				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "items must contain 1..256 entries");
+
+			var written = 0;
+			foreach (var item in items.EnumerateArray())
+			{
+				if (item.ValueKind != JsonValueKind.Object)
+					throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "each item must be an object");
+				var (address, width, domain) = ResolveTarget(item);
+				ulong value = RequireULong(item, "value");
+				ulong max = width switch
+				{
+					8 => 0xFFUL,
+					16 => 0xFFFFUL,
+					_ => 0xFFFFFFFFUL,
+				};
+				if (value > max) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"value {value} does not fit width {width}");
+				switch (width)
+				{
+					case 8: _tool.Memory!.WriteU8(address, (uint)value, domain); break;
+					case 16: _tool.Memory!.WriteU16(address, (uint)value, domain); break;
+					case 32: _tool.Memory!.WriteU32(address, (uint)value, domain); break;
+				}
+				written++;
+			}
+			return $"wrote {written} value(s)";
+		}
+
 		private static int To8Bit(int v, int mask) => (v * 255) / mask;
+
+		private static string Hex(byte[] bytes)
+		{
+			var sb = new System.Text.StringBuilder(bytes.Length * 2);
+			foreach (var b in bytes) sb.Append(b.ToString("X2"));
+			return sb.ToString();
+		}
 
 		private string ReadPalette(JsonElement? args)
 		{

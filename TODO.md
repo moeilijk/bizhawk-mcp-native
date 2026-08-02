@@ -12,9 +12,14 @@ Legend: `[x]` done · `[~]` partially done / covered by another tool · `[ ]` op
 - [x] **Wait/condition breakpoint** (`bizhawk_wait_until`): advance frames until
   `eq/ne/lt/gt/le/ge` holds, pause-restoring.
 - [x] **Frame-level trace** (`bizhawk_trace`): sample PC+SP+SR+disasm per frame.
-- [x] **Batch memory ops**: `bizhawk_read_many` (N addr/width/domain in one call)
-  and `bizhawk_write_range` (contiguous bytes). `read_many` gained `"consistent": true`
-  to pause during the batch so all reads come from the same frame.
+- [x] **Batch memory ops**: `bizhawk_read_many` (N addr/width/domain in one call),
+  `bizhawk_write_range` (contiguous bytes) and `bizhawk_write_many` (non-contiguous
+  addr/name+width+value). `read_many` gained `"consistent": true` to pause during
+  the batch so all reads come from the same frame.
+- [x] **`ram_diff`** (`bizhawk_ram_snapshot`/`ram_diff`): snapshot a domain in
+  memory, then list changed runs (old/new hex) — reveals dynamic structures.
+  This is the viable version of the agent's `state_diff` (.State files are
+  core-compressed binary that doesn't map to RAM addresses).
 - [x] **Shared symbols (Ghidra ↔ BizHawk)** (`bizhawk_symbols_set/list/clear`):
   name → (addr, width, domain) table; `read_memory`/`write_memory`/`read_many`
   accept `name` instead of `address`. Kills address-arithmetic bugs.
@@ -35,10 +40,9 @@ Legend: `[x]` done · `[~]` partially done / covered by another tool · `[ ]` op
   Mostly covered by `bizhawk_search_memory` (u16/u32 `value` = target address) —
   only worth a wrapper if the search tool's `max_results`/domain narrowing is
   not enough.
-- [ ] **`state_diff`**: compare two savestates and list changed RAM addresses.
-  `.State` files are core-compressed binary, so diffing them directly won't map
-  to RAM; a `bizhawk_ram_diff` (snapshot a domain, compare later) is the viable
-  version — reveals dynamic structures between frames.
+- [x] **`state_diff`**: implemented as `bizhawk_ram_snapshot`/`ram_diff` — snapshot
+  a domain in memory, then list changed runs (old/new hex). Diffing `.State`
+  files directly won't map to RAM (core-compressed binary).
 
 ## Protocol / MCP features
 

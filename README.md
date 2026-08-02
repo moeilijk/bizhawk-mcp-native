@@ -94,7 +94,10 @@ Because the server lives inside EmuHawk, every opencode session connects to the 
 | `bizhawk_write_float` | `address`, `value`, `domain?` | `ok` |
 | `bizhawk_read_many` | `items` (addr/name + width/domain), `consistent?` | values (JSON, frame-consistent when `consistent`) |
 | `bizhawk_write_range` | `address`, `values` (bytes), `domain?` | `wrote N byte(s)` |
+| `bizhawk_write_many` | `items` (addr/name + width + value) | `wrote N value(s)` |
 | `bizhawk_dump_memory` | `domain?`, `path?` | `{path, size, resource}` (JSON) |
+| `bizhawk_ram_snapshot` | `domain?`, `label?` | snapshot captured |
+| `bizhawk_ram_diff` | `domain?`, `max_results?` | changed runs with old/new hex (JSON) |
 | `bizhawk_symbols_set` | `symbols` (name/address/width/domain) | `registered N symbol(s)` |
 | `bizhawk_symbols_list` | — | registered symbols (JSON) |
 | `bizhawk_symbols_clear` | — | `cleared N symbol(s)` |

@@ -257,6 +257,65 @@ namespace BizHawkMcp.Tests
 		}
 
 		[Fact]
+		public void Write_many_writes_non_contiguous_values()
+		{
+			_ts.Call("bizhawk_write_many", TestHelpers.Js("{\"items\":[{\"address\":100,\"width\":8,\"value\":1},{\"address\":200,\"width\":16,\"value\":513},{\"address\":300,\"width\":32,\"value\":65537}]}"));
+			Assert.Equal((byte)1, _apis.MemoryApi.Bytes[100]);
+			Assert.Equal((byte)0x01, _apis.MemoryApi.Bytes[200]);
+			Assert.Equal((byte)0x02, _apis.MemoryApi.Bytes[201]);
+			Assert.Equal((byte)0x01, _apis.MemoryApi.Bytes[300]);
+			Assert.Equal((byte)0x00, _apis.MemoryApi.Bytes[301]);
+			Assert.Equal((byte)0x01, _apis.MemoryApi.Bytes[302]);
+			Assert.Equal((byte)0x00, _apis.MemoryApi.Bytes[303]);
+		}
+
+		[Fact]
+		public void Write_many_accepts_symbol_names()
+		{
+			_ts.Call("bizhawk_symbols_set", TestHelpers.Js("{\"symbols\":[{\"name\":\"hp\",\"address\":50,\"width\":8}]}"));
+			_ts.Call("bizhawk_write_many", TestHelpers.Js("{\"items\":[{\"name\":\"hp\",\"value\":99}]}"));
+			Assert.Equal((byte)99, _apis.MemoryApi.Bytes[50]);
+		}
+
+		[Fact]
+		public void Write_many_rejects_value_out_of_width()
+		{
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_write_many", TestHelpers.Js("{\"items\":[{\"address\":100,\"width\":8,\"value\":300}]}")));
+			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
+		}
+
+		[Fact]
+		public void Ram_snapshot_then_diff_finds_changes()
+		{
+			_apis.MemoryApi.Bytes[10] = 0x01;
+			_apis.MemoryApi.Bytes[11] = 0x02;
+			_ts.Call("bizhawk_ram_snapshot", TestHelpers.Js("{\"domain\":\"68K RAM\",\"label\":\"t1\"}"));
+
+			_apis.MemoryApi.Bytes[10] = 0xFF;
+			_apis.MemoryApi.Bytes[11] = 0xFE;
+			_apis.MemoryApi.Bytes[500] = 0xAA;
+
+			var res = Parse(_ts.Call("bizhawk_ram_diff", TestHelpers.Js("{\"domain\":\"68K RAM\"}")));
+			Assert.Equal("t1", res.GetProperty("label").GetString());
+			Assert.Equal(2, res.GetProperty("count").GetInt32());
+			// run at 10 (old 0102, new FFFE) coalesced
+			var changes = res.GetProperty("changes");
+			Assert.Equal((long)10, changes[0].GetProperty("start").GetInt64());
+			Assert.Equal(2, changes[0].GetProperty("length").GetInt32());
+			Assert.Equal("0102", changes[0].GetProperty("old").GetString());
+			Assert.Equal("FFFE", changes[0].GetProperty("new").GetString());
+			// single change at 500
+			Assert.Equal((long)500, changes[1].GetProperty("start").GetInt64());
+		}
+
+		[Fact]
+		public void Ram_diff_without_snapshot_rejected()
+		{
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_ram_diff", TestHelpers.Js("{\"domain\":\"68K RAM\"}")));
+			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
+		}
+
+		[Fact]
 		public void Palette_genesis_parses_bgr_to_rgb()
 		{
 			// CRAM entry 0x0007 = R=7, G=0, B=0 → #FF0000 (stored big-endian: 00 07)
