@@ -54,14 +54,17 @@
        EmuHawk's ExternalToolManager watches it with a FileSystemWatcher.
        Windows locks loaded DLLs: if EmuHawk has the tool form open, the copy fails —
        close it (or EmuHawk) and rebuild. Failure is non-fatal so `dotnet build` stays usable. -->
-  <Target Name="CopyToExternalTools" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
+  <Target Name="CopyToExternalTools" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'"
+          Inputs="@(_ToolOutput)" Outputs="@(_ToolOutput->'$(BizHawkInstallDir)/ExternalTools/%(Filename)%(Extension)')">
     <ItemGroup>
       <_ToolOutput Include="$(TargetDir)*.dll" />
     </ItemGroup>
-    <Copy SourceFiles="@(_ToolOutput)" DestinationFolder="$(BizHawkInstallDir)/ExternalTools" ContinueOnError="true" />
+    <Copy SourceFiles="@(_ToolOutput)" DestinationFolder="$(BizHawkInstallDir)/ExternalTools" ContinueOnError="true">
+      <Output TaskParameter="CopiedFiles" ItemName="_Copied" />
+    </Copy>
     <Warning
       Text="Deploy may be stale: is the 'BizHawk MCP Server' form open in EmuHawk? Close it (or EmuHawk) and rebuild to redeploy."
-      Condition="Exists($(BizHawkInstallDir)/ExternalTools/BizHawkMcp.dll) and '$([System.IO.File]::GetLastWriteTimeUtc($(BizHawkInstallDir)/ExternalTools/BizHawkMcp.dll))' != '$([System.IO.File]::GetLastWriteTimeUtc($(TargetDir)BizHawkMcp.dll))'" />
+      Condition="'@(_Copied)' == ''" />
   </Target>
 
 </Project>

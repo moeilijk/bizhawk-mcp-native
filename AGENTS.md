@@ -16,10 +16,10 @@ A native [MCP](https://modelcontextprotocol.io) server for BizHawk/EmuHawk imple
 ## Hard constraints (do not break these)
 
 1. **TFM must stay `net48`.** It is the only target that loads on both Windows (.NET 8 EmuHawk) and Linux (Mono EmuHawk). Consequently the official MCP SDKs (which need .NET 8+) are **off-limits** — the protocol layer in `src/BizHawkMcp/Mcp/` is hand-rolled and must stay dependency-light (in-box `HttpListener` + `System.Text.Json` via NuGet).
-2. **Never put `[RequiredApi]` on an `ApiContainer` property.** `ApiInjector.UpdateApis` only resolves interface types registered by the provider; a miss returns `false` and the tool silently fails to load.
+2. **Never put `[RequiredApi]` on an `ApiContainer` property.** `ApiInjector.UpdateApis` only resolves interface types registered by the provider; a miss returns `false` and the tool silently fails to load. The registered set (see `ApiContainer.cs` in the pinned commit) is: `ICommApi`, `IEmuClientApi`, `IEmulationApi`, `IGuiApi`, `IInputApi`, `IJoypadApi`, `IMemoryApi`, `IMovieApi`, `ISaveStateApi`, `ISQLiteApi`, `IUserDataApi`, `IToolApi` — **`IMemorySaveStateApi`/`IMemoryEventsApi` are NOT registered**, so they can't be `[RequiredApi]`.
 3. **All emulator API calls must go through `UiDispatcher`** (frame stepping, screenshots and joypad in particular break from background threads). New tools: write the handler in `McpToolset` using the `_ui.Invoke(...)` pattern.
 4. **`System.Text.Json` version must match BizHawk's `dll/` folder** (currently 9.0.0) to avoid runtime assembly conflicts in the host process.
-5. **ApiHawk property names come from the pinned BizHawk commit** (`bizhawk.build`). E.g. `IGameInfo` exposes `Name`/`Hash`/`System` (not `RomName`/`RomHash`), `IEmulationApi.GetGameInfo()` returns it, `IMemoryApi` has `ReadByte/ReadU16/ReadU32` + `WriteU8/U16/U32`, `IEmuClientApi` has `DoFrameAdvance`/`Screenshot`/`IsPaused`, `IJoypadApi.Set(IReadOnlyDictionary<string,bool>, int?)`. Verify against `src/BizHawk.Client.Common/Api/Interfaces/` of the pinned commit before touching tools.
+5. **ApiHawk property names come from the pinned BizHawk commit** (`bizhawk.build`). E.g. `IGameInfo` exposes `Name`/`Hash`/`System` (not `RomName`/`RomHash`), `IEmulationApi.GetGameInfo()` returns it, `IMemoryApi` has `ReadByte/ReadU16/ReadU32` + `WriteU8/U16/U32` + signed/float + `HashRegion` + `GetMemoryDomainList`, `IEmuClientApi` has `DoFrameAdvance`/`Screenshot`/`IsPaused`/`Pause`/`Unpause`/`TogglePause`/`SpeedMode`, `IJoypadApi` has `Set(IReadOnlyDictionary<string,bool>, int?)`/`Get(int?)`. Note `IGuiApi.DrawText` has **no `fontsize`** (that's `DrawString`), and `IMovieApi.GetInputAsMnemonic` takes **only `frame`**. Verify against `src/BizHawk.Client.Common/Api/Interfaces/` of the pinned commit before touching tools.
 
 ## Building
 
@@ -60,10 +60,11 @@ Recipe with code in `docs/DEVELOPMENT.md`. In short: add a `Tool(...)` descripto
 
 ## Known limitations (skeleton state)
 
-- No memory domain list in the API: `bizhawk_get_info` reports current domain + size only; `UseMemoryDomain` is the way to switch.
+- No in-memory savestates: `IMemorySaveStateApi` is not registered by the provider, so only disk-based `bizhawk_save_state`/`load_state` exist.
 - Streamable HTTP subset: no sessions, no server-initiated messages, `GET` SSE is endpoint + keepalive only.
 - `bizhawk_frame_advance` pumps `Application.DoEvents` between frames so the UI stays responsive; long counts (max 600) are intentionally capped.
 - `bizhawk_screenshot`/`save_state`/`load_state` paths are host-side (Windows paths when EmuHawk runs on Windows).
+- `bizhawk_search_memory` is little-endian only (matches `bizhawk_set_big_endian`-independent semantics).
 
 ## CI notes
 

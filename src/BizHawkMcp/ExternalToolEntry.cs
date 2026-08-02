@@ -45,6 +45,14 @@ namespace BizHawkMcp
 
 		[RequiredApi] public ISaveStateApi? SaveState { get; set; }
 
+		[RequiredApi] public IGuiApi? Gui { get; set; }
+
+		[RequiredApi] public IInputApi? Input { get; set; }
+
+		[RequiredApi] public IMovieApi? Movie { get; set; }
+
+		[RequiredApi] public IUserDataApi? UserData { get; set; }
+
 		public ExternalToolEntry()
 		{
 			Text = "BizHawk MCP Server";

@@ -2,6 +2,8 @@
 
 A native [MCP](https://modelcontextprotocol.io) server for [BizHawk](https://github.com/TASEmulators/BizHawk)/EmuHawk, implemented as a **C# External Tool** that runs inside the EmuHawk process and exposes a **Streamable HTTP** endpoint. An LLM agent (opencode, Claude, etc.) can read/write emulator memory, drive the joypad, step frames, take screenshots and manage savestates.
 
+Warning: This is **mostly** made using LLM agents, so it is not a polished product. It is intended for **research and experimentation** with LLMs controlling emulators.
+
 ## Why a native tool instead of the Lua bridge
 
 The existing `mcp-bizhawk` (Node.js + `bridge.lua`) works but has structural weaknesses that this project removes:
@@ -86,11 +88,36 @@ Because the server lives inside EmuHawk, every opencode session connects to the 
 | `bizhawk_get_info` | — | ROM name/hash, system, framecount, pause state, active memory domain + size, server URL |
 | `bizhawk_read_memory` | `address`, `width` (8/16/32), `domain?` | unsigned value |
 | `bizhawk_write_memory` | `address`, `width`, `value`, `domain?` | `ok` |
+| `bizhawk_read_signed` | `address`, `width` (8/16/24/32), `domain?` | signed value |
+| `bizhawk_write_signed` | `address`, `width`, `value`, `domain?` | `ok` |
+| `bizhawk_read_float` | `address`, `domain?` | float value |
+| `bizhawk_write_float` | `address`, `value`, `domain?` | `ok` |
+| `bizhawk_hash_region` | `address`, `length`, `domain?` | SHA1 of region |
 | `bizhawk_read_range` | `address`, `length` (1–4096), `domain?` | hex dump |
 | `bizhawk_use_memory_domain` | `domain` | confirmation |
+| `bizhawk_list_memory_domains` | — | all domains + sizes (JSON) |
+| `bizhawk_search_memory` | `value`, `width` (8/16/32), `domain?`, `range_start?`, `range_length?`, `max_results?`, `addresses?` | matching addresses (JSON) |
 | `bizhawk_set_big_endian` | `enabled` | confirmation |
 | `bizhawk_press_buttons` | `buttons` (map), `controller?` | confirmation |
 | `bizhawk_frame_advance` | `count` (1–600) | confirmation |
+| `bizhawk_pause` | — | new paused state |
+| `bizhawk_unpause` | — | new paused state |
+| `bizhawk_toggle_pause` | — | new paused state |
+| `bizhawk_speed_mode` | `percent` | confirmation |
+| `bizhawk_get_joypad` | `controller?` | button map (JSON) |
+| `bizhawk_get_registers` | — | CPU registers (JSON) |
+| `bizhawk_set_register` | `register`, `value` | confirmation |
+| `bizhawk_disassemble` | `pc`, `name?` | disassembly line |
+| `bizhawk_lag_count` | — | lag state + count (JSON) |
+| `bizhawk_overlay_text` | `x`, `y`, `text`, `color?`, `fontsize?` | draws on video output |
+| `bizhawk_clear_overlay` | — | clears drawn text |
+| `bizhawk_osd_message` | `message`, `duration?` | OSD message |
+| `bizhawk_movie_info` | — | TAS movie info (JSON) |
+| `bizhawk_movie_input` | `frame` | mnemonic input string |
+| `bizhawk_host_input` | — | host keyboard/mouse (JSON) |
+| `bizhawk_userdata_set` | `key`, `value` | `stored <key>` |
+| `bizhawk_userdata_get` | `key` | stored value |
+| `bizhawk_userdata_clear` | `key?` | cleared/removed |
 | `bizhawk_screenshot` | `path` | confirmation |
 | `bizhawk_save_state` | `path` | confirmation |
 | `bizhawk_load_state` | `path` | confirmation |
