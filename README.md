@@ -95,7 +95,7 @@ Because the server lives inside EmuHawk, every opencode session connects to the 
 | `bizhawk_hash_region` | `address`, `length`, `domain?` | SHA1 of region |
 | `bizhawk_read_range` | `address`, `length` (1–4096), `domain?` | hex dump |
 | `bizhawk_use_memory_domain` | `domain` | confirmation |
-| `bizhawk_list_memory_domains` | — | all domains + sizes (JSON) |
+| `bizhawk_list_memory_domains` | — | all domains + sizes + known bus bases (JSON) |
 | `bizhawk_search_memory` | `value`, `width` (8/16/32), `domain?`, `range_start?`, `range_length?`, `max_results?`, `addresses?` | matching addresses (JSON) |
 | `bizhawk_set_big_endian` | `enabled` | confirmation |
 | `bizhawk_press_buttons` | `buttons` (map), `controller?` | confirmation |
@@ -118,6 +118,12 @@ Because the server lives inside EmuHawk, every opencode session connects to the 
 | `bizhawk_userdata_set` | `key`, `value` | `stored <key>` |
 | `bizhawk_userdata_get` | `key` | stored value |
 | `bizhawk_userdata_clear` | `key?` | cleared/removed |
+| `bizhawk_watch_add` | `name`, `address`, `width`, `domain?` | watcher registered |
+| `bizhawk_watch_remove` | `name` | removed/not found |
+| `bizhawk_watch_list` | — | watchers + current values (JSON) |
+| `bizhawk_watch_read` | — | values + `changed` flags (JSON) |
+| `bizhawk_wait_until` | `address`, `op` (eq/ne/lt/gt/le/ge), `value`, `width?`, `domain?`, `timeout_frames?` | matched? + frames + value (JSON) |
+| `bizhawk_trace` | `count`, `step?` | per-frame PC + disassembly samples (JSON) |
 | `bizhawk_screenshot` | `path?` | `{path, resource}` (JSON) — effective path + resource URI |
 | `bizhawk_save_state` | `path` | confirmation |
 | `bizhawk_load_state` | `path` | confirmation |
@@ -168,12 +174,15 @@ src/BizHawkMcp/
   Mcp/McpHttpServer.cs         # HttpListener-based Streamable HTTP server
 scripts/
   deploy.sh / deploy.ps1       # build + copy into <install>/ExternalTools
+  test.sh                      # unit tests (net8.0 + xunit, no BizHawk needed)
   fetch-source.sh              # optional source checkout at the pinned commit
+tests/BizHawkMcp.Tests/        # links product sources + ApiHawk stubs/fakes
 docs/
   ARCHITECTURE.md              # components, load flow, threading, lifecycle
   MCP-PROTOCOL.md              # implemented protocol subset + curl examples
-  DEVELOPMENT.md               # adding tools, debugging, version bumps, gotchas
+  DEVELOPMENT.md               # adding tools, testing, debugging, gotchas
   CI-RELEASES.md               # how the GitHub Actions builds/releases work
+TODO.md                        # improvement ideas (protocol, tools, robustness)
 AGENTS.md                      # orientation + hard constraints for AI agents
 ```
 

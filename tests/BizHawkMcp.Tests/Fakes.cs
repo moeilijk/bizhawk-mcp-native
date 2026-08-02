@@ -25,9 +25,14 @@ namespace BizHawkMcp.Tests
 
 		public void SetBigEndian(bool enabled = true) { BigEndian = enabled; SetBigEndianCalls++; }
 
-		public IReadOnlyCollection<string> GetMemoryDomainList() => ["68K RAM", "M68K BUS"];
+		public IReadOnlyCollection<string> GetMemoryDomainList() => ["68K RAM", "Z80 RAM", "M68K BUS"];
 
-		public uint GetMemoryDomainSize(string name = "") => name is "" or "68K RAM" ? 65536u : 16u * 1024 * 1024;
+		public uint GetMemoryDomainSize(string name = "")
+		{
+			if (string.IsNullOrEmpty(name) || name == "68K RAM") return 65536u;
+			if (name == "Z80 RAM") return 8192u;
+			return 16u * 1024 * 1024;
+		}
 
 		public string GetCurrentMemoryDomain() => CurrentDomain;
 
@@ -147,8 +152,14 @@ namespace BizHawkMcp.Tests
 		public int PauseCalls;
 		public int SpeedModePercent = -1;
 		public readonly List<string> Screenshots = new();
+		// invoked after each DoFrameAdvance; lets tests simulate RAM changing
+		public Action? OnFrameAdvance;
 
-		public void DoFrameAdvance() => FramesAdvanced++;
+		public void DoFrameAdvance()
+		{
+			FramesAdvanced++;
+			OnFrameAdvance?.Invoke();
+		}
 
 		public void DoFrameAdvanceAndUnpause() { UnpauseCalls++; FramesAdvanced++; }
 

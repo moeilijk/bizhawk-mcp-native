@@ -2,8 +2,8 @@
 
 Guidance for AI agents (and humans) working on this repository.
 
-- **Documentation index:** `docs/` — `ARCHITECTURE.md`, `MCP-PROTOCOL.md`, `DEVELOPMENT.md`, `CI-RELEASES.md`. When in doubt, read the relevant doc before editing.
-- **Current status (2026-08-02):** skeleton complete and **verified end-to-end** against the user's BizHawk dev build (2.11.2, commit `ed78f70a`, Windows via WSL). `initialize`, `tools/list`, `tools/call` (`bizhawk_ping`, `bizhawk_get_info`, `bizhawk_read_memory`) all return correct responses over `http://127.0.0.1:8767/mcp/`. Deployed to `F:\projects\kid\emulators\BizHawk-dev-windows\ExternalTools\`.
+- **Documentation index:** `docs/` — `ARCHITECTURE.md`, `MCP-PROTOCOL.md`, `DEVELOPMENT.md`, `CI-RELEASES.md`. When in doubt, read the relevant doc before editing. Improvement ideas live in `TODO.md`.
+- **Current status (2026-08-02):** 39 tools verified end-to-end against the user's BizHawk dev build (2.11.2, commit `ed78f70a`, Windows via WSL). Server advertises `tools` + `resources` capabilities over `http://127.0.0.1:8767/mcp/`; 52 unit tests (`./scripts/test.sh`) pass on Linux without BizHawk. Deployed to `F:\projects\kid\emulators\BizHawk-dev-windows\ExternalTools\`.
 
 ## What this is
 
@@ -26,12 +26,14 @@ A native [MCP](https://modelcontextprotocol.io) server for BizHawk/EmuHawk imple
 ```bash
 # WSL/Linux or Windows; SDK 8+ required (WSL: ~/.dotnet via dotnet-install.sh)
 ./scripts/deploy.sh            # builds Release and copies into <install>/ExternalTools
+./scripts/test.sh              # unit tests (net8.0 + xunit; no BizHawk needed)
 dotnet build src/BizHawkMcp/BizHawkMcp.csproj -c Release   # build only
 ```
 
 - Install dir auto-detection lives in `Directory.Build.props`; override with `-p:BizHawkInstallDir=/path` or the `BIZHAWK_INSTALL` env var used by `deploy.sh`.
 - `net48` builds on Linux thanks to `Microsoft.NETFramework.ReferenceAssemblies` (already in the csproj). No Windows runner needed.
-- CI equivalent: `.github/workflows/build-and-release.yml` (matrix stable/dev, `-p:BizHawkInstallDir="$(pwd)/bizhawk"`).
+- The test project links the product's `.cs` files and stubs the ApiHawk interfaces (`tests/BizHawkMcp.Tests/Stubs/`) — **keep the stubs in sync** when a tool uses new API surface, and add a test when adding a tool (see `docs/DEVELOPMENT.md`).
+- CI equivalent: `.github/workflows/build-and-release.yml` (matrix stable/dev, `-p:BizHawkInstallDir="$(pwd)/bizhawk"`, `dotnet test` step).
 
 ## Manual verification loop
 
@@ -49,7 +51,7 @@ dotnet build src/BizHawkMcp/BizHawkMcp.csproj -c Release   # build only
 
 ## Adding a tool
 
-Recipe with code in `docs/DEVELOPMENT.md`. In short: add a `Tool(...)` descriptor to `McpToolset.ToolSchemas`, add the dispatch arm in `Call(...)`, implement the handler using the `_ui.Invoke(...)` pattern and the param helpers (`Required`, `RequireLong`, `RequireInt`, `RequireULong`, `RequireString`, `OptionalString`). Structured results → `JsonRpc.Pretty(...)`.
+Recipe with code in `docs/DEVELOPMENT.md`. In short: add a `Tool(...)` descriptor to `McpToolset.ToolSchemas`, add the dispatch arm in `Call(...)`, implement the handler using the `_ui.Invoke(...)` pattern and the param helpers (`Required`, `RequireLong`, `RequireInt`, `RequireULong`, `RequireString`, `OptionalString`). Structured results → `JsonRpc.Pretty(...)`. Tools with all-optional params must accept `null` args (don't call `Required`). Add a unit test in `tests/BizHawkMcp.Tests/` (extend the stubs/fakes if new API surface is used) and run `./scripts/test.sh`.
 
 ## Bumping the BizHawk version
 
@@ -61,6 +63,7 @@ Recipe with code in `docs/DEVELOPMENT.md`. In short: add a `Tool(...)` descripto
 ## Known limitations (skeleton state)
 
 - No in-memory savestates: `IMemorySaveStateApi` is not registered by the provider, so only disk-based `bizhawk_save_state`/`load_state` exist.
+- Watchers/breakpoints are **polling-based**: `IMemoryEventsApi` (read/write/exec callbacks) is NOT registered, so `bizhawk_watch_*` reads values on demand and `bizhawk_wait_until` advances frames checking a condition — no event hooks, no per-instruction tracing (`bizhawk_trace` samples PC per frame).
 - Streamable HTTP subset: no sessions, no server-initiated messages, `GET` SSE is endpoint + keepalive only.
 - `bizhawk_frame_advance` pumps `Application.DoEvents` between frames so the UI stays responsive; long counts (max 600) are intentionally capped.
 - `bizhawk_screenshot`/`save_state`/`load_state` paths are host-side (Windows paths when EmuHawk runs on Windows). `bizhawk_screenshot` returns the effective path plus a `bizhawk://` resource URI; `resources/read` serves the PNG as base64.

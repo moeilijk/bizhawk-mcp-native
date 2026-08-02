@@ -34,12 +34,12 @@ namespace BizHawkMcp
 		[
 			Tool("bizhawk_ping", "Ping the tool. Returns \"pong\" if the plugin and server are alive.", []),
 			Tool("bizhawk_get_info", "ROM info, framecount, pause state, current endianness and active memory domain (JSON).", []),
-			Tool("bizhawk_read_memory", "Read u8/u16/u32 from a memory domain. Endianness follows the core default (big-endian on Genesis/SNES/N64) unless bizhawk_set_big_endian overrode it.", [
-				Param("address", "integer", "Offset in the domain, 0-based. For bus domains (e.g. M68K BUS) use the raw bus address (e.g. 0xFFFBCA)."),
+			Tool("bizhawk_read_memory", "Read u8/u16/u32 from a memory domain. Endianness follows the core default (big-endian on Genesis/SNES/N64) unless bizhawk_set_big_endian overrode it. Bus domains accept 32-bit disassembly addresses (e.g. 0xFFFFF832): the 68K's 24-bit bus masks them, so 0xFFFFF832 == 0xFFF832.", [
+				Param("address", "integer", "Offset in the domain, 0-based. For bus domains (e.g. M68K BUS) use the raw bus address (e.g. 0xFFFBCA); 32-bit forms (0xFFFFFBCA) are masked like the hardware."),
 				Param("width", "integer", "8, 16 or 32.", 8),
 				Param("domain", "string", "Optional domain (defaults to BizHawk's current one)."),
 			]),
-			Tool("bizhawk_write_memory", "Write u8/u16/u32 to a memory domain. Endianness follows the core default unless bizhawk_set_big_endian overrode it.", [
+			Tool("bizhawk_write_memory", "Write u8/u16/u32 to a memory domain. Endianness follows the core default unless bizhawk_set_big_endian overrode it. Bus domains mask 32-bit addresses as in read.", [
 				Param("address", "integer", "Offset in the domain, 0-based. For bus domains use the raw bus address."),
 				Param("width", "integer", "8, 16 or 32.", 8),
 				Param("value", "integer", "Value to write (must fit the width)."),
@@ -50,7 +50,7 @@ namespace BizHawkMcp
 				Param("length", "integer", "Bytes to read, 1..4096.", 256),
 				Param("domain", "string", "Optional domain."),
 			]),
-			Tool("bizhawk_list_memory_domains", "List all memory domains with sizes (JSON). Offsets are domain-relative: RAM domains use 0-based offsets (68K RAM 0xFBCA = bus 0xFFFBCA), bus domains take raw bus addresses.", []),
+			Tool("bizhawk_list_memory_domains", "List all memory domains with sizes (JSON). Each entry reports \"size\" and, when known, \"bus_base\" (the domain's location in the raw bus space, e.g. 68K RAM = 0xFF0000 on Genesis). Offsets are domain-relative: RAM offset 0xFBC8 = bus 0xFFFBC8; bus domains take raw bus addresses.", []),
 			Tool("bizhawk_use_memory_domain", "Switch the active memory domain.", [
 				Param("domain", "string", "Domain name, e.g. \"WRAM\"."),
 			]),
@@ -154,11 +154,41 @@ namespace BizHawkMcp
 			Tool("bizhawk_userdata_clear", "Clear all stored user data (or a single key).", [
 				Param("key", "string", "Optional key to remove; omit to clear all."),
 			]),
+			Tool("bizhawk_watch_add", "Register a memory watcher (address + width + domain). Values are read with bizhawk_watch_read; the watcher list is session-local.", [
+				Param("name", "string", "Watcher name (unique)."),
+				Param("address", "integer", "Offset in the domain (see bizhawk_list_memory_domains for conventions)."),
+				Param("width", "integer", "8, 16 or 32.", 8),
+				Param("domain", "string", "Optional domain (defaults to current)."),
+			]),
+			Tool("bizhawk_watch_remove", "Remove a memory watcher by name.", [
+				Param("name", "string", "Watcher name."),
+			]),
+			Tool("bizhawk_watch_list", "List registered watchers with their current values (JSON).", []),
+			Tool("bizhawk_watch_read", "Read all watcher values in one call (JSON). Each entry has \"value\" and \"changed\" (true when it differs from the previous read).", []),
+			Tool("bizhawk_wait_until", "Advance frames until a memory condition holds (or timeout). Pauses when done. Condition ops: eq, ne, lt, gt, le, ge.", [
+				Param("address", "integer", "Offset in the domain."),
+				Param("op", "string", "eq | ne | lt | gt | le | ge.", "eq"),
+				Param("value", "integer", "Value to compare against."),
+				Param("width", "integer", "8, 16 or 32.", 8),
+				Param("domain", "string", "Optional domain."),
+				Param("timeout_frames", "integer", "Max frames to advance, 1..600.", 600),
+			]),
+			Tool("bizhawk_trace", "Advance N frames and sample the CPU each step: frame, PC, and disassembly at PC (JSON).", [
+				Param("count", "integer", "Frames to trace, 1..600.", 60),
+				Param("step", "integer", "Sample every step frames.", 1),
+			]),
 		];
+
+		// Serializes all tool calls: EmuHawk's API state (active memory domain,
+		// endianness) is global, so two concurrent requests could otherwise
+		// clobber each other (e.g. a read racing a use_memory_domain).
+		private readonly object _callGate = new();
 
 		public string Call(string name, JsonElement? args)
 		{
-			return name switch
+			lock (_callGate)
+			{
+				return name switch
 			{
 				"bizhawk_ping" => _ui.Invoke(() => "pong"),
 				"bizhawk_get_info" => _ui.Invoke(GetInfo),
@@ -198,8 +228,15 @@ namespace BizHawkMcp
 				"bizhawk_userdata_set" => _ui.Invoke(() => UserDataSet(args)),
 				"bizhawk_userdata_get" => _ui.Invoke(() => UserDataGet(args)),
 				"bizhawk_userdata_clear" => _ui.Invoke(() => UserDataClear(args)),
+				"bizhawk_watch_add" => _ui.Invoke(() => WatchAdd(args)),
+				"bizhawk_watch_remove" => _ui.Invoke(() => WatchRemove(args)),
+				"bizhawk_watch_list" => _ui.Invoke(() => WatchList()),
+				"bizhawk_watch_read" => _ui.Invoke(() => WatchRead()),
+				"bizhawk_wait_until" => _ui.Invoke(() => WaitUntil(args)),
+				"bizhawk_trace" => _ui.Invoke(() => Trace(args)),
 				_ => throw new JsonRpc.Error(JsonRpc.Error.METHOD_NOT_FOUND, $"unknown tool: {name}"),
-			};
+				};
+			}
 		}
 
 		// ── handlers ───────────────────────────────────────────────────────────
@@ -229,6 +266,7 @@ namespace BizHawkMcp
 			long address = RequireLong(a, "address");
 			int width = RequireInt(a, "width", 8);
 			string? domain = OptionalString(a, "domain");
+			address = ValidateAddress(address, width, domain);
 			ulong value = width switch
 			{
 				8 => _tool.Memory!.ReadByte(address, domain),
@@ -247,6 +285,7 @@ namespace BizHawkMcp
 			int width = RequireInt(a, "width", 8);
 			ulong value = RequireULong(a, "value");
 			string? domain = OptionalString(a, "domain");
+			address = ValidateAddress(address, width, domain);
 			ulong max = width switch
 			{
 				8 => 0xFFUL,
@@ -279,14 +318,45 @@ namespace BizHawkMcp
 		private string ListMemoryDomains()
 		{
 			var mem = _tool.Memory!;
+			var systemId = _tool.Emulation!.GetSystemId();
 			var domains = new Dictionary<string, object?>();
-			foreach (var name in mem.GetMemoryDomainList()) domains[name] = mem.GetMemoryDomainSize(name);
+			foreach (var name in mem.GetMemoryDomainList())
+			{
+				var info = new Dictionary<string, object?> { ["size"] = mem.GetMemoryDomainSize(name) };
+				if (KnownBusBases.TryGetValue(systemId, out var bases) && bases.TryGetValue(name, out var busBase))
+					info["bus_base"] = busBase; // where this domain sits in the raw bus space
+				domains[name] = info;
+			}
 			return JsonRpc.Pretty(new Dictionary<string, object?>
 			{
 				["domains"] = domains,
 				["current"] = mem.GetCurrentMemoryDomain(),
 			});
 		}
+
+		// Best-effort bus base per system+domain, so agents can convert between
+		// RAM offsets and raw bus addresses without guessing. Only entries we
+		// are confident about; missing entries just omit the field.
+		private static readonly Dictionary<string, Dictionary<string, long>> KnownBusBases = new()
+		{
+			["GEN"] = new Dictionary<string, long>
+			{
+				["68K RAM"] = 0xFF0000,
+				["Z80 RAM"] = 0xA00000,
+				["MD CART"] = 0x000000,
+			},
+			["SNES"] = new Dictionary<string, long>
+			{
+				["WRAM"] = 0x7E0000,
+			},
+			["GB"] = new Dictionary<string, long>
+			{
+				["WRAM"] = 0xC000,
+				["VRAM"] = 0x8000,
+				["HRAM"] = 0xFF80,
+				["ROM"] = 0x0000,
+			},
+		};
 
 		private string SearchMemory(JsonElement? args)
 		{
@@ -609,9 +679,26 @@ namespace BizHawkMcp
 		private string MovieInfo()
 		{
 			var movie = _tool.Movie!;
+			if (!movie.IsLoaded())
+			{
+				// nothing loaded: return an empty summary instead of crashing
+				// (the underlying IMovieApi members may throw/return null)
+				return JsonRpc.Pretty(new Dictionary<string, object?>
+				{
+					["loaded"] = false,
+					["filename"] = null,
+					["mode"] = null,
+					["length"] = 0,
+					["rerecords"] = 0,
+					["read_only"] = false,
+					["fps"] = 0,
+					["header"] = null,
+				});
+			}
+
 			return JsonRpc.Pretty(new Dictionary<string, object?>
 			{
-				["loaded"] = movie.IsLoaded(),
+				["loaded"] = true,
 				["filename"] = movie.Filename(),
 				["mode"] = movie.Mode(),
 				["length"] = movie.Length(),
@@ -626,6 +713,8 @@ namespace BizHawkMcp
 		{
 			var a = Required(args);
 			int frame = RequireInt(a, "frame", 0);
+			if (!_tool.Movie!.IsLoaded())
+				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "no movie loaded");
 			return _tool.Movie!.GetInputAsMnemonic(frame);
 		}
 
@@ -663,6 +752,191 @@ namespace BizHawkMcp
 			}
 			_tool.UserData!.Clear();
 			return "user data cleared";
+		}
+
+		// ── watchers ───────────────────────────────────────────────────────────
+		// Session-local memory watchers: register (address/width/domain) and read
+		// all in one call. No event hooks (IMemoryEventsApi is not registered),
+		// so this is polling-based — read after frame_advance to detect changes.
+
+		private sealed class Watch
+		{
+			public string Name = "";
+			public long Address;
+			public int Width;
+			public string? Domain;
+			public ulong? Last;
+		}
+
+		private readonly List<Watch> _watches = new();
+
+		private static (int width, string? domain) WatchWidth(JsonElement a)
+		{
+			int width = RequireInt(a, "width", 8);
+			if (width is not (8 or 16 or 32)) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "width must be 8, 16 or 32");
+			return (width, OptionalString(a, "domain"));
+		}
+
+		private string WatchAdd(JsonElement? args)
+		{
+			var a = Required(args);
+			string name = RequireString(a, "name");
+			if (_watches.Exists(w => w.Name == name)) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"watcher already exists: {name}");
+			long address = RequireLong(a, "address");
+			var (width, domain) = WatchWidth(a);
+			address = ValidateAddress(address, width, domain);
+			_watches.Add(new Watch { Name = name, Address = address, Width = width, Domain = domain });
+			return $"watcher added: {name} @ {address} (w{width})";
+		}
+
+		private string WatchRemove(JsonElement? args)
+		{
+			var a = Required(args);
+			string name = RequireString(a, "name");
+			int removed = _watches.RemoveAll(w => w.Name == name);
+			return removed > 0 ? $"watcher removed: {name}" : $"watcher not found: {name}";
+		}
+
+		private string WatchList()
+		{
+			var watches = new List<object?>();
+			foreach (var w in _watches)
+			{
+				watches.Add(new Dictionary<string, object?>
+				{
+					["name"] = w.Name,
+					["address"] = w.Address,
+					["width"] = w.Width,
+					["domain"] = w.Domain,
+					["value"] = ReadWatchValue(w),
+				});
+			}
+			return JsonRpc.Pretty(new Dictionary<string, object?> { ["watchers"] = watches });
+		}
+
+		private string WatchRead()
+		{
+			var watches = new List<object?>();
+			foreach (var w in _watches)
+			{
+				ulong value = ReadWatchValue(w);
+				bool changed = w.Last != null && w.Last != value;
+				w.Last = value;
+				watches.Add(new Dictionary<string, object?>
+				{
+					["name"] = w.Name,
+					["value"] = value,
+					["changed"] = changed,
+				});
+			}
+			return JsonRpc.Pretty(new Dictionary<string, object?> { ["watchers"] = watches });
+		}
+
+		private ulong ReadWatchValue(Watch w)
+		{
+			EnsureEndianness();
+			return w.Width switch
+			{
+				8 => _tool.Memory!.ReadByte(w.Address, w.Domain),
+				16 => _tool.Memory!.ReadU16(w.Address, w.Domain),
+				_ => _tool.Memory!.ReadU32(w.Address, w.Domain),
+			};
+		}
+
+		private string WaitUntil(JsonElement? args)
+		{
+			var a = Required(args);
+			long address = RequireLong(a, "address");
+			string op = a.TryGetProperty("op", out var o) && o.ValueKind == JsonValueKind.String ? o.GetString()! : "eq";
+			if (op is not ("eq" or "ne" or "lt" or "gt" or "le" or "ge")) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"unknown op: {op}");
+			ulong value = RequireULong(a, "value");
+			var (width, domain) = WatchWidth(a);
+			address = ValidateAddress(address, width, domain);
+			int timeout = RequireInt(a, "timeout_frames", 600);
+			if (timeout is < 1 or > 600) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "timeout_frames must be 1..600");
+
+			bool wasPaused = _tool.EmuClient!.IsPaused();
+			if (wasPaused) _tool.EmuClient!.Unpause();
+
+			ulong current = 0;
+			int frames = 0;
+			try
+			{
+				for (; frames < timeout; frames++)
+				{
+					_tool.EmuClient!.DoFrameAdvance();
+					System.Windows.Forms.Application.DoEvents();
+					EnsureEndianness();
+					current = width switch
+					{
+						8 => _tool.Memory!.ReadByte(address, domain),
+						16 => _tool.Memory!.ReadU16(address, domain),
+						_ => _tool.Memory!.ReadU32(address, domain),
+					};
+					if (Compare(op, current, value)) break;
+				}
+			}
+			finally
+			{
+				if (wasPaused) _tool.EmuClient!.Pause();
+			}
+
+			bool matched = frames < timeout;
+			return JsonRpc.Pretty(new Dictionary<string, object?>
+			{
+				["matched"] = matched,
+				["frames"] = matched ? frames + 1 : frames,
+				["value"] = current,
+				["framecount"] = _tool.Emulation!.FrameCount(),
+			});
+		}
+
+		private static bool Compare(string op, ulong current, ulong target) => op switch
+		{
+			"eq" => current == target,
+			"ne" => current != target,
+			"lt" => current < target,
+			"gt" => current > target,
+			"le" => current <= target,
+			_ => current >= target,
+		};
+
+		private string Trace(JsonElement? args)
+		{
+			var a = Required(args);
+			int count = RequireInt(a, "count", 60);
+			int step = RequireInt(a, "step", 1);
+			if (count is < 1 or > 600) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "count must be 1..600");
+			if (step is < 1 or > 600) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "step must be 1..600");
+
+			bool wasPaused = _tool.EmuClient!.IsPaused();
+			if (wasPaused) _tool.EmuClient!.Unpause();
+
+			var samples = new List<object?>();
+			try
+			{
+				for (var i = 0; i < count; i++)
+				{
+					_tool.EmuClient!.DoFrameAdvance();
+					System.Windows.Forms.Application.DoEvents();
+					if (i % step != 0) continue;
+					var regs = _tool.Emulation!.GetRegisters();
+					ulong pc = regs.TryGetValue("PC", out var p) ? p : 0;
+					var (disasm, _) = _tool.Emulation!.Disassemble((uint)pc);
+					samples.Add(new Dictionary<string, object?>
+					{
+						["frame"] = _tool.Emulation!.FrameCount(),
+						["pc"] = pc,
+						["disasm"] = disasm,
+					});
+				}
+			}
+			finally
+			{
+				if (wasPaused) _tool.EmuClient!.Pause();
+			}
+
+			return JsonRpc.Pretty(new Dictionary<string, object?> { ["samples"] = samples });
 		}
 
 		private string Shutdown()
@@ -797,6 +1071,47 @@ namespace BizHawkMcp
 
 		private static string? OptionalString(JsonElement a, string name)
 			=> a.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+
+		// Rejects addresses that fall outside the target domain instead of
+		// letting the core silently return 0/open-bus data.
+		// Normalizes an address for a memory domain and returns the effective
+		// address to use. Bus domains replicate the 68K's 24-bit address bus:
+		// 32-bit addresses seen in disassembly (e.g. 0xFFFFF832, which games
+		// really do use) truncate to the domain size. Linear domains (RAM,
+		// VRAM, ...) are offsets and must fit — out-of-range is an error.
+		private long ValidateAddress(long address, int width, string? domain)
+		{
+			uint size = _tool.Memory!.GetMemoryDomainSize(domain);
+			string name = domain ?? _tool.Memory.GetCurrentMemoryDomain();
+			if (Has24BitBus() && name.IndexOf("BUS", StringComparison.OrdinalIgnoreCase) >= 0)
+			{
+				// 68K bus (GEN/SMD/32X/SAT): only the low 24 bits of the address
+				// exist — the 68K mirrors 32-bit disassembly addresses (e.g.
+				// 0xFFFFF832) down onto its 24-bit bus, and games rely on it.
+				// Mask like the real hardware decoder instead of rejecting.
+				address &= size - 1;
+			}
+			if (address < 0 || address + (width / 8) > size)
+				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"address {address} (width {width}) outside domain \"{name}\" (size {size})");
+			return address;
+		}
+
+		// Cores whose main CPU has a 24-bit address bus (68000 family). Other
+		// systems (N64 32-bit bus, Z80 16-bit, ...) have different semantics
+		// and keep the strict out-of-range check for now.
+		private bool Has24BitBus()
+		{
+			switch (_tool.Emulation!.GetSystemId())
+			{
+				case "GEN":
+				case "SMD":
+				case "32X":
+				case "SAT":
+					return true;
+				default:
+					return false;
+			}
+		}
 
 		private static System.Drawing.Color? ParseColor(JsonElement a)
 		{
