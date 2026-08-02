@@ -1,0 +1,98 @@
+name: build-and-release
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+env:
+  DOTNET_VERSION: "8.0.x"
+
+jobs:
+  build:
+    name: build (${{ matrix.flavor }})
+    strategy:
+      fail-fast: false
+      matrix:
+        flavor: [stable, dev]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Resolve BizHawk build to compile against
+        id: resolve
+        run: |
+          case "${{ matrix.flavor }}" in
+            stable)
+              JSON="$(curl -fsSL https://api.github.com/repos/TASEmulators/BizHawk/releases/latest)"
+              TAG="$(echo "$JSON" | grep -oP '"tag_name": "\K[^"]+')"
+              URL="$(echo "$JSON" | grep -oP '"browser_download_url": "\K[^"]+win-x64[^"]*\.zip')"
+              ;;
+            dev)
+              TAG="dev"
+              URL="https://nightly.link/TASEmulators/BizHawk/workflows/ci/master/BizHawk-dev-windows.zip"
+              ;;
+          esac
+          echo "bizhawk_tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "bizhawk_url=$URL" >> "$GITHUB_OUTPUT"
+
+      - name: Download and extract BizHawk
+        run: |
+          mkdir -p bizhawk
+          curl -fsSL -o bizhawk.zip "${{ steps.resolve.outputs.bizhawk_url }}"
+          python3 - <<'EOF'
+          import zipfile
+          with zipfile.ZipFile("bizhawk.zip") as z:
+              z.extractall("bizhawk")
+          EOF
+          test -f bizhawk/dll/BizHawk.Client.Common.dll
+          test -f bizhawk/EmuHawk.exe
+
+      - name: Build tool
+        run: |
+          dotnet build src/BizHawkMcp/BizHawkMcp.csproj -c Release \
+            -p:BizHawkInstallDir="$(pwd)/bizhawk"
+
+      - name: Package
+        run: |
+          VERSION="${{ steps.resolve.outputs.bizhawk_tag }}"
+          STAGE="staging"
+          mkdir -p "$STAGE"
+          cp src/BizHawkMcp/bin/Release/BizHawkMcp.dll "$STAGE/"
+          cp src/BizHawkMcp/bin/Release/System.Text.Json.dll "$STAGE/"
+          cp src/BizHawkMcp/bin/Release/System.Text.Encodings.Web.dll "$STAGE/" || true
+          cp src/BizHawkMcp/bin/Release/System.Memory.dll "$STAGE/" || true
+          cp src/BizHawkMcp/bin/Release/System.Buffers.dll "$STAGE/" || true
+          cp src/BizHawkMcp/bin/Release/System.Numerics.Vectors.dll "$STAGE/" || true
+          cp src/BizHawkMcp/bin/Release/System.Runtime.CompilerServices.Unsafe.dll "$STAGE/" || true
+          cp src/BizHawkMcp/bin/Release/System.Threading.Tasks.Extensions.dll "$STAGE/" || true
+          cp src/BizHawkMcp/bin/Release/Microsoft.Bcl.AsyncInterfaces.dll "$STAGE/" || true
+          zip -r "BizHawkMcp-${{ matrix.flavor }}-$VERSION.zip" "$STAGE"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BizHawkMcp-${{ matrix.flavor }}
+          path: BizHawkMcp-${{ matrix.flavor }}-*.zip
+
+  release:
+    name: publish release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Attach to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          gh release create "$TAG" artifacts/**/*.zip --generate-notes || true
+          gh release upload "$TAG" artifacts/**/*.zip --clobber

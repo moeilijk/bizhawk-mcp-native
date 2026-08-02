@@ -1,0 +1,67 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    External tool (net48, like the repo's own ExternalToolProjects):
+    loads inside EmuHawk's process on both Windows (.NET 8 compat) and
+    Linux (Mono). net48 is the only TFM that runs on both runtimes.
+
+    Trade-off: the official MCP SDKs require .NET 8+, so the Streamable
+    HTTP endpoint is implemented by hand in src/BizHawkMcp/Mcp (HttpListener).
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>BizHawkMcp</AssemblyName>
+    <RootNamespace>BizHawkMcp</RootNamespace>
+    <OutputType>Library</OutputType>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+    <EnableDefaultCompileItems>true</EnableDefaultCompileItems>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- builds on Linux/macOS: pulls the .NET Framework reference assemblies from NuGet -->
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+    <!-- match the System.Text.Json version BizHawk ships in its dll/ folder (9.0.x) to avoid runtime conflicts -->
+    <PackageReference Include="System.Text.Json" Version="9.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="System.Windows.Forms" />
+    <Reference Include="System.Net.Http" />
+  </ItemGroup>
+
+  <!-- Reference the installed BizHawk assemblies directly (same pattern as the repo's ExtToolCommon.props/NET48ExternalToolForm.targets). -->
+  <ItemGroup>
+    <Reference Include="BizHawk.Client.Common">
+      <HintPath>$(BizHawkInstallDir)/dll/BizHawk.Client.Common.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="BizHawk.Common">
+      <HintPath>$(BizHawkInstallDir)/dll/BizHawk.Common.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="BizHawk.Emulation.Common">
+      <HintPath>$(BizHawkInstallDir)/dll/BizHawk.Emulation.Common.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- Drop the built tool (and its non-BizHawk deps) into the install's ExternalTools folder;
+       EmuHawk's ExternalToolManager watches it with a FileSystemWatcher.
+       Windows locks loaded DLLs: if EmuHawk has the tool form open, the copy fails —
+       close it (or EmuHawk) and rebuild. Failure is non-fatal so `dotnet build` stays usable. -->
+  <Target Name="CopyToExternalTools" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
+    <ItemGroup>
+      <_ToolOutput Include="$(TargetDir)*.dll" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_ToolOutput)" DestinationFolder="$(BizHawkInstallDir)/ExternalTools" ContinueOnError="true" />
+    <Warning
+      Text="Deploy may be stale: is the 'BizHawk MCP Server' form open in EmuHawk? Close it (or EmuHawk) and rebuild to redeploy."
+      Condition="Exists($(BizHawkInstallDir)/ExternalTools/BizHawkMcp.dll) and '$([System.IO.File]::GetLastWriteTimeUtc($(BizHawkInstallDir)/ExternalTools/BizHawkMcp.dll))' != '$([System.IO.File]::GetLastWriteTimeUtc($(TargetDir)BizHawkMcp.dll))'" />
+  </Target>
+
+</Project>

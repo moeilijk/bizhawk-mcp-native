@@ -1,0 +1,23 @@
+<Project>
+
+  <!--
+    Points the project at an installed (or built) BizHawk "output" tree.
+    The layout is the same as the release/dev zips and the repo's own
+    ExternalToolProjects (which reference ../../output/dll/*.dll):
+
+        <install>/EmuHawk.exe
+        <install>/dll/BizHawk.Client.Common.dll
+        <install>/dll/BizHawk.Emulation.Common.dll
+        ...
+
+    Pin the BizHawk version you compile against to a specific commit:
+    see ./bizhawk.build and ./scripts/fetch-source.sh
+  -->
+
+  <PropertyGroup>
+    <BizHawkInstallDir Condition="'$(BizHawkInstallDir)' == '' and Exists('/mnt/f/projects/kid/emulators/BizHawk-dev-windows/EmuHawk.exe')">/mnt/f/projects/kid/emulators/BizHawk-dev-windows</BizHawkInstallDir>
+    <BizHawkInstallDir Condition="'$(BizHawkInstallDir)' == '' and Exists('F:\projects\kid\emulators\BizHawk-dev-windows\EmuHawk.exe')">F:\projects\kid\emulators\BizHawk-dev-windows</BizHawkInstallDir>
+    <BizHawkInstallDir Condition="'$(BizHawkInstallDir)' == ''">__CHANGE_ME__</BizHawkInstallDir>
+  </PropertyGroup>
+
+</Project>
