@@ -17,7 +17,7 @@ namespace BizHawkMcp
 	[ExternalTool(
 		"BizHawk MCP Server",
 		Description = "Exposes a Streamable HTTP MCP endpoint to drive EmuHawk: memory read/write, joypad, frame advance, screenshots, savestates.")]
-	public sealed class ExternalToolEntry : Form, IExternalToolForm
+	public sealed class ExternalToolEntry : Form, IExternalToolForm, IHostApis
 	{
 		private readonly TextBox _log = new() { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill, Font = new Font(FontFamily.GenericMonospace, 9f) };
 		private readonly Label _url = new() { Dock = DockStyle.Top, AutoSize = false, Height = 20 };
@@ -121,6 +121,14 @@ namespace BizHawkMcp
 
 			_log.AppendText($"[{DateTime.Now:HH:mm:ss}] {line}{Environment.NewLine}");
 		}
+
+		// ── IHostApis (explicit: ServerUrl/Log/StopServer are internal) ────────
+
+		string? IHostApis.ServerUrl => ServerUrl;
+
+		void IHostApis.Log(string line) => Log(line);
+
+		void IHostApis.StopServer() => StopServer();
 
 		// ── IToolForm ──────────────────────────────────────────────────────────
 

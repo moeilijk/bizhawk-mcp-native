@@ -34,6 +34,10 @@
     <Reference Include="System.Net.Http" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="BizHawkMcp.Tests" />
+  </ItemGroup>
+
   <!-- Reference the installed BizHawk assemblies directly (same pattern as the repo's ExtToolCommon.props/NET48ExternalToolForm.targets). -->
   <ItemGroup>
     <Reference Include="BizHawk.Client.Common">
@@ -52,19 +56,13 @@
 
   <!-- Drop the built tool (and its non-BizHawk deps) into the install's ExternalTools folder;
        EmuHawk's ExternalToolManager watches it with a FileSystemWatcher.
-       Windows locks loaded DLLs: if EmuHawk has the tool form open, the copy fails —
-       close it (or EmuHawk) and rebuild. Failure is non-fatal so `dotnet build` stays usable. -->
-  <Target Name="CopyToExternalTools" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'"
-          Inputs="@(_ToolOutput)" Outputs="@(_ToolOutput->'$(BizHawkInstallDir)/ExternalTools/%(Filename)%(Extension)')">
-    <ItemGroup>
-      <_ToolOutput Include="$(TargetDir)*.dll" />
-    </ItemGroup>
-    <Copy SourceFiles="@(_ToolOutput)" DestinationFolder="$(BizHawkInstallDir)/ExternalTools" ContinueOnError="true">
-      <Output TaskParameter="CopiedFiles" ItemName="_Copied" />
-    </Copy>
-    <Warning
-      Text="Deploy may be stale: is the 'BizHawk MCP Server' form open in EmuHawk? Close it (or EmuHawk) and rebuild to redeploy."
-      Condition="'@(_Copied)' == ''" />
+       Windows locks loaded DLLs: if EmuHawk has the tool form open, the copy fails (MSB3021,
+       non-fatal thanks to ContinueOnError) — close it (or EmuHawk) and rebuild. -->
+  <ItemGroup>
+    <_ToolOutput Include="$(TargetDir)*.dll" />
+  </ItemGroup>
+  <Target Name="CopyToExternalTools" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
+    <Copy SourceFiles="@(_ToolOutput)" DestinationFolder="$(BizHawkInstallDir)/ExternalTools" ContinueOnError="true" />
   </Target>
 
 </Project>

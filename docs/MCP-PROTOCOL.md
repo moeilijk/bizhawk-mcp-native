@@ -19,10 +19,12 @@ Implemented subset of the MCP **Streamable HTTP** transport, protocol version `2
 
 | Method | Result |
 |---|---|
-| `initialize` | `{ protocolVersion, capabilities: { tools: { listChanged: false } }, serverInfo: { name: "bizhawk-mcp-native", version } }` |
+| `initialize` | `{ protocolVersion, capabilities: { tools: { listChanged: false }, resources: { listChanged: false, subscribe: false } }, serverInfo: { name: "bizhawk-mcp-native", version } }` |
 | `ping` | `{}` |
 | `tools/list` | `{ tools: [ ...schemas ] }` — schemas are static dictionaries built in `McpToolset.ToolSchemas` |
 | `tools/call` | `{ content: [ { type: "text", text } ], isError: false }` |
+| `resources/list` | `{ resources: [ { uri, name, mimeType, size } ] }` — artifacts created by tools (e.g. screenshots); URIs use the `bizhawk://` scheme |
+| `resources/read` | `{ contents: [ { uri, mimeType, blob } ] }` — `blob` is the file's bytes base64-encoded |
 
 Anything else → `-32601` (method not found). Tool handler failures throw `JsonRpc.Error` (`-32602` invalid params) or general exceptions (`-32603`).
 
@@ -51,11 +53,24 @@ curl -s -i -X POST http://127.0.0.1:8767/mcp/ -H 'Content-Type: application/json
 
 Every tool returns a **single text blob** as `content[0].text` (same style as the old Lua bridge). Structured data (e.g. `bizhawk_get_info`, `bizhawk_read_memory`) is JSON inside the text; simple operations return plain strings (`pong`, `ok`, paths). Agents should `JSON.parse` the text when the tool description says it returns JSON.
 
+## Resources
+
+The server advertises the `resources` capability. Tools can register artifacts (files the server wrote on the host) — currently only `bizhawk_screenshot`, which saves a PNG into `<temp>/bizhawk-mcp/` (or the caller-provided path) and returns `{ path, resource }`. Fetch the bytes with:
+
+```bash
+curl -s -X POST http://127.0.0.1:8767/mcp/ -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":5,"method":"resources/read","params":{"uri":"bizhawk://<id>"}}'
+# → { contents: [ { uri, mimeType: "image/png", blob: "<base64>" } ] }
+```
+
+Resources are session-local (the list resets when the server restarts) and are only registrations, not a filesystem view.
+
 ## Not implemented (deliberately)
 
 - Sessions / `mcp-session-id`
 - Server-initiated messages (SSE push to client)
-- Resources and prompts (`capabilities` only advertises `tools`)
+- Resource subscriptions / change notifications
+- Prompts (`capabilities` only advertises `tools` and `resources`)
 - `tools/list` change notifications
 - HTTP `PUT`/`DELETE` session endpoints
 

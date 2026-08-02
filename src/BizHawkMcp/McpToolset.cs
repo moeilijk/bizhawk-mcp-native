@@ -15,10 +15,16 @@ namespace BizHawkMcp
 	/// </summary>
 	public sealed class McpToolset
 	{
-		private readonly ExternalToolEntry _tool;
-		private readonly UiDispatcher _ui;
+		private readonly IHostApis _tool;
+		private readonly IUiDispatcher _ui;
 
-		public McpToolset(ExternalToolEntry tool, UiDispatcher ui)
+		// endianness state: SetBigEndian() has no getter in ApiHawk, so we track
+		// it ourselves. Defaults are core-aware (big-endian on 68K/SNES/N64-ish
+		// systems), overridable per session via bizhawk_set_big_endian.
+		private bool? _bigEndianOverride;
+		private string? _lastSystemId;
+
+		public McpToolset(IHostApis tool, IUiDispatcher ui)
 		{
 			_tool = tool;
 			_ui = ui;
@@ -27,14 +33,14 @@ namespace BizHawkMcp
 		public IReadOnlyList<Dictionary<string, object?>> ToolSchemas { get; } =
 		[
 			Tool("bizhawk_ping", "Ping the tool. Returns \"pong\" if the plugin and server are alive.", []),
-			Tool("bizhawk_get_info", "ROM info, framecount, pause state and active memory domain.", []),
-			Tool("bizhawk_read_memory", "Read u8/u16/u32 (little-endian by default) from a memory domain.", [
-				Param("address", "integer", "Offset in the domain, 0-based."),
+			Tool("bizhawk_get_info", "ROM info, framecount, pause state, current endianness and active memory domain (JSON).", []),
+			Tool("bizhawk_read_memory", "Read u8/u16/u32 from a memory domain. Endianness follows the core default (big-endian on Genesis/SNES/N64) unless bizhawk_set_big_endian overrode it.", [
+				Param("address", "integer", "Offset in the domain, 0-based. For bus domains (e.g. M68K BUS) use the raw bus address (e.g. 0xFFFBCA)."),
 				Param("width", "integer", "8, 16 or 32.", 8),
 				Param("domain", "string", "Optional domain (defaults to BizHawk's current one)."),
 			]),
-			Tool("bizhawk_write_memory", "Write u8/u16/u32 to a memory domain.", [
-				Param("address", "integer", "Offset in the domain, 0-based."),
+			Tool("bizhawk_write_memory", "Write u8/u16/u32 to a memory domain. Endianness follows the core default unless bizhawk_set_big_endian overrode it.", [
+				Param("address", "integer", "Offset in the domain, 0-based. For bus domains use the raw bus address."),
 				Param("width", "integer", "8, 16 or 32.", 8),
 				Param("value", "integer", "Value to write (must fit the width)."),
 				Param("domain", "string", "Optional domain."),
@@ -44,11 +50,11 @@ namespace BizHawkMcp
 				Param("length", "integer", "Bytes to read, 1..4096.", 256),
 				Param("domain", "string", "Optional domain."),
 			]),
-			Tool("bizhawk_list_memory_domains", "List all memory domains with their sizes (JSON).", []),
+			Tool("bizhawk_list_memory_domains", "List all memory domains with sizes (JSON). Offsets are domain-relative: RAM domains use 0-based offsets (68K RAM 0xFBCA = bus 0xFFFBCA), bus domains take raw bus addresses.", []),
 			Tool("bizhawk_use_memory_domain", "Switch the active memory domain.", [
 				Param("domain", "string", "Domain name, e.g. \"WRAM\"."),
 			]),
-			Tool("bizhawk_search_memory", "Scan a memory domain for a value (little-endian, stateless one-shot). Returns JSON with matching addresses. Pass previous hits in \"addresses\" to narrow down across calls.", [
+			Tool("bizhawk_search_memory", "Scan a memory domain for a value (stateless one-shot; endianness as bizhawk_read_memory). Returns JSON with matching addresses. Pass previous hits in \"addresses\" to narrow down across calls.", [
 				Param("value", "integer", "Value to match (must fit the width)."),
 				Param("width", "integer", "8, 16 or 32.", 8),
 				Param("domain", "string", "Optional domain (defaults to BizHawk's current one)."),
@@ -65,22 +71,22 @@ namespace BizHawkMcp
 				Param("length", "integer", "Bytes to hash, 1..1048576.", 256),
 				Param("domain", "string", "Optional domain."),
 			]),
-			Tool("bizhawk_read_signed", "Read s8/s16/s24/s32 (little-endian by default).", [
+			Tool("bizhawk_read_signed", "Read s8/s16/s24/s32 from a memory domain. Endianness as bizhawk_read_memory.", [
 				Param("address", "integer", "Offset in the domain, 0-based."),
 				Param("width", "integer", "8, 16, 24 or 32.", 8),
 				Param("domain", "string", "Optional domain."),
 			]),
-			Tool("bizhawk_write_signed", "Write s8/s16/s24/s32 (little-endian by default).", [
+			Tool("bizhawk_write_signed", "Write s8/s16/s24/s32 to a memory domain. Endianness as bizhawk_read_memory.", [
 				Param("address", "integer", "Offset in the domain, 0-based."),
 				Param("width", "integer", "8, 16, 24 or 32.", 8),
 				Param("value", "integer", "Value to write (must fit the width)."),
 				Param("domain", "string", "Optional domain."),
 			]),
-			Tool("bizhawk_read_float", "Read a 32-bit float from a memory domain.", [
+			Tool("bizhawk_read_float", "Read a 32-bit float from a memory domain. Endianness as bizhawk_read_memory.", [
 				Param("address", "integer", "Offset in the domain, 0-based."),
 				Param("domain", "string", "Optional domain."),
 			]),
-			Tool("bizhawk_write_float", "Write a 32-bit float to a memory domain.", [
+			Tool("bizhawk_write_float", "Write a 32-bit float to a memory domain. Endianness as bizhawk_read_memory.", [
 				Param("address", "integer", "Offset in the domain, 0-based."),
 				Param("value", "number", "Float value to write."),
 				Param("domain", "string", "Optional domain."),
@@ -89,7 +95,7 @@ namespace BizHawkMcp
 				Param("buttons", "object", "Map of button name -> pressed bool, e.g. {\"A\": true, \"Right\": true}."),
 				Param("controller", "integer", "Optional controller index (1-based).", 1),
 			]),
-			Tool("bizhawk_frame_advance", "Advance exactly N frames.", [
+			Tool("bizhawk_frame_advance", "Advance exactly N frames. If paused, temporarily unpauses and restores the pause afterwards, so frames actually run.", [
 				Param("count", "integer", "Frames to advance, 1..600.", 1),
 			]),
 			Tool("bizhawk_pause", "Pause emulation. Returns the new paused state.", []),
@@ -111,8 +117,8 @@ namespace BizHawkMcp
 				Param("name", "string", "Optional disassembler name (defaults to the core's)."),
 			]),
 			Tool("bizhawk_lag_count", "Lag status: is the current frame lagging and the total lag count.", []),
-			Tool("bizhawk_screenshot", "Save a PNG of the current frame.", [
-				Param("path", "string", "Absolute path writable by EmuHawk, e.g. C:/temp/snap.png."),
+			Tool("bizhawk_screenshot", "Save a PNG of the current frame. Omit \"path\" to save into the host temp dir (bizhawk-mcp). Paths are host-side: when EmuHawk runs on Windows they must be Windows paths (e.g. F:/temp/shot.png). Returns the effective absolute path and an MCP resource URI to fetch the image bytes.", [
+				Param("path", "string", "Optional absolute path writable by EmuHawk, e.g. C:/temp/snap.png. Defaults to a temp file."),
 			]),
 			Tool("bizhawk_save_state", "Save an emulator state to a file.", [
 				Param("path", "string", "Absolute .State path."),
@@ -200,6 +206,7 @@ namespace BizHawkMcp
 
 		private string GetInfo()
 		{
+			EnsureEndianness();
 			var game = _tool.Emulation!.GetGameInfo();
 			return JsonRpc.Pretty(new Dictionary<string, object?>
 			{
@@ -208,6 +215,7 @@ namespace BizHawkMcp
 				["system_id"] = _tool.Emulation!.GetSystemId(),
 				["framecount"] = _tool.Emulation!.FrameCount(),
 				["paused"] = _tool.EmuClient!.IsPaused(),
+				["endianness"] = EffectiveEndianness(),
 				["memory_domain"] = _tool.Memory!.GetCurrentMemoryDomain(),
 				["memory_domain_size"] = _tool.Memory!.GetCurrentMemoryDomainSize(),
 				["server"] = _tool.ServerUrl,
@@ -216,6 +224,7 @@ namespace BizHawkMcp
 
 		private string ReadMemory(JsonElement? args)
 		{
+			EnsureEndianness();
 			var a = Required(args);
 			long address = RequireLong(a, "address");
 			int width = RequireInt(a, "width", 8);
@@ -232,6 +241,7 @@ namespace BizHawkMcp
 
 		private string WriteMemory(JsonElement? args)
 		{
+			EnsureEndianness();
 			var a = Required(args);
 			long address = RequireLong(a, "address");
 			int width = RequireInt(a, "width", 8);
@@ -280,6 +290,7 @@ namespace BizHawkMcp
 
 		private string SearchMemory(JsonElement? args)
 		{
+			EnsureEndianness();
 			var a = Required(args);
 			ulong value = RequireULong(a, "value");
 			int width = RequireInt(a, "width", 8);
@@ -355,6 +366,7 @@ namespace BizHawkMcp
 		{
 			var a = Required(args);
 			bool enabled = a.TryGetProperty("enabled", out var v) && v.GetBoolean();
+			_bigEndianOverride = enabled;
 			_tool.Memory!.SetBigEndian(enabled);
 			return $"big-endian = {enabled}";
 		}
@@ -371,6 +383,7 @@ namespace BizHawkMcp
 
 		private string ReadSigned(JsonElement? args)
 		{
+			EnsureEndianness();
 			var a = Required(args);
 			long address = RequireLong(a, "address");
 			int width = RequireInt(a, "width", 8);
@@ -388,6 +401,7 @@ namespace BizHawkMcp
 
 		private string WriteSigned(JsonElement? args)
 		{
+			EnsureEndianness();
 			var a = Required(args);
 			long address = RequireLong(a, "address");
 			int width = RequireInt(a, "width", 8);
@@ -415,6 +429,7 @@ namespace BizHawkMcp
 
 		private string ReadFloat(JsonElement? args)
 		{
+			EnsureEndianness();
 			var a = Required(args);
 			long address = RequireLong(a, "address");
 			string? domain = OptionalString(a, "domain");
@@ -423,6 +438,7 @@ namespace BizHawkMcp
 
 		private string WriteFloat(JsonElement? args)
 		{
+			EnsureEndianness();
 			var a = Required(args);
 			long address = RequireLong(a, "address");
 			if (!a.TryGetProperty("value", out var v) || v.ValueKind != JsonValueKind.Number) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "missing number param: value");
@@ -448,12 +464,15 @@ namespace BizHawkMcp
 			var a = Required(args);
 			int count = RequireInt(a, "count", 1);
 			if (count is < 1 or > 600) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "count must be 1..600");
+			bool wasPaused = _tool.EmuClient!.IsPaused();
+			if (wasPaused) _tool.EmuClient!.Unpause();
 			for (var i = 0; i < count; i++)
 			{
 				_tool.EmuClient!.DoFrameAdvance();
 				System.Windows.Forms.Application.DoEvents();
 			}
-			return $"advanced {count} frame(s)";
+			if (wasPaused) _tool.EmuClient!.Pause();
+			return wasPaused ? $"advanced {count} frame(s) (was paused; pause restored)" : $"advanced {count} frame(s)";
 		}
 
 		private string PauseTool()
@@ -485,8 +504,9 @@ namespace BizHawkMcp
 
 		private string GetJoypad(JsonElement? args)
 		{
-			var a = Required(args);
-			int? controller = a.TryGetProperty("controller", out var c) && c.ValueKind == JsonValueKind.Number ? c.GetInt32() : 1;
+			int? controller = null;
+			if (args is { } a && a.ValueKind == JsonValueKind.Object && a.TryGetProperty("controller", out var c) && c.ValueKind == JsonValueKind.Number)
+				controller = c.GetInt32();
 			return JsonRpc.Pretty(new Dictionary<string, object?> { ["buttons"] = _tool.Joypad!.Get(controller) });
 		}
 
@@ -525,10 +545,22 @@ namespace BizHawkMcp
 
 		private string Screenshot(JsonElement? args)
 		{
-			var a = Required(args);
-			string path = RequireString(a, "path");
+			string? path = null;
+			if (args is { } a && a.ValueKind == JsonValueKind.Object) path = OptionalString(a, "path");
+			if (string.IsNullOrEmpty(path))
+			{
+				var dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "bizhawk-mcp");
+				System.IO.Directory.CreateDirectory(dir);
+				path = System.IO.Path.Combine(dir, $"shot-{DateTime.Now:yyyyMMdd-HHmmss-fff}.png");
+			}
+
 			_tool.EmuClient!.Screenshot(path);
-			return $"screenshot saved: {path}";
+			string uri = RegisterArtifact(path, "image/png", $"screenshot {System.IO.Path.GetFileName(path)}");
+			return JsonRpc.Pretty(new Dictionary<string, object?>
+			{
+				["path"] = path,
+				["resource"] = uri,
+			});
 		}
 
 		private string SaveState(JsonElement? args)
@@ -624,8 +656,7 @@ namespace BizHawkMcp
 
 		private string UserDataClear(JsonElement? args)
 		{
-			var a = Required(args);
-			if (a.TryGetProperty("key", out var k) && k.ValueKind == JsonValueKind.String)
+			if (args is { } a && a.ValueKind == JsonValueKind.Object && a.TryGetProperty("key", out var k) && k.ValueKind == JsonValueKind.String)
 			{
 				bool removed = _tool.UserData!.Remove(k.GetString()!);
 				return removed ? $"removed {k.GetString()}" : $"key not found: {k.GetString()}";
@@ -641,6 +672,101 @@ namespace BizHawkMcp
 		}
 
 		// ── param helpers ──────────────────────────────────────────────────────
+
+		// Applies the core-appropriate endianness default once per loaded system
+		// (SetBigEndian has no getter, so we keep our own state). Explicit
+		// bizhawk_set_big_endian calls take precedence and stick.
+		private void EnsureEndianness()
+		{
+			if (_bigEndianOverride != null) return;
+			var sys = _tool.Emulation!.GetSystemId();
+			if (_lastSystemId == sys) return;
+			_lastSystemId = sys;
+			_tool.Memory!.SetBigEndian(SystemIsBigEndian(sys));
+		}
+
+		private string EffectiveEndianness()
+		{
+			if (_bigEndianOverride is { } o) return o ? "big" : "little";
+			return SystemIsBigEndian(_tool.Emulation!.GetSystemId()) ? "big" : "little";
+		}
+
+		private static bool SystemIsBigEndian(string systemId)
+		{
+			switch (systemId)
+			{
+				case "GEN":      // Genesis / Mega Drive (68K)
+				case "SMD":
+				case "32X":
+				case "SNES":
+				case "SNESBG":   // Super Game Boy
+				case "N64":
+				case "SAT":      // Saturn
+					return true;
+				default:
+					return false; // GB/GBA/NES/PCE/PSX/... are little-endian
+			}
+		}
+
+		// ── MCP resources (artifacts the server can serve back as base64) ─────
+
+		private readonly List<Artifact> _artifacts = new();
+
+		private sealed class Artifact
+		{
+			public string Uri = "";
+			public string Path = "";
+			public string Mime = "";
+			public string Name = "";
+		}
+
+		private string RegisterArtifact(string path, string mime, string name)
+		{
+			var uri = $"bizhawk://{Guid.NewGuid():N}";
+			_artifacts.Add(new Artifact { Uri = uri, Path = path, Mime = mime, Name = name });
+			return uri;
+		}
+
+		public Dictionary<string, object?> ListResources()
+		{
+			var resources = new List<object?>();
+			foreach (var a in _artifacts)
+			{
+				long size = 0;
+				try { size = new System.IO.FileInfo(a.Path).Length; }
+				catch { /* file gone — still list the URI */ }
+				resources.Add(new Dictionary<string, object?>
+				{
+					["uri"] = a.Uri,
+					["name"] = a.Name,
+					["mimeType"] = a.Mime,
+					["size"] = size,
+				});
+			}
+			return new Dictionary<string, object?> { ["resources"] = resources };
+		}
+
+		public Dictionary<string, object?> ReadResource(string uri)
+		{
+			var artifact = _artifacts.Find(a => a.Uri == uri);
+			if (artifact == null) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"unknown resource: {uri}");
+			byte[] bytes;
+			try
+			{
+				bytes = System.IO.File.ReadAllBytes(artifact.Path);
+			}
+			catch (Exception e)
+			{
+				throw new JsonRpc.Error(JsonRpc.Error.INTERNAL_ERROR, $"cannot read resource: {e.Message}");
+			}
+			return new Dictionary<string, object?>
+			{
+				["contents"] = new List<object?>
+				{
+					new Dictionary<string, object?> { ["uri"] = uri, ["mimeType"] = artifact.Mime, ["blob"] = Convert.ToBase64String(bytes) },
+				},
+			};
+		}
 
 		private static JsonElement Required(JsonElement? args)
 		{

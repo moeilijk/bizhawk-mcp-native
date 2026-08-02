@@ -57,6 +57,9 @@ jobs:
           dotnet build src/BizHawkMcp/BizHawkMcp.csproj -c Release \
             -p:BizHawkInstallDir="$(pwd)/bizhawk"
 
+      - name: Run unit tests
+        run: dotnet test tests/BizHawkMcp.Tests/BizHawkMcp.Tests.csproj
+
       - name: Package
         run: |
           VERSION="${{ steps.resolve.outputs.bizhawk_tag }}"

@@ -21,8 +21,8 @@ namespace BizHawkMcp.Mcp
 	/// </summary>
 	public sealed class McpHttpServer
 	{
-		private readonly ExternalToolEntry _tool;
-		private readonly UiDispatcher _ui;
+		private readonly IHostApis _tool;
+		private readonly IUiDispatcher _ui;
 		private readonly Action<string> _log;
 
 		private readonly HttpListener _listener = new();
@@ -30,11 +30,12 @@ namespace BizHawkMcp.Mcp
 		private McpToolset? _toolset;
 		private Thread? _acceptThread;
 
-		public McpHttpServer(ExternalToolEntry tool, UiDispatcher ui, Action<string> log)
+		public McpHttpServer(IHostApis tool, IUiDispatcher ui, Action<string> log)
 		{
 			_tool = tool;
 			_ui = ui;
 			_log = log;
+			_toolset = new McpToolset(tool, ui);
 		}
 
 		public string BaseUrl { get; private set; } = "";
@@ -46,7 +47,6 @@ namespace BizHawkMcp.Mcp
 			BaseUrl = $"http://{host}:{port}/mcp/";
 			_listener.Prefixes.Add(BaseUrl);
 			_listener.Start();
-			_toolset = new McpToolset(_tool, _ui);
 			_acceptThread = new Thread(AcceptLoop) { IsBackground = true, Name = "mcp-http" };
 			_acceptThread.Start();
 		}
@@ -143,7 +143,7 @@ namespace BizHawkMcp.Mcp
 			ctx.Response.Close();
 		}
 
-		private (object? id, byte[] bytes, bool isNotification) Dispatch(string body)
+		internal (object? id, byte[] bytes, bool isNotification) Dispatch(string body)
 		{
 			object? id = null;
 			JsonElement root;
@@ -180,12 +180,18 @@ namespace BizHawkMcp.Mcp
 					"initialize" => new Dictionary<string, object?>
 					{
 						["protocolVersion"] = JsonRpc.MCP_PROTOCOL_VERSION,
-						["capabilities"] = new Dictionary<string, object?> { ["tools"] = new Dictionary<string, object?> { ["listChanged"] = false } },
-						["serverInfo"] = new Dictionary<string, object?> { ["name"] = "bizhawk-mcp-native", ["version"] = "0.1.0" },
+						["capabilities"] = new Dictionary<string, object?>
+						{
+							["tools"] = new Dictionary<string, object?> { ["listChanged"] = false },
+							["resources"] = new Dictionary<string, object?> { ["listChanged"] = false, ["subscribe"] = false },
+						},
+						["serverInfo"] = new Dictionary<string, object?> { ["name"] = "bizhawk-mcp-native", ["version"] = "0.2.0" },
 					},
 					"ping" => new Dictionary<string, object?>(),
 					"tools/list" => new Dictionary<string, object?> { ["tools"] = _toolset!.ToolSchemas },
 					"tools/call" => CallTool(args),
+					"resources/list" => _ui.Invoke(() => _toolset!.ListResources()),
+					"resources/read" => _ui.Invoke(() => ReadResource(args)),
 					_ => throw new JsonRpc.Error(JsonRpc.Error.METHOD_NOT_FOUND, $"unknown method: {method}"),
 				};
 				return (id, JsonRpc.Success(id, result), false);
@@ -198,6 +204,19 @@ namespace BizHawkMcp.Mcp
 			{
 				return (id, JsonRpc.Failure(id, new JsonRpc.Error(JsonRpc.Error.INTERNAL_ERROR, $"{e.GetType().Name}: {e.Message}")), false);
 			}
+		}
+
+		private Dictionary<string, object?> ReadResource(JsonElement? args)
+		{
+			if (args is not { } a
+				|| !a.TryGetProperty("uri", out var uriEl)
+				|| uriEl.ValueKind != JsonValueKind.String
+				|| string.IsNullOrEmpty(uriEl.GetString()))
+			{
+				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "resources/read requires a string 'uri'");
+			}
+
+			return _toolset!.ReadResource(uriEl.GetString()!);
 		}
 
 		private Dictionary<string, object?> CallTool(JsonElement? args)

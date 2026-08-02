@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Unit tests for the tool logic, run without BizHawk (works on Linux CI):
+    the product's .cs files are linked in, and the BizHawk.Client.Common
+    interfaces are stubbed in Stubs/ (only the members McpToolset uses).
+
+    The one WinForms dependency left is the stateless Application.DoEvents()
+    call in FrameAdvance, stubbed in Stubs/SystemStubs.cs. The real project
+    (net48 + BizHawk dlls) is NOT referenced here.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="../../src/BizHawkMcp/McpToolset.cs" Link="Linked/McpToolset.cs" />
+    <Compile Include="../../src/BizHawkMcp/Mcp/JsonRpc.cs" Link="Linked/JsonRpc.cs" />
+    <Compile Include="../../src/BizHawkMcp/Mcp/McpHttpServer.cs" Link="Linked/McpHttpServer.cs" />
+    <Compile Include="../../src/BizHawkMcp/IHostApis.cs" Link="Linked/IHostApis.cs" />
+    <Compile Include="../../src/BizHawkMcp/IUiDispatcher.cs" Link="Linked/IUiDispatcher.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+
+</Project>

@@ -63,8 +63,9 @@ Recipe with code in `docs/DEVELOPMENT.md`. In short: add a `Tool(...)` descripto
 - No in-memory savestates: `IMemorySaveStateApi` is not registered by the provider, so only disk-based `bizhawk_save_state`/`load_state` exist.
 - Streamable HTTP subset: no sessions, no server-initiated messages, `GET` SSE is endpoint + keepalive only.
 - `bizhawk_frame_advance` pumps `Application.DoEvents` between frames so the UI stays responsive; long counts (max 600) are intentionally capped.
-- `bizhawk_screenshot`/`save_state`/`load_state` paths are host-side (Windows paths when EmuHawk runs on Windows).
-- `bizhawk_search_memory` is little-endian only (matches `bizhawk_set_big_endian`-independent semantics).
+- `bizhawk_screenshot`/`save_state`/`load_state` paths are host-side (Windows paths when EmuHawk runs on Windows). `bizhawk_screenshot` returns the effective path plus a `bizhawk://` resource URI; `resources/read` serves the PNG as base64.
+- `bizhawk_search_memory` matches via the same endianness semantics as `bizhawk_read_memory` (core default, overridable with `bizhawk_set_big_endian`).
+- Endianness defaults are core-aware (`SystemIsBigEndian` map: GEN/SMD/32X/SNES/SNESBG/N64/SAT → big-endian); ApiHawk's `SetBigEndian` has no getter, so the toolset tracks its own state (`_bigEndianOverride`).
 
 ## CI notes
 

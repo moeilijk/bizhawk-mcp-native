@@ -8,6 +8,11 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# WSL users often install the SDK to ~/.dotnet (dotnet-install.sh), outside PATH
+if ! command -v dotnet >/dev/null 2>&1 && [ -x "$HOME/.dotnet/dotnet" ]; then
+  export PATH="$HOME/.dotnet:$PATH"
+fi
+
 BIZHAWK_INSTALL="${BIZHAWK_INSTALL:-}"
 ARGS=()
 if [ -n "$BIZHAWK_INSTALL" ]; then

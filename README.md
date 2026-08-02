@@ -118,7 +118,7 @@ Because the server lives inside EmuHawk, every opencode session connects to the 
 | `bizhawk_userdata_set` | `key`, `value` | `stored <key>` |
 | `bizhawk_userdata_get` | `key` | stored value |
 | `bizhawk_userdata_clear` | `key?` | cleared/removed |
-| `bizhawk_screenshot` | `path` | confirmation |
+| `bizhawk_screenshot` | `path?` | `{path, resource}` (JSON) — effective path + resource URI |
 | `bizhawk_save_state` | `path` | confirmation |
 | `bizhawk_load_state` | `path` | confirmation |
 | `bizhawk_shutdown` | — | stops the server |
@@ -129,8 +129,15 @@ Implemented subset of MCP **Streamable HTTP** (protocol version `2025-06-18`):
 
 - `POST /mcp` — stateless JSON-RPC 2.0 (no sessions); notifications return `202`.
 - `GET /mcp` with `Accept: text/event-stream` — SSE stream with an `endpoint` event + keepalive comments.
-- Methods: `initialize`, `ping`, `tools/list`, `tools/call`.
-- Not implemented (yet): sessions, server-initiated messages, resources, prompts.
+- Methods: `initialize`, `ping`, `tools/list`, `tools/call`, `resources/list`, `resources/read`.
+- **Resources** serve binary artifacts back to the client: `bizhawk_screenshot` saves a PNG on the host (default dir `<temp>/bizhawk-mcp/`) and returns a `bizhawk://…` URI; `resources/read` returns the bytes as base64 `blob` with the `image/png` mimeType.
+- Not implemented (yet): sessions, server-initiated messages, prompts.
+
+## Endianness
+
+- ApiHawk's `SetBigEndian` has no getter, so the plugin tracks its own state.
+- The default is core-aware: **big-endian on Genesis/Mega Drive, 32X, SNES, Super Game Boy, N64 and Saturn; little-endian elsewhere** (GB/GBA/NES/PCE/PSX/…). The default is applied once per loaded system.
+- `bizhawk_set_big_endian` overrides the default for the session; `bizhawk_get_info` reports the effective endianness.
 
 ## Compatibility & version pinning
 

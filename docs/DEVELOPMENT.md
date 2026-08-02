@@ -5,6 +5,24 @@
 - .NET SDK 8+ (Windows: any install; WSL: `~/.dotnet` via the official `dotnet-install.sh`, no sudo needed).
 - A BizHawk install with the official zip layout (`EmuHawk.exe` + `dll/`), auto-detected in `Directory.Build.props` or overridden with `-p:BizHawkInstallDir=<path>`.
 
+## Unit tests
+
+```bash
+./scripts/test.sh          # net8.0 + xunit; runs on Linux/CI, no BizHawk needed
+dotnet test tests/BizHawkMcp.Tests/BizHawkMcp.Tests.csproj
+```
+
+The test project **links in the product's `.cs` files** (`McpToolset`, `JsonRpc`, `McpHttpServer`, `IHostApis`, `IUiDispatcher`) and provides:
+- `Stubs/BizHawkStubs.cs` — minimal `BizHawk.Client.Common` ApiHawk interfaces (only the members `McpToolset` uses; keep in sync when adding API surface, see constraint 5).
+- `Stubs/SystemStubs.cs` — the net48 `System.Windows.Forms`/`System.Drawing` types used by the linked code (`Application.DoEvents`, `ColorTranslator`).
+- `Fakes.cs` — in-memory fakes (`FakeMemoryApi`, `FakeEmuClientApi`, …) wired into a `FakeApis : IHostApis`; the `InlineDispatcher` runs handlers on the calling thread.
+
+Tests cover: tool schema contract (every schema has a dispatch arm), JSON-RPC dispatch (parse errors, unknown methods, notifications), memory round-trips, core-aware endianness + override, search narrowing, screenshot→resource base64 round-trip, pause/frame-advance semantics.
+
+Rules when touching tool code:
+- Any tool whose params are all optional must accept `null` args (e.g. `GetJoypad`, `UserDataClear` use the optional-args pattern, not `Required`).
+- The dispatcher runs everything through `_ui.Invoke`, so handlers are pure w.r.t. threading — keep it that way (tests rely on `InlineDispatcher`).
+
 ## Build & deploy
 
 ```bash

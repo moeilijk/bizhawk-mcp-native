@@ -9,7 +9,7 @@ namespace BizHawkMcp
 	/// thread (frame stepping, screenshots, joypad), so the HTTP listener's
 	/// worker thread must never touch them directly.
 	/// </summary>
-	public sealed class UiDispatcher
+	public sealed class UiDispatcher : IUiDispatcher
 	{
 		private readonly Control _control;
 
