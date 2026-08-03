@@ -480,9 +480,10 @@ namespace BizHawkMcp.Tests
 		[Fact]
 		public void Palette_genesis_parses_bgr_to_rgb()
 		{
-			// CRAM entry 0x0007 = R=7, G=0, B=0 → #FF0000 (stored big-endian: 00 07)
-			_apis.MemoryApi.Bytes[0] = 0x00;
-			_apis.MemoryApi.Bytes[1] = 0x07;
+			// CRAM hardware format 0x0RRR0GGG0BBB: R at bits 1-3. R=7 → 0x000E
+			// (stored big-endian: 00 0E) → #FF0000
+			_apis.MemoryApi.WriteByte(0, 0x00, "CRAM");
+			_apis.MemoryApi.WriteByte(1, 0x0E, "CRAM");
 			var res = Parse(_ts.Call("bizhawk_read_palette", TestHelpers.Js("{\"count\":1}")));
 			Assert.Equal("GEN", res.GetProperty("system").GetString());
 			Assert.Equal("#FF0000", res.GetProperty("colors")[0].GetString());
@@ -491,9 +492,9 @@ namespace BizHawkMcp.Tests
 		[Fact]
 		public void Palette_genesis_blue_entry_maps_to_blue()
 		{
-			// 0x1C00 = B=7, G=0, R=0 → #0000FF
-			_apis.MemoryApi.Bytes[0] = 0x1C;
-			_apis.MemoryApi.Bytes[1] = 0x00;
+			// B at bits 9-11: B=7 → 0x0E00 (big-endian stored)
+			_apis.MemoryApi.WriteByte(0, 0x0E, "CRAM");
+			_apis.MemoryApi.WriteByte(1, 0x00, "CRAM");
 			var res = Parse(_ts.Call("bizhawk_read_palette", TestHelpers.Js("{\"count\":1}")));
 			Assert.Equal("#0000FF", res.GetProperty("colors")[0].GetString());
 		}
@@ -503,8 +504,8 @@ namespace BizHawkMcp.Tests
 		{
 			// CGRAM entry: 0x001F = R=31, G=0, B=0 → #FF0000 (little-endian stored)
 			_apis.EmulationApi.SystemId = "SNES";
-			_apis.MemoryApi.Bytes[0] = 0x1F;
-			_apis.MemoryApi.Bytes[1] = 0x00;
+			_apis.MemoryApi.WriteByte(0, 0x1F, "CGRAM");
+			_apis.MemoryApi.WriteByte(1, 0x00, "CGRAM");
 			var res = Parse(_ts.Call("bizhawk_read_palette", TestHelpers.Js("{\"count\":1}")));
 			Assert.Equal("#FF0000", res.GetProperty("colors")[0].GetString());
 		}
@@ -514,6 +515,77 @@ namespace BizHawkMcp.Tests
 		{
 			_apis.EmulationApi.SystemId = "NES";
 			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_read_palette", null));
+			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
+		}
+
+		[Fact]
+		public void Read_plane_renders_tiles_to_png()
+		{
+			var mem = _apis.MemoryApi;
+			// CRAM color 0 = black (0x0000), color 1 = white (0x000E).
+			mem.WriteByte(0, 0x00, "CRAM"); mem.WriteByte(1, 0x00, "CRAM");
+			mem.WriteByte(2, 0x00, "CRAM"); mem.WriteByte(3, 0x0E, "CRAM");
+
+			// Tile 0 at VRAM 0x0000: every row byte = 0x11 → all pixels = color 1.
+			// Tile 1 at VRAM 0x20: all black.
+			for (var i = 0; i < 32; i++) mem.WriteByte(i, 0x11, "VRAM");
+			for (var i = 0; i < 32; i++) mem.WriteByte(0x20 + i, 0x00, "VRAM");
+
+			// Nametable at 0xC000: entry 0 = tile 0, entry 1 = tile 1 (16-bit BE).
+			mem.WriteByte(0xC000, 0x00, "VRAM"); mem.WriteByte(0xC001, 0x00, "VRAM");
+			mem.WriteByte(0xC002, 0x00, "VRAM"); mem.WriteByte(0xC003, 0x01, "VRAM");
+
+			var res = Parse(_ts.Call("bizhawk_read_plane", TestHelpers.Js("{\"plane\":\"A\",\"columns\":2,\"rows\":1}")));
+			Assert.Equal((long)0xC000, res.GetProperty("base").GetInt64());
+			Assert.Equal(16, res.GetProperty("width").GetInt32());
+			Assert.Equal(8, res.GetProperty("height").GetInt32());
+			var path = res.GetProperty("path").GetString();
+			var uri = res.GetProperty("resource").GetString();
+			Assert.StartsWith("bizhawk://", uri);
+			Assert.True(System.IO.File.Exists(path));
+
+			// verify the PNG is decodable: signature + IHDR dims + it's a resource
+			var bytes = System.IO.File.ReadAllBytes(path);
+			Assert.Equal(0x89, bytes[0]);
+			Assert.Equal(0x50, bytes[1]);
+			Assert.Equal(0x4E, bytes[2]);
+			Assert.Equal(0x47, bytes[3]);
+			int ihdrW = (bytes[16] << 24) | (bytes[17] << 16) | (bytes[18] << 8) | bytes[19];
+			int ihdrH = (bytes[20] << 24) | (bytes[21] << 16) | (bytes[22] << 8) | bytes[23];
+			Assert.Equal(16, ihdrW);
+			Assert.Equal(8, ihdrH);
+			System.IO.File.Delete(path);
+		}
+
+		[Fact]
+		public void Read_plane_h_flip_and_palette_select()
+		{
+			var mem = _apis.MemoryApi;
+			// Block 1 (CRAM index 16+): color 1 = red (0x000E).
+			mem.WriteByte(32, 0x00, "CRAM"); mem.WriteByte(33, 0x00, "CRAM"); // index 16 = black
+			mem.WriteByte(34, 0x00, "CRAM"); mem.WriteByte(35, 0x0E, "CRAM"); // index 17 = red
+
+			// Tile 0: row0 = 0x10 0x00 0x00 0x00 → only leftmost pixel (col 0) = color 1
+			mem.WriteByte(0, 0x10, "VRAM"); mem.WriteByte(1, 0x00, "VRAM");
+			mem.WriteByte(2, 0x00, "VRAM"); mem.WriteByte(3, 0x00, "VRAM");
+			for (var i = 4; i < 32; i++) mem.WriteByte(i, 0x00, "VRAM");
+
+			// nametable entry 0: tile 0, H-flip (bit 11 = 0x800), palette block 1 (bits 13-14 = 0x2000)
+			int attr = 0x0000 | 0x0800 | 0x2000;
+			mem.WriteByte(0xC000, (byte)(attr >> 8), "VRAM");
+			mem.WriteByte(0xC001, (byte)attr, "VRAM");
+
+			var res = Parse(_ts.Call("bizhawk_read_plane", TestHelpers.Js("{\"plane\":\"A\",\"columns\":1,\"rows\":1}")));
+			var path = res.GetProperty("path").GetString();
+			Assert.True(System.IO.File.Exists(path));
+			System.IO.File.Delete(path);
+		}
+
+		[Fact]
+		public void Read_plane_rejects_out_of_vram()
+		{
+			// 0xF100 (61696) + 64*32*2 nametable exceeds 64KB VRAM
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_read_plane", TestHelpers.Js("{\"plane\":\"A\",\"base\":61696,\"columns\":64,\"rows\":32}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 		}
 

@@ -291,6 +291,14 @@ namespace BizHawkMcp
 				Param("count", "integer", "Number of colors to read, 1..256.", 64),
 				Param("domain", "string", "Optional palette domain (defaults to CRAM on GEN, CGRAM on SNES)."),
 			]),
+			Tool("bizhawk_read_plane", "Decode a Genesis background nametable (plane A/B) from VRAM into a PNG (also exposed as a bizhawk:// resource). Plane base defaults to 0xC000 (A) / 0xE000 (B) but can be overridden with \"base\". Uses the CRAM palette; \"columns\"/\"rows\" select the region (default full 64x32), \"scale\" zooms.", [
+				Param("plane", "string", "\"A\" or \"B\".", "A"),
+				Param("base", "integer", "VRAM offset of the nametable (default 0xC000 for A, 0xE000 for B)."),
+				Param("columns", "integer", "Tile columns to render, 1..128.", 64),
+				Param("rows", "integer", "Tile rows to render, 1..128.", 32),
+				Param("scale", "integer", "Pixel zoom factor, 1..8.", 1),
+				Param("path", "string", "Optional absolute PNG path writable by EmuHawk (default: temp dir)."),
+			]),
 			Tool("bizhawk_press_buttons", "Set joypad state for the NEXT frame.", [
 				Param("buttons", "object", "Map of button name -> pressed bool, e.g. {\"A\": true, \"Right\": true}."),
 				Param("controller", "integer", "Optional controller index (1-based).", 1),
@@ -448,6 +456,7 @@ namespace BizHawkMcp
 				"bizhawk_symbols_list" => _ui.Invoke(SymbolsList),
 				"bizhawk_symbols_clear" => _ui.Invoke(() => SymbolsClear(args)),
 				"bizhawk_read_palette" => _ui.Invoke(() => ReadPalette(args)),
+				"bizhawk_read_plane" => _ui.Invoke(() => ReadPlane(args)),
 				"bizhawk_press_buttons" => _ui.Invoke(() => PressButtons(args)),
 				"bizhawk_frame_advance" => _ui.Invoke(() => FrameAdvance(args)),
 				"bizhawk_pause" => _ui.Invoke(() => PauseTool()),
@@ -1211,19 +1220,24 @@ namespace BizHawkMcp
 			var sys = _tool.Emulation!.GetSystemId();
 			string domain;
 			int entryBits;
+			int rShift, bShift;
 			bool bigEndian;
 			switch (sys)
 			{
 				case "GEN":
 				case "SMD":
 					domain = "CRAM";
-					entryBits = 3;   // 16-bit BGR, 3 bits per channel (R=0-2, G=5-7, B=10-12)
+					entryBits = 3;   // 16-bit 0x0RRR0GGG0BBB: R at bits 1-3, G 5-7, B 9-11
+					rShift = 1;
+					bShift = 9;
 					bigEndian = true;
 					break;
 				case "SNES":
 				case "SNESBG":
 					domain = "CGRAM";
-					entryBits = 5;   // 16-bit BGR555, 5 bits per channel
+					entryBits = 5;   // 16-bit BGR555: R at bits 0-4, G 5-9, B 10-14
+					rShift = 0;
+					bShift = 10;
 					bigEndian = false;
 					break;
 				default:
@@ -1244,12 +1258,231 @@ namespace BizHawkMcp
 				byte hi = (byte)_tool.Memory!.ReadByte(addr + 1, domain);
 				int entry = bigEndian ? (lo << 8) | hi : (lo | (hi << 8));
 				int mask = (1 << entryBits) - 1;
-				int r = entry & mask;
+				int r = (entry >> rShift) & mask;
 				int g = (entry >> 5) & mask;
-				int b = (entry >> 10) & mask;
+				int b = (entry >> bShift) & mask;
 				colors.Add($"#{To8Bit(r, mask):X2}{To8Bit(g, mask):X2}{To8Bit(b, mask):X2}");
 			}
 			return JsonRpc.Pretty(new Dictionary<string, object?> { ["system"] = sys, ["domain"] = domain, ["colors"] = colors });
+		}
+
+		// ── plane decode (Genesis VDP → PNG) ───────────────────────────────────
+		// Decodes a background nametable (plane A/B) from VRAM into a PNG using
+		// the CRAM palette. Genesis Mode 5 details (from Genesis Plus GX):
+		//   nametable entry (16-bit BE): bit15 P, bits14-13 palette (0..3 = CRAM
+		//     block of 16), bit12 V-flip, bit11 H-flip, bits10-0 tile index.
+		//   tile row (8px, 4bpp): 4 bytes, each byte holds TWO pixels packed as
+		//     high nibble (left) + low nibble (right). Pixel color = (byte[x>>1]
+		//     >> ((x&1)?0:4)) & 0xF — the color index into the 16-color palette.
+		//   tile base = tileIndex * 0x20 (+ row*4 for the row bytes).
+		// Plane A default base 0xC000, plane B 0xE000 (reg2/reg4 typical values).
+
+		private string ReadPlane(JsonElement? args)
+		{
+			var a = Required(args);
+			string plane = a.TryGetProperty("plane", out var p) && p.ValueKind == JsonValueKind.String ? p.GetString()! : "A";
+			if (plane is not ("A" or "B")) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "plane must be \"A\" or \"B\"");
+			long baseAddr = a.TryGetProperty("base", out var b) && b.ValueKind == JsonValueKind.Number ? b.GetInt64() : (plane == "A" ? 0xC000 : 0xE000);
+			int cols = RequireInt(a, "columns", 64);
+			int rows = RequireInt(a, "rows", 32);
+			int scale = RequireInt(a, "scale", 1);
+			if (cols is < 1 or > 128) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "columns must be 1..128");
+			if (rows is < 1 or > 128) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "rows must be 1..128");
+			if (scale is < 1 or > 8) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "scale must be 1..8");
+			if (baseAddr < 0 || baseAddr + (long)cols * rows * 2 > 0x10000)
+				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"base {baseAddr:X} + {cols}x{rows} nametable exceeds VRAM (64KB)");
+
+			// palette: 64 entries × 16-bit BE from CRAM, hardware 0x0RRR0GGG0BBB
+			var palette = new byte[64 * 3];
+			for (var i = 0; i < 64; i++)
+			{
+				byte lo = (byte)_tool.Memory!.ReadByte(i * 2, "CRAM");
+				byte hi = (byte)_tool.Memory!.ReadByte(i * 2 + 1, "CRAM");
+				int entry = (lo << 8) | hi;
+				int mask = 0x7;
+				palette[i * 3 + 0] = (byte)To8Bit((entry >> 1) & mask, mask);
+				palette[i * 3 + 1] = (byte)To8Bit((entry >> 5) & mask, mask);
+				palette[i * 3 + 2] = (byte)To8Bit((entry >> 9) & mask, mask);
+			}
+
+			// render tiles row by row
+			int px = cols * 8 * scale, py = rows * 8 * scale;
+			var img = new byte[px * py * 3];
+			for (var ty = 0; ty < rows; ty++)
+			{
+				for (var tx = 0; tx < cols; tx++)
+				{
+					long nt = baseAddr + (ty * cols + tx) * 2;
+					byte lo = (byte)_tool.Memory!.ReadByte(nt, "VRAM");
+					byte hi = (byte)_tool.Memory!.ReadByte(nt + 1, "VRAM");
+					int attr = (lo << 8) | hi;
+					int tileIndex = attr & 0x7FF;
+					int paletteSel = (attr >> 13) & 0x3;   // CRAM block 0..3
+					bool hFlip = (attr & 0x800) != 0;      // bit 11
+					bool vFlip = (attr & 0x1000) != 0;     // bit 12
+					int palBase = paletteSel * 16;
+
+					for (var y = 0; y < 8; y++)
+					{
+						int row = vFlip ? 7 - y : y;
+						long tileAddr = tileIndex * 0x20 + row * 4;
+						for (var x = 0; x < 8; x++)
+						{
+							int col = hFlip ? 7 - x : x;
+							byte rowByte = (byte)_tool.Memory!.ReadByte(tileAddr + (col >> 1), "VRAM");
+							int colorIndex = (rowByte >> ((col & 1) != 0 ? 0 : 4)) & 0xF;
+							int palIdx = palBase + colorIndex;
+							byte r = palette[palIdx * 3], g = palette[palIdx * 3 + 1], bl = palette[palIdx * 3 + 2];
+
+							// fill scale×scale block
+							for (var sy = 0; sy < scale; sy++)
+							{
+								int iy = (ty * 8 + y) * scale + sy;
+								for (var sx = 0; sx < scale; sx++)
+								{
+									int ix = (tx * 8 + x) * scale + sx;
+									int off = (iy * px + ix) * 3;
+									img[off] = r; img[off + 1] = g; img[off + 2] = bl;
+								}
+							}
+						}
+					}
+				}
+			}
+
+			string? outPath = OptionalString(a, "path");
+			string path;
+			if (string.IsNullOrEmpty(outPath))
+			{
+				path = WritePngToTemp("plane", px, py, img);
+			}
+			else
+			{
+				path = outPath;
+				var dir = System.IO.Path.GetDirectoryName(path);
+				if (!string.IsNullOrEmpty(dir)) System.IO.Directory.CreateDirectory(dir);
+				WritePng(path, px, py, img);
+			}
+			string uri = RegisterArtifact(path, "image/png", $"plane {plane} ({cols}x{rows} tiles @0x{baseAddr:X})");
+			return JsonRpc.Pretty(new Dictionary<string, object?>
+			{
+				["plane"] = plane,
+				["base"] = baseAddr,
+				["columns"] = cols,
+				["rows"] = rows,
+				["width"] = px,
+				["height"] = py,
+				["path"] = path,
+				["resource"] = uri,
+			});
+		}
+
+		// Minimal PNG encoder (24-bit RGB, zlib via DeflateStream) so the tool
+		// runs on both net48 (EmuHawk) and Linux without System.Drawing.Bitmap.
+		private string WritePngToTemp(string prefix, int width, int height, byte[] rgb)
+		{
+			var dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "bizhawk-mcp");
+			System.IO.Directory.CreateDirectory(dir);
+			string path = System.IO.Path.Combine(dir, $"{prefix}-{DateTime.Now:yyyyMMdd-HHmmss-fff}.png");
+			WritePng(path, width, height, rgb);
+			return path;
+		}
+
+		private static void WritePng(string path, int width, int height, byte[] rgb)
+		{
+			// scanlines: each row prefixed with filter byte 0 (None), then RGB
+			int stride = width * 3;
+			var raw = new byte[(stride + 1) * height];
+			for (var y = 0; y < height; y++)
+			{
+				int dst = y * (stride + 1);
+				raw[dst] = 0;
+				Buffer.BlockCopy(rgb, y * stride, raw, dst + 1, stride);
+			}
+
+			// zlib stream: 0x78 0x9C header + deflate + adler32
+			byte[] deflated;
+			using (var ms = new System.IO.MemoryStream())
+			{
+				using (var ds = new System.IO.Compression.DeflateStream(ms, System.IO.Compression.CompressionLevel.Optimal, true))
+				{
+					ds.Write(raw, 0, raw.Length);
+				}
+				deflated = ms.ToArray();
+			}
+			uint adler = Adler32(raw);
+			var idat = new byte[deflated.Length + 6];
+			idat[0] = 0x78; idat[1] = 0x9C;
+			Buffer.BlockCopy(deflated, 0, idat, 2, deflated.Length);
+			idat[idat.Length - 4] = (byte)(adler >> 24);
+			idat[idat.Length - 3] = (byte)(adler >> 16);
+			idat[idat.Length - 2] = (byte)(adler >> 8);
+			idat[idat.Length - 1] = (byte)adler;
+
+			using (var fs = new System.IO.FileStream(path, System.IO.FileMode.Create, System.IO.FileAccess.Write))
+			{
+				fs.Write(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A }, 0, 8);
+				WriteChunk(fs, "IHDR", IhdrBytes(width, height));
+				WriteChunk(fs, "IDAT", idat);
+				WriteChunk(fs, "IEND", System.Array.Empty<byte>());
+			}
+		}
+
+		private static byte[] IhdrBytes(int width, int height)
+		{
+			var b = new byte[13];
+			b[0] = (byte)(width >> 24); b[1] = (byte)(width >> 16); b[2] = (byte)(width >> 8); b[3] = (byte)width;
+			b[4] = (byte)(height >> 24); b[5] = (byte)(height >> 16); b[6] = (byte)(height >> 8); b[7] = (byte)height;
+			b[8] = 8;  // bit depth
+			b[9] = 2;  // color type: truecolor RGB
+			b[10] = 0; // compression
+			b[11] = 0; // filter
+			b[12] = 0; // interlace
+			return b;
+		}
+
+		private static void WriteChunk(System.IO.FileStream fs, string type, byte[] data)
+		{
+			var len = new[] { (byte)(data.Length >> 24), (byte)(data.Length >> 16), (byte)(data.Length >> 8), (byte)data.Length };
+			fs.Write(len, 0, 4);
+			var typeBytes = System.Text.Encoding.ASCII.GetBytes(type);
+			fs.Write(typeBytes, 0, 4);
+			fs.Write(data, 0, data.Length);
+			uint crc = Crc32(typeBytes, data);
+			fs.Write(new[] { (byte)(crc >> 24), (byte)(crc >> 16), (byte)(crc >> 8), (byte)crc }, 0, 4);
+		}
+
+		private static uint Adler32(byte[] data)
+		{
+			uint a = 1, b = 0;
+			for (var i = 0; i < data.Length; i++)
+			{
+				a = (a + data[i]) % 65521;
+				b = (b + a) % 65521;
+			}
+			return (b << 16) | a;
+		}
+
+		private static readonly uint[] CrcTable = BuildCrcTable();
+
+		private static uint[] BuildCrcTable()
+		{
+			var t = new uint[256];
+			for (uint n = 0; n < 256; n++)
+			{
+				uint c = n;
+				for (var k = 0; k < 8; k++) c = (c & 1) != 0 ? 0xEDB88320u ^ (c >> 1) : c >> 1;
+				t[n] = c;
+			}
+			return t;
+		}
+
+		private static uint Crc32(byte[] type, byte[] data)
+		{
+			uint c = 0xFFFFFFFF;
+			foreach (var t in type) c = CrcTable[(c ^ t) & 0xFF] ^ (c >> 8);
+			foreach (var d in data) c = CrcTable[(c ^ d) & 0xFF] ^ (c >> 8);
+			return c ^ 0xFFFFFFFF;
 		}
 
 		private string PressButtons(JsonElement? args)

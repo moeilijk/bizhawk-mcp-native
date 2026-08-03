@@ -59,9 +59,12 @@ Legend: `[x]` done · `[~]` partially done / covered by another tool · `[ ]` op
   watches an address and returns the frame + value the moment it changes, using
   the existing `wait_until`/`ram_diff` infra — works on ANY core (no callbacks
   needed). Useful for "who writes this RAM" on cores without memory callbacks.
-- [ ] **VRAM plane decode** (`bizhawk_read_plane`): nametable (64×32) + tiles
-  (8×8, 4bpp planar) + palette → PNG. Most hardware-specific work; no new APIs
-  needed (VRAM/CRAM domains exist).
+- [x] **VRAM plane decode** (`bizhawk_read_plane`): nametable (plane A/B, default
+  bases 0xC000/0xE000, overridable) + tiles (8×8, 4bpp packed nibbles) +
+  CRAM palette → PNG via a self-contained encoder (DeflateStream, no
+  System.Drawing — runs on net48 and Linux). Genesis Mode 5 only.
+  (Also fixed `read_palette`: Genesis CRAM bits are 0x0RRR0GGG0BBB — R at
+  bits 1-3, B at 9-11 — the old decode had R/B in the wrong positions.)
 - [ ] **`pointer_scan`**: find all RAM words/pointers pointing at address X.
   Mostly covered by `bizhawk_search_memory` (u16/u32 `value` = target address) —
   only worth a wrapper if the search tool's `max_results`/domain narrowing is

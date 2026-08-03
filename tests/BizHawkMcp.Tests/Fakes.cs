@@ -26,12 +26,14 @@ namespace BizHawkMcp.Tests
 
 		public void SetBigEndian(bool enabled = true) { BigEndian = enabled; SetBigEndianCalls++; }
 
-		public IReadOnlyCollection<string> GetMemoryDomainList() => ["68K RAM", "Z80 RAM", "M68K BUS"];
+		public IReadOnlyCollection<string> GetMemoryDomainList() => ["68K RAM", "Z80 RAM", "M68K BUS", "VRAM", "CRAM"];
 
 		public uint GetMemoryDomainSize(string name = "")
 		{
 			if (string.IsNullOrEmpty(name) || name == "68K RAM") return 65536u;
 			if (name == "Z80 RAM") return 8192u;
+			if (name == "VRAM") return 65536u;
+			if (name == "CRAM") return 128u;
 			return 16u * 1024 * 1024;
 		}
 
@@ -48,7 +50,7 @@ namespace BizHawkMcp.Tests
 
 		public string HashRegion(long addr, int count, string domain = null) => "deadbeef";
 
-		public uint ReadByte(long addr, string domain = null) => Bytes.TryGetValue(addr, out var b) ? b : (uint)0;
+		public uint ReadByte(long addr, string domain = null) => Bytes.TryGetValue(addr + DomainBase(domain), out var b) ? b : (uint)0;
 
 		public IReadOnlyList<byte> ReadByteRange(long addr, int length, string domain = null)
 		{
@@ -56,6 +58,16 @@ namespace BizHawkMcp.Tests
 			for (var i = 0; i < length; i++) list[i] = (byte)ReadByte(addr + i, domain);
 			return list;
 		}
+
+		// Domain spaces are offset so VRAM/CRAM don't collide with each other
+		// or with RAM in the shared byte map (the real core uses separate
+		// domains). Base offsets chosen well above any RAM test address.
+		private static long DomainBase(string? domain) => domain switch
+		{
+			"VRAM" => 0x10_0000L,
+			"CRAM" or "CGRAM" => 0x20_0000L,
+			_ => 0L,
+		};
 
 		public float ReadFloat(long addr, string domain = null) => BitConverter.ToSingle(new[] { (byte)ReadByte(addr), (byte)ReadByte(addr + 1), (byte)ReadByte(addr + 2), (byte)ReadByte(addr + 3) }, 0);
 
@@ -91,17 +103,17 @@ namespace BizHawkMcp.Tests
 			return BigEndian ? (uint)((a << 24) | (b << 16) | (c << 8) | d) : (uint)(a | (b << 8) | (c << 16) | (d << 24));
 		}
 
-		public void WriteByte(long addr, uint value, string domain = null) => Bytes[addr] = (byte)value;
+		public void WriteByte(long addr, uint value, string domain = null) => Bytes[addr + DomainBase(domain)] = (byte)value;
 
 		public void WriteByteRange(long addr, IReadOnlyList<byte> memoryblock, string domain = null)
 		{
-			for (var i = 0; i < memoryblock.Count; i++) Bytes[addr + i] = memoryblock[i];
+			for (var i = 0; i < memoryblock.Count; i++) Bytes[addr + DomainBase(domain) + i] = memoryblock[i];
 		}
 
 		public void WriteFloat(long addr, float value, string domain = null)
 		{
 			var bytes = BitConverter.GetBytes(value);
-			for (var i = 0; i < 4; i++) Bytes[addr + i] = bytes[i];
+			for (var i = 0; i < 4; i++) Bytes[addr + DomainBase(domain) + i] = bytes[i];
 		}
 
 		public void WriteS8(long addr, int value, string domain = null) => WriteByte(addr, (uint)(sbyte)value);

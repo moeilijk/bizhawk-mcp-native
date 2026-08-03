@@ -104,6 +104,7 @@ Because the server lives inside EmuHawk, every opencode session connects to the 
 | `bizhawk_symbols_list` | — | registered symbols + namespaces (JSON) |
 | `bizhawk_symbols_clear` | `namespace?` | `cleared N symbol(s)` |
 | `bizhawk_read_palette` | `count?`, `domain?` | hex RGB colors (JSON; GEN/SNES) |
+| `bizhawk_read_plane` | `plane?` (A/B), `base?`, `columns?`, `rows?`, `scale?`, `path?` | decoded nametable → PNG (Genesis; resource URI) |
 | `bizhawk_hash_region` | `address`, `length`, `domain?` | SHA1 of region |
 | `bizhawk_read_range` | `address`, `length` (1–4096), `domain?` | hex dump |
 | `bizhawk_use_memory_domain` | `domain` | confirmation |

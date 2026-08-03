@@ -3,7 +3,7 @@
 Guidance for AI agents (and humans) working on this repository.
 
 - **Documentation index:** `docs/` — `ARCHITECTURE.md`, `MCP-PROTOCOL.md`, `DEVELOPMENT.md`, `CI-RELEASES.md`. When in doubt, read the relevant doc before editing. Improvement ideas live in `TODO.md`.
-- **Current status (2026-08-02):** 62 tools verified end-to-end against the user's BizHawk dev build (2.11.2, commit `ed78f70a`, Windows via WSL). Server advertises `tools` + `resources` capabilities over `http://127.0.0.1:8767/mcp/`; 142 unit tests (`./scripts/test.sh`) pass on Linux without BizHawk. Deployed to `F:\projects\kid\emulators\BizHawk-dev-windows\ExternalTools\`. Test loop: an agent tests against Kid Chameleon (UE) on the Genesis gpgx waterbox core.
+- **Current status (2026-08-02):** 63 tools verified end-to-end against the user's BizHawk dev build (2.11.2, commit `ed78f70a`, Windows via WSL). Server advertises `tools` + `resources` capabilities over `http://127.0.0.1:8767/mcp/`; 145 unit tests (`./scripts/test.sh`) pass on Linux without BizHawk. Deployed to `F:\projects\kid\emulators\BizHawk-dev-windows\ExternalTools\`. Test loop: an agent tests against Kid Chameleon (UE) on the Genesis gpgx waterbox core.
 
 ## What this is
 
@@ -105,10 +105,17 @@ before debugging anything on the Genesis core.
   `ReadFloatRaw`) so the result never depends on ApiHawk's global `SetBigEndian`
   state — a per-call param always wins. Every read tool also returns the
   `"endianness"` actually used, so clients never misread a value.
-- **Palette formats:** Genesis CRAM = 16-bit BGR with 3 bits/channel packed
-  `0BBB0GGG0RRR0` (R in bits 0-2), big-endian bytes; SNES CGRAM = 16-bit BGR555
-  (R in bits 0-4), little-endian bytes. `bizhawk_read_palette` handles both,
-  endianness-independent of `set_big_endian`.
+- **Palette formats:** Genesis CRAM = 16-bit `0x0RRR0GGG0BBB` (R at bits 1-3,
+  G 5-7, B 9-11), big-endian bytes; SNES CGRAM = 16-bit BGR555 (R at bits 0-4),
+  little-endian bytes. `bizhawk_read_palette` handles both. **`bizhawk_read_plane`**
+  decodes a Genesis background nametable (plane A/B, default bases 0xC000/0xE000
+  from VDP regs 2/4) + 8×8 4bpp tiles + CRAM → PNG. Genesis tiles are NOT
+  plane-per-byte: each tile row is 4 bytes holding TWO packed 4-bit pixels each
+  (high nibble = left pixel); pixel color = `(byte[x>>1] >> ((x&1)?0:4)) & 0xF`,
+  tile base = `tileIndex * 0x20 + row*4`. Nametable entry (16-bit BE): bit15
+  priority, bits14-13 palette block (×16 CRAM), bit12 V-flip, bit11 H-flip,
+  bits10-0 tile index. The PNG encoder is self-contained (DeflateStream, no
+  System.Drawing) so it runs on net48 and Linux.
 - **Validated Kid Chameleon addresses:** mainFunction = `0xFFFBCA` (u16),
   cameraX = `0xFFF81C` (u32), isFading = `0xFFFBCE`, levelLayout = `0xFFA652`,
   playerSprPtr = `0xFFF85E`; RAM also holds resident code (sound driver, e.g.
@@ -129,14 +136,21 @@ before debugging anything on the Genesis core.
 
 - Keep a Changelog in `CHANGELOG.md` (Keep a Changelog + SemVer format). Every
   feature/fix commit that is user-visible **must** also add a bullet under
-  `## [Unreleased]` (`### Added` / `### Fixed` / `### Changed`). When a release
-  tag is cut, move the unreleased bullets under the new `## [vX.Y.Z]` section.
+  `## [Unreleased]` (`### Added` / `### Fixed` / `### Changed`).
+- **Never create a versioned section, bump the version, tag, or commit a
+  release on your own initiative.** Changes always accumulate under
+  `## [Unreleased]`; if you add `## [vX.Y.Z]` sections by yourself, every
+  iteration gets recorded as a new release.
+- Only when the user **explicitly asks to cut a release** (e.g. "crie a versão
+  v0.2.0", "fazer bump", "faça o release"): move the `## [Unreleased]` bullets
+  under a new `## [vX.Y.Z] - YYYY-MM-DD` section, commit, then create and push
+  the `vX.Y.Z` tag. Nothing else is required.
 - The release job reads the section whose heading exactly matches the pushed
   tag (`## [<tag>]`) and uses it as the GitHub release notes; if no such
   section exists it falls back to `--generate-notes`, so a forgotten changelog
   never breaks the release.
-- Getting a release out: push the `vX.Y.Z` tag (the workflow builds the matrix
-  zips, uploads them, and creates the release). Nothing else is required.
+- `workflow_dispatch` only builds and uploads artifacts; **a GitHub release is
+  created only by pushing a `v*` tag**.
 
 ## CI notes
 
