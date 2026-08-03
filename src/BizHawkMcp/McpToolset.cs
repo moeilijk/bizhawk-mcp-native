@@ -201,6 +201,12 @@ namespace BizHawkMcp
 				Param("length", "integer", "Bytes to read, 1..4096.", 256),
 				Param("domain", "string", "Optional domain."),
 			]),
+			Tool("bizhawk_read_bulk", "Read a contiguous range as raw base64 in ONE call (up to 64 KiB — 16x the read_range cap). Every tool call has ~15-20ms fixed overhead, so batching wins: 4096 bytes via read_many costs 16 calls, via read_bulk costs 1. Returns {address, length, domain, base64}. For whole-domain dumps use bizhawk_dump_memory or the bizhawk://read/{domain}/{range} resource.", [
+				Param("address", "integer", "Start offset in the domain, or use a symbol \"name\" instead."),
+				Param("name", "string", "Symbol name registered via bizhawk_symbols_set (overrides address/domain)."),
+				Param("length", "integer", "Bytes to read, 1..65536.", 256),
+				Param("domain", "string", "Optional domain."),
+			]),
 			Tool("bizhawk_list_memory_domains", "List all memory domains with sizes (JSON). Each entry reports \"size\" and, when known, \"bus_base\" (the domain's location in the raw bus space, e.g. 68K RAM = 0xFF0000 on Genesis). Offsets are domain-relative: RAM offset 0xFBC8 = bus 0xFFFBC8; bus domains take raw bus addresses.", []),
 			Tool("bizhawk_use_memory_domain", "Switch the active memory domain.", [
 				Param("domain", "string", "Domain name, e.g. \"WRAM\"."),
@@ -539,6 +545,7 @@ namespace BizHawkMcp
 				"bizhawk_read_memory" => _ui.Invoke(() => ReadMemory(args)),
 				"bizhawk_write_memory" => _ui.Invoke(() => WriteMemory(args)),
 				"bizhawk_read_range" => _ui.Invoke(() => ReadRange(args)),
+				"bizhawk_read_bulk" => _ui.Invoke(() => ReadBulk(args)),
 				"bizhawk_use_memory_domain" => _ui.Invoke(() => UseMemoryDomain(args)),
 				"bizhawk_list_memory_domains" => _ui.Invoke(ListMemoryDomains),
 				"bizhawk_search_memory" => _ui.Invoke(() => SearchMemory(args)),
@@ -726,6 +733,33 @@ namespace BizHawkMcp
 			var sb = new System.Text.StringBuilder(length * 3);
 			for (var i = 0; i < length; i++) sb.Append(_tool.Memory!.ReadByte(address + i, domain).ToString("X2")).Append(' ');
 			return sb.ToString().TrimEnd();
+		}
+
+		// Raw contiguous read as base64 in one call. Per-call latency is dominated
+		// by fixed overhead (~15-20ms: HTTP + JSON + UI-thread marshaling), so a
+		// single bulk call beats N read_many calls for contiguous regions, and
+		// base64 payloads are ~4x smaller than the per-item JSON of read_many.
+		private string ReadBulk(JsonElement? args)
+		{
+			var a = Required(args);
+			int length = RequireInt(a, "length", 256);
+			if (length is < 1 or > 65536) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "length must be 1..65536");
+			var (address, _, domain) = ResolveTarget(a);
+			address = ValidateAddress(address, 8, domain);
+			string name = domain ?? _tool.Memory!.GetCurrentMemoryDomain();
+			uint size = _tool.Memory!.GetMemoryDomainSize(domain);
+			if (address + length > size)
+				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"range {address}:{address + length} outside domain \"{name}\" (size {size})");
+			var raw = _tool.Memory!.ReadByteRange(address, length, domain);
+			var buf = new byte[length];
+			for (var i = 0; i < length; i++) buf[i] = raw[i];
+			return JsonRpc.Pretty(new Dictionary<string, object?>
+			{
+				["address"] = address,
+				["length"] = length,
+				["domain"] = name,
+				["base64"] = Convert.ToBase64String(buf),
+			});
 		}
 
 		private string DumpMemory(JsonElement? args)

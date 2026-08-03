@@ -1,3 +1,4 @@
+using System;
 using System.Linq;
 using System.Text.Json;
 using BizHawk.Emulation.Common;
@@ -515,6 +516,46 @@ namespace BizHawkMcp.Tests
 			_ts.Call("bizhawk_symbols_set", TestHelpers.Js("{\"symbols\":[{\"name\":\"hp\",\"address\":50,\"width\":8}]}"));
 			_ts.Call("bizhawk_write_many", TestHelpers.Js("{\"items\":[{\"name\":\"hp\",\"value\":99}]}"));
 			Assert.Equal((byte)99, _apis.MemoryApi.Bytes[50]);
+		}
+
+		[Fact]
+		public void Read_range_dumps_hex()
+		{
+			_apis.MemoryApi.Bytes[100] = 0xAB;
+			_apis.MemoryApi.Bytes[101] = 0xCD;
+			var res = _ts.Call("bizhawk_read_range", TestHelpers.Js("{\"address\":100,\"length\":2}"));
+			Assert.Equal("AB CD", res);
+		}
+
+		[Fact]
+		public void Read_bulk_returns_base64_of_range()
+		{
+			for (var i = 0; i < 5; i++) _apis.MemoryApi.Bytes[100 + i] = (byte)(0x10 + i);
+			var res = Parse(_ts.Call("bizhawk_read_bulk", TestHelpers.Js("{\"address\":100,\"length\":5,\"domain\":\"68K RAM\"}")));
+			Assert.Equal(100L, res.GetProperty("address").GetInt64());
+			Assert.Equal(5, res.GetProperty("length").GetInt32());
+			byte[] decoded = Convert.FromBase64String(res.GetProperty("base64").GetString()!);
+			Assert.Equal(new byte[] { 0x10, 0x11, 0x12, 0x13, 0x14 }, decoded);
+		}
+
+		[Fact]
+		public void Read_bulk_accepts_symbol_name()
+		{
+			_apis.MemoryApi.Bytes[50] = 0x7F;
+			_ts.Call("bizhawk_symbols_set", TestHelpers.Js("{\"symbols\":[{\"name\":\"hp\",\"address\":50,\"width\":8}]}"));
+			var res = Parse(_ts.Call("bizhawk_read_bulk", TestHelpers.Js("{\"name\":\"hp\",\"length\":1}")));
+			Assert.Equal(new byte[] { 0x7F }, Convert.FromBase64String(res.GetProperty("base64").GetString()!));
+		}
+
+		[Fact]
+		public void Read_bulk_rejects_bad_lengths_and_out_of_domain()
+		{
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_read_bulk", TestHelpers.Js("{\"address\":0,\"length\":65537}")));
+			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
+			// 64KiB domain: start + length beyond it
+			ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_read_bulk", TestHelpers.Js("{\"address\":60000,\"length\":10000,\"domain\":\"68K RAM\"}")));
+			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
+			Assert.Contains("outside domain", ex.Message);
 		}
 
 		[Fact]

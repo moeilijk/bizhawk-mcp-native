@@ -108,6 +108,7 @@ Because the server lives inside EmuHawk, every opencode session connects to the 
 | `bizhawk_genesis_read_plane` | `plane?` (A/B), `base?`, `columns?`, `rows?`, `scale?`, `path?` | decoded nametable → PNG (Genesis gpgx; resource URI) |
 | `bizhawk_hash_region` | `address`, `length`, `domain?` | SHA1 of region |
 | `bizhawk_read_range` | `address`, `length` (1–4096), `domain?` | hex dump |
+| `bizhawk_read_bulk` | `address`/`name`, `length` (1–65536), `domain?` | `{address, length, base64}` (JSON) |
 | `bizhawk_use_memory_domain` | `domain` | confirmation |
 | `bizhawk_list_memory_domains` | — | all domains + sizes + known bus bases (JSON) |
 | `bizhawk_search_memory` | `value`, `width` (8/16/32), `domain?`, `range_start?`, `range_length?`, `max_results?`, `addresses?` | matching addresses (JSON) |

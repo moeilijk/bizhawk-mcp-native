@@ -38,6 +38,10 @@ Legend: `[~]` partially done / covered by another tool · `[ ]` open
 - [ ] **Verify Mono (Linux EmuHawk)**: all tests + smoke on Mono; check
   `HttpListener` and `System.Text.Json` behave (known limitation: Linux is a
   compile target but Windows is the tested host).
-- [ ] **Latency**: measure per-call overhead (JSON parse, UI-thread marshaling)
-  for `read_memory`-heavy loops; consider a `bizhawk_read_bulk` that returns
-  base64 to cut JSON size.
+- [x] **Latency**: measured live (2026-08-03, 50-100 calls each): ~17ms per call
+  FIXED overhead (HTTP + JSON parse + UI-thread marshaling) regardless of
+  payload — 1 read == 256 reads == 17ms. read_many of 256 items returns ~76 KB
+  JSON. Shipped `bizhawk_read_bulk` (raw base64, up to 64 KiB, one call —
+  4096 contiguous bytes: 1 call instead of 16 read_many calls). Agent advice:
+  batch aggressively; contiguous regions → read_bulk; whole domain →
+  dump_memory / bizhawk://read resource.

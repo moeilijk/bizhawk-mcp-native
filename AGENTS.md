@@ -3,7 +3,7 @@
 Guidance for AI agents (and humans) working on this repository.
 
 - **Documentation index:** `docs/` — `ARCHITECTURE.md`, `MCP-PROTOCOL.md`, `DEVELOPMENT.md`, `CI-RELEASES.md`. When in doubt, read the relevant doc before editing. Improvement ideas live in `TODO.md`.
-- **Current status (2026-08-03):** 86 tools verified end-to-end against the user's BizHawk dev build (2.11.2, commit `ed78f70a`, Windows via WSL). Server advertises `tools` + `resources` + `prompts` capabilities (incl. `listChanged`) over `http://127.0.0.1:8767/mcp/`; 203 unit tests (`./scripts/test.sh`) pass on Linux without BizHawk — including real-HTTP end-to-end tests (HttpEndToEndTests) that boot the real `McpHttpServer` on a random port. Deployed to `F:\projects\kid\emulators\BizHawk-dev-windows\ExternalTools\`. Test loop: an agent tests against Kid Chameleon (UE) on the Genesis gpgx waterbox core.
+- **Current status (2026-08-03):** 87 tools verified end-to-end against the user's BizHawk dev build (2.11.2, commit `ed78f70a`, Windows via WSL). Server advertises `tools` + `resources` + `prompts` capabilities (incl. `listChanged`) over `http://127.0.0.1:8767/mcp/`; 207 unit tests (`./scripts/test.sh`) pass on Linux without BizHawk — including real-HTTP end-to-end tests (HttpEndToEndTests) that boot the real `McpHttpServer` on a random port. Deployed to `F:\projects\kid\emulators\BizHawk-dev-windows\ExternalTools\`. Test loop: an agent tests against Kid Chameleon (UE) on the Genesis gpgx waterbox core.
 
 ## What this is
 
@@ -145,6 +145,11 @@ before debugging anything on the Genesis core.
 
 - EmuHawk locks loaded DLLs: redeploy fails with MSB3021 (non-fatal) while the
   tool form is open. Close the form (or EmuHawk), then `./scripts/deploy.sh`.
+- **Per-call latency is ~17ms FIXED** (HTTP + JSON + UI-thread marshaling),
+  independent of payload: one `read_memory` == one `read_many` of 256 items ==
+  17ms. Agents should batch aggressively; contiguous regions →
+  `bizhawk_read_bulk` (base64, one call); whole domains → `dump_memory` or the
+  `bizhawk://read/{domain}/{range}` resource.
 - **`MemoryDomainList` has TWO `Item` indexers** (`this[int]` inherited from
   `ReadOnlyCollection<MemoryDomain>` + `this[string]` declared) — `GetProperty("Item")`
   throws `AmbiguousMatchException`. Any reflection that resolves a domain by

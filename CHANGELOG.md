@@ -97,6 +97,11 @@ on explicit request — otherwise changes accumulate under `## [Unreleased]`.
   diagnostics instead of silent masking.
 
 ### Added
+- `bizhawk_read_bulk`: contiguous range as raw base64 in one call (up to 64 KiB).
+  Measured live: per-call latency is ~17ms fixed (HTTP + JSON + UI-thread
+  marshaling) regardless of payload, so batching wins — 4096 bytes via
+  `read_many` costs 16 calls (~290ms), via `read_bulk` costs 1 (~17ms), and
+  base64 payloads are ~4x smaller than per-item JSON.
 - Memory freeze (`bizhawk_freeze_add`/`remove`/`list`/`clear`): drives the emulator's
   real cheat engine (`MainForm.CheatList` — the same list the hex editor's
   Freeze uses), so frozen values are re-written EVERY frame by EmuHawk's main
