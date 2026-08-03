@@ -125,6 +125,19 @@ before debugging anything on the Genesis core.
 - `dotnet` may live in `~/.dotnet` (WSL): `deploy.sh`/`test.sh` add it to PATH
   automatically.
 
+## Changelog convention
+
+- Keep a Changelog in `CHANGELOG.md` (Keep a Changelog + SemVer format). Every
+  feature/fix commit that is user-visible **must** also add a bullet under
+  `## [Unreleased]` (`### Added` / `### Fixed` / `### Changed`). When a release
+  tag is cut, move the unreleased bullets under the new `## [vX.Y.Z]` section.
+- The release job reads the section whose heading exactly matches the pushed
+  tag (`## [<tag>]`) and uses it as the GitHub release notes; if no such
+  section exists it falls back to `--generate-notes`, so a forgotten changelog
+  never breaks the release.
+- Getting a release out: push the `vX.Y.Z` tag (the workflow builds the matrix
+  zips, uploads them, and creates the release). Nothing else is required.
+
 ## CI notes
 
 - Workflow triggers: `workflow_dispatch` and `push` of `v*` tags. Matrix is flavor (`stable`/`dev`) × platform (`win`/`linux`): stable resolves the latest release (win-x64.zip + linux-x64.tar.gz assets) via the GitHub API; dev downloads the `BizHawk-dev-{windows,linux}` nightly artifacts from nightly.link. Each zip carries a `build-info.json` with the BizHawk version (stable) / commit (dev) it was built against.
