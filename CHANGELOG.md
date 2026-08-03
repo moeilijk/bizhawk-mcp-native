@@ -35,6 +35,13 @@ on explicit request — otherwise changes accumulate under `## [Unreleased]`.
 - Symbols persist across restarts, scoped per ROM hash + namespace
   (`symbols_set/list/clear` accept `namespace`; `get_info` reloads on ROM change).
 
+- Save/load quick-save slots (`bizhawk_save_slot`/`load_slot`, 1..10).
+- Movie controls (`bizhawk_movie_start`/`movie_save`/`movie_stop`): load-and-play
+  a .bk2 or start a new recording; feeds `start_fixture` with real inputs.
+- Board info (`bizhawk_get_board_info`): board name, display type, game options.
+- Real-HTTP end-to-end tests: `McpHttpServer` boots on a random port and is hit
+  with actual requests (initialize/tools/list/ping/tools-call/errors).
+
 ### Fixed
 - `read_many`/`search_memory` ignored configured endianness (little-endian
   reads) — both now resolve the effective endianness.

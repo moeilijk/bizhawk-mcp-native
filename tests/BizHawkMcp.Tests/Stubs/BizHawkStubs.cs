@@ -61,6 +61,9 @@ namespace BizHawk.Client.Common
 		int LagCount();
 		void SetLagCount(int count);
 		IGameInfo? GetGameInfo();
+		string GetBoardName();
+		string GetDisplayType();
+		IReadOnlyDictionary<string, string?> GetGameOptions();
 	}
 
 	public interface IEmuClientApi
@@ -121,6 +124,9 @@ namespace BizHawk.Client.Common
 		string Mode();
 		double GetFps();
 		IReadOnlyDictionary<string, string> GetHeader();
+		bool PlayFromStart(string path = "");
+		void Save(string filename = "");
+		void Stop(bool saveChanges = true);
 	}
 
 	public interface IUserDataApi

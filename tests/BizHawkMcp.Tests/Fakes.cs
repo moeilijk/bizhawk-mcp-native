@@ -209,6 +209,8 @@ namespace BizHawkMcp.Tests
 		public int FrameCountValue = 1000;
 		public bool Lagged;
 		public int LagCountValue;
+		public string BoardName = "Genesis";
+		public string DisplayType = "NTSC";
 		public IReadOnlyDictionary<string, ulong> Registers = new Dictionary<string, ulong> { ["M68K PC"] = 0xFFFBCA, ["M68K A0"] = 0x1234, ["M68K SR"] = 0x2000, ["M68K SP"] = 0xFFFFFDFA };
 		public string? RegisterToSet;
 		public int RegisterValue;
@@ -239,6 +241,12 @@ namespace BizHawkMcp.Tests
 		public void SetLagCount(int count) => LagCountValue = count;
 
 		public IGameInfo? GetGameInfo() => new FakeGameInfo { Name = "Test ROM", Hash = RomHash, System = "GEN" };
+
+		public string GetBoardName() => BoardName;
+
+		public string GetDisplayType() => DisplayType;
+
+		public IReadOnlyDictionary<string, string?> GetGameOptions() => new Dictionary<string, string?> { ["region"] = "USA" };
 	}
 
 	/// <summary>Fake IDebuggable whose MemoryCallbacks can be fired manually from a test.</summary>
@@ -405,6 +413,10 @@ namespace BizHawkMcp.Tests
 		public int LengthValue = 500;
 		public string ModeValue = "PLAY";
 		public ulong Rerecords = 42;
+		public string? PlayedPath;
+		public bool PlayResult = true;
+		public string? SavedPath;
+		public bool Stopped;
 
 		public bool IsLoaded() => Loaded;
 
@@ -423,6 +435,16 @@ namespace BizHawkMcp.Tests
 		public double GetFps() => 60.0;
 
 		public IReadOnlyDictionary<string, string> GetHeader() => new Dictionary<string, string> { ["Platform"] = "GEN" };
+
+		public bool PlayFromStart(string path = "")
+		{
+			PlayedPath = path;
+			return PlayResult;
+		}
+
+		public void Save(string filename = "") => SavedPath = filename;
+
+		public void Stop(bool saveChanges = true) => Stopped = true;
 	}
 
 	public sealed class FakeUserDataApi : IUserDataApi

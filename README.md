@@ -86,6 +86,7 @@ Because the server lives inside EmuHawk, every opencode session connects to the 
 |---|---|---|
 | `bizhawk_ping` | — | `pong` |
 | `bizhawk_get_info` | — | ROM name/hash, system, framecount, pause state, active memory domain + size, server URL |
+| `bizhawk_get_board_info` | — | board name, display type (NTSC/PAL), game options (JSON) |
 | `bizhawk_read_memory` | `address` **ou** `name`, `width` (8/16/32), `domain?` | unsigned value |
 | `bizhawk_write_memory` | `address` **ou** `name`, `width`, `value`, `domain?` | `ok` |
 | `bizhawk_read_signed` | `address`, `width` (8/16/24/32), `domain?` | signed value |
@@ -129,6 +130,9 @@ Because the server lives inside EmuHawk, every opencode session connects to the 
 | `bizhawk_osd_message` | `message`, `duration?` | OSD message |
 | `bizhawk_movie_info` | — | TAS movie info (JSON) |
 | `bizhawk_movie_input` | `frame` | mnemonic input string |
+| `bizhawk_movie_start` | `path?` | load-and-play .bk2 / start recording |
+| `bizhawk_movie_save` | `path?` | save movie |
+| `bizhawk_movie_stop` | — | stop movie |
 | `bizhawk_host_input` | — | host keyboard/mouse (JSON) |
 | `bizhawk_userdata_set` | `key`, `value` | `stored <key>` |
 | `bizhawk_userdata_get` | `key` | stored value |

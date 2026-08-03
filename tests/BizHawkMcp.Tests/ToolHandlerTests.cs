@@ -124,6 +124,15 @@ namespace BizHawkMcp.Tests
 		}
 
 		[Fact]
+		public void Get_board_info_reports_identifiers()
+		{
+			var res = Parse(_ts.Call("bizhawk_get_board_info", null));
+			Assert.Equal("Genesis", res.GetProperty("board_name").GetString());
+			Assert.Equal("NTSC", res.GetProperty("display_type").GetString());
+			Assert.Equal("USA", res.GetProperty("game_options").GetProperty("region").GetString());
+		}
+
+		[Fact]
 		public void Get_info_reports_little_on_gb()
 		{
 			_apis.EmulationApi.SystemId = "GB";
@@ -1562,6 +1571,40 @@ namespace BizHawkMcp.Tests
 		{
 			var res = _ts.Call("bizhawk_movie_input", TestHelpers.Js("{\"frame\":0}"));
 			Assert.Equal("|..|..|", res);
+		}
+
+		[Fact]
+		public void Movie_start_without_path_starts_recording()
+		{
+			var res = _ts.Call("bizhawk_movie_start", null);
+			Assert.Contains("recording", res);
+			Assert.Equal("", _apis.MovieApi.PlayedPath);
+		}
+
+		[Fact]
+		public void Movie_start_with_path_loads_and_plays()
+		{
+			var res = _ts.Call("bizhawk_movie_start", TestHelpers.Js("{\"path\":\"C:/movies/run.bk2\"}"));
+			Assert.Contains("playing", res);
+			Assert.Equal("C:/movies/run.bk2", _apis.MovieApi.PlayedPath);
+		}
+
+		[Fact]
+		public void Movie_start_failure_reports()
+		{
+			_apis.MovieApi.PlayResult = false;
+			var res = _ts.Call("bizhawk_movie_start", TestHelpers.Js("{\"path\":\"C:/movies/nope.bk2\"}"));
+			Assert.Contains("failed", res);
+		}
+
+		[Fact]
+		public void Movie_save_and_stop_forward()
+		{
+			_ts.Call("bizhawk_movie_save", TestHelpers.Js("{\"path\":\"C:/movies/out.bk2\"}"));
+			Assert.Equal("C:/movies/out.bk2", _apis.MovieApi.SavedPath);
+			var res = _ts.Call("bizhawk_movie_stop", null);
+			Assert.Contains("stopped", res);
+			Assert.True(_apis.MovieApi.Stopped);
 		}
 
 		[Fact]

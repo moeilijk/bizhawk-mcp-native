@@ -109,16 +109,17 @@ Legend: `[x]` done · `[~]` partially done / covered by another tool · `[ ]` op
   ApiHawk provider, so a `[RequiredApi]` won't load. Investigate reaching the
   core's memory-save-state machinery via reflection on the `ApiContainer`/core
   (risky — document before doing). Would give fast save/restore for search/TAS.
-- [ ] **Core/board info**: `bizhawk_get_board_info` (`GetBoardName`,
-  `GetDisplayType`, `GetGameOptions`) — helps agents identify the game revision.
+- [x] **Movie controls** (`bizhawk_movie_start`/`movie_save`/`movie_stop`):
+  load-and-play a .bk2 (or start a new recording), save, stop. Feeds
+  `start_fixture` with real inputs for deterministic parity fixtures.
+- [x] **Core/board info** (`bizhawk_get_board_info`): `GetBoardName`,
+  `GetDisplayType`, `GetGameOptions` — identifies the game revision.
 - [ ] **Rewind/frameskip**: `bizhawk_enable_rewind`, `bizhawk_frameskip`,
   `bizhawk_limit_framerate` (`IEmuClientApi`/`IEmulationApi`).
 - [ ] **ROM management**: `bizhawk_open_rom`/`bizhawk_close_rom`/`bizhawk_reboot`
   (careful: path is host-side).
 - [ ] **Sound**: `bizhawk_set_sound` / `bizhawk_get_sound` (`SetSoundOn`,
   `GetSoundOn`).
-- [ ] **Movie controls**: `bizhawk_movie_start`/`bizhawk_movie_stop`/`save`
-  (`PlayFromStart`, `Stop`, `Save` on `IMovieApi`).
 - [ ] **`fixture_capture(scenario.json)`**: orchestrate press_buttons +
   read_many per frame → CSV. All pieces exist; just needs an orchestrator.
 - [ ] **`run_lua`**: execute Lua inside EmuHawk from the plugin. The Lua runtime
@@ -148,9 +149,9 @@ Legend: `[x]` done · `[~]` partially done / covered by another tool · `[ ]` op
 - [x] **More tests**: 80+ unit tests — schema contract, dispatch, memory
   round-trips, endianness, search, watchers, trace, palette, bus masking,
   resources, symbols.
-- [ ] **Test the HTTP layer end-to-end**: spin up `McpHttpServer` on a random
-  port in a test (Linux `HttpListener` works for loopback) and hit it with real
-  HTTP requests.
+- [x] **Test the HTTP layer end-to-end**: `McpHttpServer` boots on a random
+  port in tests (`HttpEndToEndTests`) and gets real HTTP requests —
+  initialize/tools/list/ping/tools-call roundtrips + JSON-RPC errors.
 - [ ] **Version bump helper**: script to update `bizhawk.build` +
   re-fetch source + grep for changed ApiHawk signatures (half-automate the
   "Bumping the BizHawk version" steps in AGENTS.md).

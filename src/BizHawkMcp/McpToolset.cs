@@ -176,6 +176,7 @@ namespace BizHawkMcp
 		[
 			Tool("bizhawk_ping", "Ping the tool. Returns \"pong\" if the plugin and server are alive.", []),
 			Tool("bizhawk_get_info", "ROM info, framecount, pause state, current endianness and active memory domain (JSON).", []),
+			Tool("bizhawk_get_board_info", "Board info: board name, display type (NTSC/PAL), and game options — helps identify the game revision.", []),
 			Tool("bizhawk_read_memory", "Read u8/u16/u32 from a memory domain. Optional \"endianness\": \"big\" | \"little\" | \"auto\" (default \"auto\" = the domain's native endianness, e.g. big on 68K RAM/M68K BUS but little on Z80 RAM on Genesis). Returns {\"value\": N, \"endianness\": \"big\"|\"little\"} so the interpretation is never ambiguous. Bus domains accept 32-bit disassembly addresses (e.g. 0xFFFFF832): the 68K's 24-bit bus masks them, so 0xFFFFF832 == 0xFFF832. Either \"address\" or a symbol \"name\" (from bizhawk_symbols_set) is required.", [
 				Param("address", "integer", "Offset in the domain, 0-based. For bus domains (e.g. M68K BUS) use the raw bus address (e.g. 0xFFFBCA); 32-bit forms (0xFFFFFBCA) are masked like the hardware."),
 				Param("name", "string", "Symbol name registered via bizhawk_symbols_set (overrides address/domain)."),
@@ -378,6 +379,13 @@ namespace BizHawkMcp
 			Tool("bizhawk_movie_input", "Get the input log of a movie frame as a mnemonic string.", [
 				Param("frame", "integer", "Frame number (0-based)."),
 			]),
+			Tool("bizhawk_movie_start", "Start a TAS movie. With \"path\": load that .bk2 file and play from frame 0. Without: start recording a new movie for the loaded ROM.", [
+				Param("path", "string", "Optional .bk2 movie path to load and play (default: new recording)."),
+			]),
+			Tool("bizhawk_movie_save", "Save the current TAS movie. With \"path\": save to that .bk2 file (default: current movie filename).", [
+				Param("path", "string", "Optional .bk2 save path."),
+			]),
+			Tool("bizhawk_movie_stop", "Stop the current TAS movie (saves changes).", []),
 			Tool("bizhawk_host_input", "Read the host's physical input (keyboard, mouse, gamepad).", []),
 			Tool("bizhawk_userdata_set", "Store a value in EmuHawk's user data store (persists across sessions).", [
 				Param("key", "string", "Key name."),
@@ -467,6 +475,7 @@ namespace BizHawkMcp
 			{
 				"bizhawk_ping" => _ui.Invoke(() => "pong"),
 				"bizhawk_get_info" => _ui.Invoke(GetInfo),
+				"bizhawk_get_board_info" => _ui.Invoke(GetBoardInfo),
 				"bizhawk_read_memory" => _ui.Invoke(() => ReadMemory(args)),
 				"bizhawk_write_memory" => _ui.Invoke(() => WriteMemory(args)),
 				"bizhawk_read_range" => _ui.Invoke(() => ReadRange(args)),
@@ -517,6 +526,9 @@ namespace BizHawkMcp
 				"bizhawk_osd_message" => _ui.Invoke(() => OsdMessage(args)),
 				"bizhawk_movie_info" => _ui.Invoke(MovieInfo),
 				"bizhawk_movie_input" => _ui.Invoke(() => MovieInput(args)),
+				"bizhawk_movie_start" => _ui.Invoke(() => MovieStart(args)),
+				"bizhawk_movie_save" => _ui.Invoke(() => MovieSave(args)),
+				"bizhawk_movie_stop" => _ui.Invoke(() => MovieStop(args)),
 				"bizhawk_host_input" => _ui.Invoke(HostInput),
 				"bizhawk_userdata_set" => _ui.Invoke(() => UserDataSet(args)),
 				"bizhawk_userdata_get" => _ui.Invoke(() => UserDataGet(args)),
@@ -555,6 +567,16 @@ namespace BizHawkMcp
 				["memory_domain"] = curDomain,
 				["memory_domain_size"] = _tool.Memory!.GetCurrentMemoryDomainSize(),
 				["server"] = _tool.ServerUrl,
+			});
+		}
+
+		private string GetBoardInfo()
+		{
+			return JsonRpc.Pretty(new Dictionary<string, object?>
+			{
+				["board_name"] = _tool.Emulation!.GetBoardName(),
+				["display_type"] = _tool.Emulation!.GetDisplayType(),
+				["game_options"] = _tool.Emulation!.GetGameOptions(),
 			});
 		}
 
@@ -1918,6 +1940,32 @@ namespace BizHawkMcp
 			if (!_tool.Movie!.IsLoaded())
 				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "no movie loaded");
 			return _tool.Movie!.GetInputAsMnemonic(frame);
+		}
+
+		private string MovieStart(JsonElement? args)
+		{
+			// with a path: load that movie file and start playback from frame 0;
+			// without: start recording a new movie for the currently loaded ROM.
+			string path = "";
+			if (args is { } a && a.ValueKind == JsonValueKind.Object) path = OptionalString(a, "path") ?? "";
+			bool ok = _tool.Movie!.PlayFromStart(path);
+			return ok
+				? (string.IsNullOrEmpty(path) ? "movie started (recording)" : $"movie loaded and playing: {path}")
+				: $"failed to start movie{(string.IsNullOrEmpty(path) ? "" : $": {path}")}";
+		}
+
+		private string MovieSave(JsonElement? args)
+		{
+			string path = "";
+			if (args is { } a && a.ValueKind == JsonValueKind.Object) path = OptionalString(a, "path") ?? "";
+			_tool.Movie!.Save(path);
+			return string.IsNullOrEmpty(path) ? "movie saved" : $"movie saved: {path}";
+		}
+
+		private string MovieStop(JsonElement? args)
+		{
+			_tool.Movie!.Stop();
+			return "movie stopped";
 		}
 
 		private string HostInput()
