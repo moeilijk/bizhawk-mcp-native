@@ -49,7 +49,25 @@ dotnet build src/BizHawkMcp/BizHawkMcp.csproj -c Release   # build only
    curl -s -X POST http://127.0.0.1:8767/mcp/ -H 'Content-Type: application/json' \
      -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"bizhawk_get_info","arguments":{}}}'
    ```
-4. EmuHawk's form shows request errors in its log box; check it if a call misbehaves.
+ 4. EmuHawk's form shows request errors in its log box; check it if a call misbehaves.
+
+## Working with subagents (do this)
+
+- **Use subagents to go deep on any subject/behavior**: investigating a game
+  mechanic, understanding how a BizHawk feature works, or researching a
+  question against the pinned source — delegate to a focused subagent instead
+  of accumulating all that context in the main thread. A subagent focused on
+  one task does better work and carries less bias than the main agent.
+- **Use subagents to verify behavioral tests / live QA**: after deploying a
+  new build, delegate the verification (the live-emulator test loop) to a
+  subagent with a detailed checklist (expected results per item, restore-slot
+  rules, hex-conversion rule). This gives an independent "second opinion" —
+  it has caught real bugs the main agent missed (e.g. the
+  `MemoryDomainList` double-indexer `AmbiguousMatchException`, and the
+  `memstate_save` empty-slot acceptance).
+- Write subagent prompts with: the exact tools to use, verified numbers
+  (converted by script — see Hard constraints #6), the expected result per
+  item, and how to restore the emulator state afterwards.
 
 ## Adding a tool
 
