@@ -28,8 +28,12 @@ on explicit request — otherwise changes accumulate under `## [Unreleased]`.
   for identical output) — a cheap screen-change detector that never transfers
   pixels; returns `{sha1, frame, path, resource}`.
 - `bizhawk_genesis_get_z80_registers`: filters the Z80 sound CPU registers
-  (`Z80 PC`, `Z80 SP`, ...) out of the gpgx register table (Genesis gpgx only;
+  (`Z80 pc`, `Z80 sp`, ...) out of the gpgx register table (Genesis gpgx only;
   other cores error).
+- `bizhawk_wait_until` multi-condition mode: a `conditions` array of
+  `{address|name, op, value, width?, domain?, endianness?}` waits until ALL
+  hold on the SAME frame (AND), returning per-condition results — replaces
+  fragile nested single waits; single-address mode unchanged.
 
 ### Fixed
 - Zero compiler warnings: nullable-annotated the ApiHawk stubs/fakes

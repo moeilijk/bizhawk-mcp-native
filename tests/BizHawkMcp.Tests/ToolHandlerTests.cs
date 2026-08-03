@@ -1357,6 +1357,70 @@ namespace BizHawkMcp.Tests
 		}
 
 		[Fact]
+		public void Wait_until_multi_condition_waits_for_all_on_same_frame()
+		{
+			// addr 100 counts up, addr 200 counts down — both reach their
+			// targets on frame 3 (3 and 7); single-mode waits would need nesting
+			var frames = 0;
+			_apis.EmuClientApi.OnFrameAdvance = () =>
+			{
+				frames++;
+				_apis.MemoryApi.Bytes[100] = (byte)frames;
+				_apis.MemoryApi.Bytes[200] = (byte)(10 - frames);
+			};
+			_apis.MemoryApi.Bytes[100] = 0;
+			_apis.MemoryApi.Bytes[200] = 10;
+			_apis.EmuClientApi.Paused = true;
+
+			var res = Parse(_ts.Call("bizhawk_wait_until", TestHelpers.Js("{\"conditions\":[{\"address\":100,\"op\":\"eq\",\"value\":3,\"width\":8},{\"address\":200,\"op\":\"eq\",\"value\":7,\"width\":8}]}")));
+			Assert.True(res.GetProperty("matched").GetBoolean());
+			Assert.Equal(3, res.GetProperty("frames").GetInt32());
+			var conds = res.GetProperty("conditions");
+			Assert.Equal(2, conds.GetArrayLength());
+			Assert.True(conds[0].GetProperty("matched").GetBoolean());
+			Assert.Equal((ulong)3, conds[0].GetProperty("current").GetUInt64());
+			Assert.True(conds[1].GetProperty("matched").GetBoolean());
+			Assert.Equal((ulong)7, conds[1].GetProperty("current").GetUInt64());
+			Assert.True(_apis.EmuClientApi.Paused); // pause restored
+		}
+
+		[Fact]
+		public void Wait_until_multi_condition_supports_symbols_and_mixed_ops()
+		{
+			// symbol "timer" counts up by 2/frame (>= 8 on frame 4); addr 300
+			// stays 0 so its "lt 5" condition already holds
+			_ts.Call("bizhawk_symbols_set", TestHelpers.Js("{\"symbols\":[{\"name\":\"timer\",\"address\":100,\"width\":8}]}"));
+			var frames = 0;
+			_apis.EmuClientApi.OnFrameAdvance = () => { frames++; _apis.MemoryApi.Bytes[100] = (byte)(frames * 2); };
+			_apis.EmuClientApi.Paused = true;
+
+			var res = Parse(_ts.Call("bizhawk_wait_until", TestHelpers.Js("{\"conditions\":[{\"name\":\"timer\",\"op\":\"ge\",\"value\":8},{\"address\":300,\"op\":\"lt\",\"value\":5}]}")));
+			Assert.True(res.GetProperty("matched").GetBoolean());
+			Assert.Equal(4, res.GetProperty("frames").GetInt32());
+		}
+
+		[Fact]
+		public void Wait_until_multi_condition_times_out()
+		{
+			// addr 200 never reaches 99 → timeout without match
+			_apis.EmuClientApi.Paused = true;
+			var res = Parse(_ts.Call("bizhawk_wait_until", TestHelpers.Js("{\"timeout_frames\":10,\"conditions\":[{\"address\":100,\"op\":\"eq\",\"value\":5},{\"address\":200,\"op\":\"eq\",\"value\":99}]}")));
+			Assert.False(res.GetProperty("matched").GetBoolean());
+			Assert.Equal(10, res.GetProperty("frames").GetInt32());
+		}
+
+		[Fact]
+		public void Wait_until_rejects_bad_conditions()
+		{
+			// empty array
+			Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_wait_until", TestHelpers.Js("{\"conditions\":[]}")));
+			// condition missing its value
+			Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_wait_until", TestHelpers.Js("{\"conditions\":[{\"address\":100,\"op\":\"eq\"}]}")));
+			// condition with a bad op
+			Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_wait_until", TestHelpers.Js("{\"conditions\":[{\"address\":100,\"op\":\"==\",\"value\":1}]}")));
+		}
+
+		[Fact]
 		public void Watch_change_reports_first_change_frame()
 		{
 			// memory starts at 0; bumps on the 3rd frame advance → changed at frame 3

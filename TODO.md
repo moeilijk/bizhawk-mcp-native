@@ -61,9 +61,10 @@ Legend: `[~]` partially done / covered by another tool · `[ ]` open · `[x]` do
   local shell (pure MCP clients) can't `python3 -c "hex(...)"`; a
   decimal↔hex↔width/sign converter in the toolset would enforce the "never
   hand-convert" rule server-side.
-- [ ] **Multi-condition `wait_until`**: "advance until X==N AND Y==M" currently
-  needs nested waits (fragile); a single call with an array of conditions
-  would be more robust.
+- [x] **Multi-condition `wait_until`**: "advance until X==N AND Y==M" was nested
+  single waits (fragile); `bizhawk_wait_until` now takes a `conditions` array
+  (1..32, each `{address|name, op, value, width?, domain?, endianness?}`) and
+  returns only when ALL hold on the same frame, with per-condition results.
 - [ ] **Autofire pattern input**: `start_fixture` has a timeline; an
   "hold A every N frames" pattern mode would cover TAS autofire without
   scripting a per-frame timeline.

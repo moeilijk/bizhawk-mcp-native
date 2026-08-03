@@ -494,7 +494,7 @@ namespace BizHawkMcp
 			]),
 			Tool("bizhawk_watch_list", "List registered watchers with their current values (JSON).", []),
 			Tool("bizhawk_watch_read", "Read all watcher values in one call (JSON). Each entry has \"value\" and \"changed\" (true when it differs from the previous read).", []),
-			Tool("bizhawk_wait_until", "Advance frames until a memory condition holds (or timeout). Pauses when done. Condition ops: eq, ne, lt, gt, le, ge. Optional \"endianness\" as bizhawk_read_memory (default \"auto\"). Accepts \"address\" or a symbol \"name\" (from bizhawk_symbols_set).", [
+			Tool("bizhawk_wait_until", "Advance frames until a memory condition holds (or timeout). Pauses when done. Single mode: \"address\" (or symbol \"name\") + \"op\" (eq|ne|lt|gt|le|ge) + \"value\", optional width/domain/endianness. Multi mode: pass \"conditions\": [{address|name, op, value, width?, domain?, endianness?}, ...] — advances until ALL conditions hold on the SAME frame (AND), so nested single waits are no longer needed; returns per-condition results. Optional \"endianness\" as bizhawk_read_memory (default \"auto\").", [
 				Param("address", "integer", "Offset in the domain, or use a symbol \"name\" instead."),
 				Param("name", "string", "Symbol name registered via bizhawk_symbols_set (overrides address/domain)."),
 				Param("op", "string", "eq | ne | lt | gt | le | ge.", "eq"),
@@ -503,6 +503,7 @@ namespace BizHawkMcp
 				Param("domain", "string", "Optional domain."),
 				Param("endianness", "string", "\"auto\" (domain default), \"big\" or \"little\".", "auto"),
 				Param("timeout_frames", "integer", "Max frames to advance, 1..600.", 600),
+				Param("conditions", "array", "Optional multi-condition mode: [{address|name, op, value, width?, domain?, endianness?}, ...] — wait until ALL hold on the same frame (1..32)."),
 			]),
 			Tool("bizhawk_watch_change", "Advance frames until the value at an address changes from its value at call time (or timeout). Pauses when done. Unlike wait_until you don't need to know the target value — this gives \"first change frame\" semantics for finding dynamic structures. Optional \"endianness\" as bizhawk_read_memory (default \"auto\"). Accepts \"address\" or a symbol \"name\" (from bizhawk_symbols_set).", [
 				Param("address", "integer", "Offset in the domain, or use a symbol \"name\" instead."),
@@ -3529,12 +3530,19 @@ namespace BizHawkMcp
 		private string WaitUntil(JsonElement? args)
 		{
 			var a = Required(args);
+			int timeout = RequireInt(a, "timeout_frames", 600);
+			if (timeout is < 1 or > 600) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "timeout_frames must be 1..600");
+
+			// multi-condition mode: wait until ALL conditions hold on the same
+			// frame (AND), so nested single waits are no longer needed
+			if (a.TryGetProperty("conditions", out var condEl) && condEl.ValueKind == JsonValueKind.Array)
+				return WaitUntilConditions(a, condEl, timeout);
+
+			// single-condition mode (unchanged semantics)
 			var (address, width, domain) = ResolveTarget(a);
 			string op = a.TryGetProperty("op", out var o) && o.ValueKind == JsonValueKind.String ? o.GetString()! : "eq";
 			if (op is not ("eq" or "ne" or "lt" or "gt" or "le" or "ge")) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"unknown op: {op}");
 			ulong value = RequireULong(a, "value");
-			int timeout = RequireInt(a, "timeout_frames", 600);
-			if (timeout is < 1 or > 600) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "timeout_frames must be 1..600");
 
 			bool wasPaused = _tool.EmuClient!.IsPaused();
 			if (wasPaused) _tool.EmuClient!.Unpause();
@@ -3568,6 +3576,89 @@ namespace BizHawkMcp
 				["frames"] = matched ? frames + 1 : frames,
 				["value"] = current,
 				["endianness"] = EndianName(bigEndian),
+				["conditions"] = new[]
+				{
+					new Dictionary<string, object?>
+					{
+						["address"] = address,
+						["op"] = op,
+						["value"] = value,
+						["current"] = current,
+						["matched"] = Compare(op, current, value),
+						["endianness"] = EndianName(bigEndian),
+					},
+				},
+				["framecount"] = _tool.Emulation!.FrameCount(),
+			});
+		}
+
+		private string WaitUntilConditions(JsonElement a, JsonElement condEl, int timeout)
+		{
+			int n = condEl.GetArrayLength();
+			if (n is < 1 or > 32) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "conditions must contain 1..32 entries");
+			var conds = new List<(long Address, int Width, string? Domain, bool BigEndian, string Op, ulong Value, ulong Current)>(n);
+			foreach (var el in condEl.EnumerateArray())
+			{
+				if (el.ValueKind != JsonValueKind.Object)
+					throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "each condition must be an object with address/name + value");
+				var (address, width, domain) = ResolveTarget(el);
+				string op = el.TryGetProperty("op", out var o) && o.ValueKind == JsonValueKind.String ? o.GetString()! : "eq";
+				if (op is not ("eq" or "ne" or "lt" or "gt" or "le" or "ge")) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"unknown op: {op}");
+				ulong value = RequireULong(el, "value");
+				conds.Add((address, width, domain, ResolveBigEndian(el, domain), op, value, 0));
+			}
+
+			bool wasPaused = _tool.EmuClient!.IsPaused();
+			if (wasPaused) _tool.EmuClient!.Unpause();
+
+			int frames = 0;
+			try
+			{
+				for (; frames < timeout; frames++)
+				{
+					AdvanceFrame();
+					bool all = true;
+					for (var i = 0; i < conds.Count; i++)
+					{
+						var c = conds[i];
+						ulong cur = c.Width switch
+						{
+							8 => _tool.Memory!.ReadByte(c.Address, c.Domain),
+							16 => ReadValue(c.Address, 16, c.Domain, c.BigEndian),
+							_ => ReadValue(c.Address, 32, c.Domain, c.BigEndian),
+						};
+						conds[i] = (c.Address, c.Width, c.Domain, c.BigEndian, c.Op, c.Value, cur);
+						if (!Compare(c.Op, cur, c.Value)) all = false;
+					}
+					if (all) break;
+				}
+			}
+			finally
+			{
+				if (wasPaused) _tool.EmuClient!.Pause();
+			}
+
+			bool matched = frames < timeout;
+			var results = new List<object?>(conds.Count);
+			foreach (var c in conds)
+			{
+				results.Add(new Dictionary<string, object?>
+				{
+					["address"] = c.Address,
+					["op"] = c.Op,
+					["value"] = c.Value,
+					["current"] = c.Current,
+					["matched"] = Compare(c.Op, c.Current, c.Value),
+					["endianness"] = EndianName(c.BigEndian),
+					["domain"] = c.Domain ?? _tool.Memory!.GetCurrentMemoryDomain(),
+				});
+			}
+
+			return JsonRpc.Pretty(new Dictionary<string, object?>
+			{
+				["matched"] = matched,
+				["frames"] = matched ? frames + 1 : frames,
+				["conditions"] = results,
 				["framecount"] = _tool.Emulation!.FrameCount(),
 			});
 		}
