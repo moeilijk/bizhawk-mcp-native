@@ -1206,6 +1206,58 @@ namespace BizHawkMcp.Tests
 		}
 
 		[Fact]
+		public void Watch_change_reports_first_change_frame()
+		{
+			// memory starts at 0; bumps on the 3rd frame advance → changed at frame 3
+			var frames = 0;
+			_apis.EmuClientApi.OnFrameAdvance = () =>
+			{
+				frames++;
+				if (frames == 3) _apis.MemoryApi.Bytes[100] = 0xAA;
+			};
+			_apis.MemoryApi.Bytes[100] = 0;
+			_apis.EmuClientApi.Paused = true;
+
+			var res = Parse(_ts.Call("bizhawk_watch_change", TestHelpers.Js("{\"address\":100,\"width\":8}")));
+			Assert.True(res.GetProperty("changed").GetBoolean());
+			Assert.Equal(3, res.GetProperty("frames").GetInt32());
+			Assert.Equal((ulong)0, res.GetProperty("initial").GetUInt64());
+			Assert.Equal((ulong)0xAA, res.GetProperty("value").GetUInt64());
+			Assert.True(_apis.EmuClientApi.Paused); // pause restored
+		}
+
+		[Fact]
+		public void Watch_change_accepts_symbol_name()
+		{
+			_ts.Call("bizhawk_symbols_set", TestHelpers.Js("{\"symbols\":[{\"name\":\"camX\",\"address\":100,\"width\":32}]}"));
+			var frames = 0;
+			_apis.EmuClientApi.OnFrameAdvance = () => { frames++; _apis.MemoryApi.Bytes[100] = (byte)frames; };
+			_apis.MemoryApi.Bytes[100] = 0;
+			_apis.EmuClientApi.Paused = true;
+
+			var res = Parse(_ts.Call("bizhawk_watch_change", TestHelpers.Js("{\"name\":\"camX\"}")));
+			Assert.True(res.GetProperty("changed").GetBoolean());
+			Assert.Equal(1, res.GetProperty("frames").GetInt32());
+		}
+
+		[Fact]
+		public void Watch_change_times_out_when_value_is_stable()
+		{
+			_apis.MemoryApi.Bytes[100] = 0x42;
+			var res = Parse(_ts.Call("bizhawk_watch_change", TestHelpers.Js("{\"address\":100,\"width\":8,\"timeout_frames\":5}")));
+			Assert.False(res.GetProperty("changed").GetBoolean());
+			Assert.Equal(5, res.GetProperty("frames").GetInt32());
+			Assert.Equal((ulong)0x42, res.GetProperty("value").GetUInt64());
+		}
+
+		[Fact]
+		public void Watch_change_rejects_bad_timeout()
+		{
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_watch_change", TestHelpers.Js("{\"address\":100,\"timeout_frames\":0}")));
+			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
+		}
+
+		[Fact]
 		public void Trace_samples_pc_and_disasm()
 		{
 			_apis.EmuClientApi.Paused = true;

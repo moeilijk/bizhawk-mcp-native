@@ -142,6 +142,7 @@ Because the server lives inside EmuHawk, every opencode session connects to the 
 | `bizhawk_watch_list` | — | watchers + current values (JSON) |
 | `bizhawk_watch_read` | — | values + `changed` flags (JSON) |
 | `bizhawk_wait_until` | `address`, `op` (eq/ne/lt/gt/le/ge), `value`, `width?`, `domain?`, `timeout_frames?` | matched? + frames + value (JSON) |
+| `bizhawk_watch_change` | `address`/`name`, `width?`, `domain?`, `timeout_frames?` | first change-frame + initial/value (JSON) |
 | `bizhawk_watchpoint_add` | `name`, `type` (read/write/execute), `address?`, `domain?` | registered (Genesis gpgx only) |
 | `bizhawk_watchpoint_remove` | `name` | removed/not found |
 | `bizhawk_watchpoint_list` | — | registered watchpoints (JSON) |
@@ -218,7 +219,7 @@ See [`TODO.md`](TODO.md) for the full, maintained list. Current highlights:
 - [ ] Sessions (`mcp-session-id`) / SSE server-initiated messages (not required by opencode today)
 - [ ] VRAM plane decode → PNG (`genesis_read_plane`: nametable + tiles + palette)
 - [ ] `fixture_capture(scenario.json)` — declarative input+read-per-frame → CSV
-- [ ] End-to-end HTTP test (spins up the real `HttpListener` on a random port)
+- [x] End-to-end HTTP test (spins up the real `HttpListener` on a random port)
 - [ ] `run_lua` (fragile, deferred — deep reflection into EmuHawk's Lua runtime)
 
 Done recently: real watchpoints (Genesis gpgx only), symbols (Ghidra↔BizHawk

@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using BizHawkMcp;
 using BizHawkMcp.Mcp;
@@ -48,7 +49,8 @@ namespace BizHawkMcp.Tests
 				Assert.Equal(HttpStatusCode.OK, status);
 				using var init = JsonDocument.Parse(body);
 				Assert.Equal("bizhawk-mcp-native", init.RootElement.GetProperty("result").GetProperty("serverInfo").GetProperty("name").GetString());
-				Assert.True(init.RootElement.GetProperty("result").GetProperty("capabilities").TryGetProperty("tools", out _));
+				Assert.True(init.RootElement.GetProperty("result").GetProperty("capabilities").TryGetProperty("tools", out var toolsCaps));
+				Assert.True(toolsCaps.GetProperty("listChanged").GetBoolean());
 
 				// tools/list
 				(status, body) = await Post(url, "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}");
@@ -112,6 +114,50 @@ namespace BizHawkMcp.Tests
 				Assert.Equal(HttpStatusCode.OK, status);
 				using var doc = JsonDocument.Parse(body);
 				Assert.Equal(-32601, doc.RootElement.GetProperty("error").GetProperty("code").GetInt32());
+			}
+			finally
+			{
+				server.Stop();
+				Environment.SetEnvironmentVariable("BIZHAWK_MCP_PORT", null);
+			}
+		}
+
+		[Fact]
+		public async Task Sse_stream_carries_endpoint_then_tools_list_changed_notification()
+		{
+			int port = FindFreePort();
+			Environment.SetEnvironmentVariable("BIZHAWK_MCP_PORT", port.ToString());
+			var server = new McpHttpServer(new FakeApis(), new InlineDispatcher(), _ => { });
+			server.Start();
+			try
+			{
+				using var client = new HttpClient();
+				client.DefaultRequestHeaders.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("text/event-stream"));
+				using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+				using var resp = await client.GetAsync(server.BaseUrl, HttpCompletionOption.ResponseHeadersRead, cts.Token);
+				Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+				Assert.Equal("text/event-stream", resp.Content.Headers.ContentType?.MediaType);
+
+				using var reader = new System.IO.StreamReader(await resp.Content.ReadAsStreamAsync(cts.Token));
+				string? line;
+				string endpointUrl = "";
+				bool sawMessage = false;
+				string messageData = "";
+				while ((line = await reader.ReadLineAsync(cts.Token)) != null)
+				{
+					if (line.StartsWith("event: endpoint")) continue;
+					if (line.StartsWith("data: ") && string.IsNullOrEmpty(endpointUrl)) endpointUrl = line["data: ".Length..];
+					if (line.StartsWith("event: message")) sawMessage = true;
+					if (sawMessage && line.StartsWith("data: "))
+					{
+						messageData = line["data: ".Length..];
+						break;
+					}
+				}
+
+				Assert.StartsWith("http://", endpointUrl);
+				Assert.True(sawMessage, "first SSE stream must carry the tools/list_changed notification");
+				Assert.Contains("notifications/tools/list_changed", messageData);
 			}
 			finally
 			{

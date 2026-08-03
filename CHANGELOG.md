@@ -83,6 +83,18 @@ on explicit request — otherwise changes accumulate under `## [Unreleased]`.
   responses — so off-bus arithmetic mistakes (e.g. `0x1002024`) are visible
   diagnostics instead of silent masking.
 
+### Added
+- `bizhawk_watch_change`: advance frames until the value at an address changes
+  from its call-time baseline (first-change-frame semantics, no target value
+  needed — unlike `wait_until`).
+- `tools/list` change notifications: capabilities advertise `listChanged: true`
+  and the first SSE stream of each server lifetime carries a
+  `notifications/tools/list_changed` message (a redeployed DLL may serve a
+  different tool list).
+- `scripts/bump-bizhawk.sh`: half-automates the BizHawk version bump — updates
+  `bizhawk.build`, re-pins the source, and diffs the ApiHawk interface files
+  between the old and new commits.
+
 ### Changed
 - Genesis-only tools are now named with a system prefix so agents don't assume
   they work on every core: `bizhawk_read_plane` → `bizhawk_genesis_read_plane`,

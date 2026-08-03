@@ -63,11 +63,11 @@ Legend: `[x]` done · `[~]` partially done / covered by another tool · `[ ]` op
   restarts via the user data store, **scoped per ROM hash + namespace**
   (`mcp.symbols` = `{romHash: {ns: [symbols]}}`). Reloaded automatically when
   the ROM changes (`get_info`); `symbols_clear {namespace}` clears one scope.
-- [~] **Polling watchpoint** (`bizhawk_watch_change`): frame-stepping variant that
-  watches an address and returns the frame + value the moment it changes.
-  Covered by `bizhawk_wait_until` (condition break) + `ram_snapshot`/`ram_diff`
-  (change detection) — only worth a dedicated tool if agents need "first change
-  frame" semantics in one call.
+- [x] **Polling watchpoint** (`bizhawk_watch_change`): frame-stepping variant that
+  watches an address and returns the frame + value the moment it changes —
+  baseline = value at call time, no target value needed (unlike `wait_until`),
+  which makes it the one-call answer for "first change frame" on dynamic
+  structures (framecounters, state flags).
 - [x] **VRAM plane decode** (`bizhawk_genesis_read_plane`): nametable (plane A/B, base
   auto-detected from the core's VDP view — Kid Chameleon uses plane A at 0x0000,
   fallback 0xC000/0xE000) + tiles (8×8, 4bpp packed nibbles) + CRAM palette →
@@ -126,8 +126,11 @@ correct; enrich the `data` field instead of replacing codes, see below).
 - [ ] **Sessions (`mcp-session-id`)**: the dispatch layer is already structured
   for it (`Dispatch` is pure) — add a session map keyed by the header so hosts
   that require sessions (e.g. some clients) work. Also enables JSON-RPC batching.
-- [ ] **`tools/list` change notifications**: advertise `listChanged: true` and
-  emit a `notifications/tools/list_changed` when the server restarts/changes.
+- [x] **`tools/list` change notifications**: capabilities advertise
+  `listChanged: true`; the first SSE stream of each server lifetime emits
+  `notifications/tools/list_changed` (the tool list is fixed per process, so a
+  fresh connection after a redeploy may serve a different list — stateless
+  subset, no sessions).
 - [ ] **Prompts**: e.g. a "TAS workflow" prompt or "memory research" prompt the
   client can surface to the user.
 - [ ] **Server-initiated SSE messages**: push framecount/state changes to a
@@ -200,9 +203,9 @@ correct; enrich the `data` field instead of replacing codes, see below).
 - [x] **Test the HTTP layer end-to-end**: `McpHttpServer` boots on a random
   port in tests (`HttpEndToEndTests`) and gets real HTTP requests —
   initialize/tools/list/ping/tools-call roundtrips + JSON-RPC errors.
-- [ ] **Version bump helper**: script to update `bizhawk.build` +
-  re-fetch source + grep for changed ApiHawk signatures (half-automate the
-  "Bumping the BizHawk version" steps in AGENTS.md).
+- [x] **Version bump helper**: `scripts/bump-bizhawk.sh` — updates `bizhawk.build`,
+  re-pins the source, and diffs the ApiHawk interface files between old and new
+  commits (half of the "Bumping the BizHawk version" steps in AGENTS.md).
 - [x] **`opencode` config sample**: exactly one example committed
   (`opencode.mcp.example.json`) with `tools` + `resources` client support; the
   duplicate `opencode.mcp.example copy.json` is gone.

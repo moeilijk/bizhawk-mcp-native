@@ -16,8 +16,12 @@ namespace BizHawkMcp.Mcp
 	/// Implemented subset of the 2025-06-18 spec:
 	///   POST /mcp  → JSON-RPC request/response (stateless, no sessions)
 	///   GET  /mcp  → SSE stream (endpoint event + keepalive) when the client
-	///                asks for text/event-stream
-	/// Not implemented: server-initiated messages, sessions, resources/prompts.
+	///                asks for text/event-stream; the first stream of each
+	///                server lifetime carries a tools/list_changed notification
+	///                (the tool list is fixed per process, so a fresh connection
+	///                after a restart may serve a different list)
+	/// Not implemented: sessions, server-initiated messages beyond the above,
+	/// resources subscribe.
 	/// </summary>
 	public sealed class McpHttpServer
 	{
@@ -29,6 +33,7 @@ namespace BizHawkMcp.Mcp
 		private readonly CancellationTokenSource _cts = new();
 		private McpToolset? _toolset;
 		private Thread? _acceptThread;
+		private volatile bool _toolsNotified;
 
 		public McpHttpServer(IHostApis tool, IUiDispatcher ui, Action<string> log)
 		{
@@ -182,7 +187,7 @@ namespace BizHawkMcp.Mcp
 						["protocolVersion"] = JsonRpc.MCP_PROTOCOL_VERSION,
 						["capabilities"] = new Dictionary<string, object?>
 						{
-							["tools"] = new Dictionary<string, object?> { ["listChanged"] = false },
+							["tools"] = new Dictionary<string, object?> { ["listChanged"] = true },
 							["resources"] = new Dictionary<string, object?> { ["listChanged"] = false, ["subscribe"] = false },
 						},
 						["serverInfo"] = new Dictionary<string, object?> { ["name"] = "bizhawk-mcp-native", ["version"] = "0.2.0" },
@@ -253,6 +258,14 @@ namespace BizHawkMcp.Mcp
 
 			var writer = new StreamWriter(ctx.Response.OutputStream, Encoding.UTF8) { AutoFlush = true };
 			await writer.WriteLineAsync($"event: endpoint\ndata: {BaseUrl}\n");
+			// the tool list is fixed per server lifetime; the first SSE stream
+			// after a (re)start tells the client to re-fetch tools/list — a
+			// redeployed DLL can serve a different list than the client cached.
+			if (!_toolsNotified)
+			{
+				_toolsNotified = true;
+				await writer.WriteLineAsync("event: message\ndata: {\"jsonrpc\":\"2.0\",\"method\":\"notifications/tools/list_changed\",\"params\":{}}\n");
+			}
 			// keepalive comment every 15 s until the client goes away
 			while (!_cts.IsCancellationRequested)
 			{

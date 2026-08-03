@@ -440,6 +440,14 @@ namespace BizHawkMcp
 				Param("endianness", "string", "\"auto\" (domain default), \"big\" or \"little\".", "auto"),
 				Param("timeout_frames", "integer", "Max frames to advance, 1..600.", 600),
 			]),
+			Tool("bizhawk_watch_change", "Advance frames until the value at an address changes from its value at call time (or timeout). Pauses when done. Unlike wait_until you don't need to know the target value — this gives \"first change frame\" semantics for finding dynamic structures. Optional \"endianness\" as bizhawk_read_memory (default \"auto\"). Accepts \"address\" or a symbol \"name\" (from bizhawk_symbols_set).", [
+				Param("address", "integer", "Offset in the domain, or use a symbol \"name\" instead."),
+				Param("name", "string", "Symbol name registered via bizhawk_symbols_set (overrides address/domain)."),
+				Param("width", "integer", "8, 16 or 32.", 8),
+				Param("domain", "string", "Optional domain."),
+				Param("endianness", "string", "\"auto\" (domain default), \"big\" or \"little\".", "auto"),
+				Param("timeout_frames", "integer", "Max frames to advance, 1..600.", 600),
+			]),
 			Tool("bizhawk_watchpoint_add", "Register a real memory watchpoint (read/write/execute) that fires the moment the core touches the address. GENESIS gpgx core ONLY: requires IDebuggable memory callbacks; other cores return an error. Execute watchpoints need an explicit address. See bizhawk_watchpoint_wait to block until one fires.", [
 				Param("name", "string", "Watchpoint name (unique)."),
 				Param("type", "string", "read | write | execute.", "write"),
@@ -567,6 +575,7 @@ namespace BizHawkMcp
 				"bizhawk_watch_list" => _ui.Invoke(() => WatchList()),
 				"bizhawk_watch_read" => _ui.Invoke(() => WatchRead()),
 				"bizhawk_wait_until" => _ui.Invoke(() => WaitUntil(args)),
+				"bizhawk_watch_change" => _ui.Invoke(() => WatchChange(args)),
 				"bizhawk_watchpoint_add" => _ui.Invoke(() => WatchpointAdd(args)),
 				"bizhawk_watchpoint_remove" => _ui.Invoke(() => WatchpointRemove(args)),
 				"bizhawk_watchpoint_list" => _ui.Invoke(WatchpointList),
@@ -2727,6 +2736,61 @@ namespace BizHawkMcp
 			"le" => current <= target,
 			_ => current >= target,
 		};
+
+		// Same polling loop as WaitUntil, but with "first change frame"
+		// semantics: baseline = the value at call time, no target value needed.
+		// Catches dynamic structures (framecounters, state flags) without
+		// knowing what they'll become.
+		private string WatchChange(JsonElement? args)
+		{
+			var a = Required(args);
+			var (address, width, domain) = ResolveTarget(a);
+			int timeout = RequireInt(a, "timeout_frames", 600);
+			if (timeout is < 1 or > 600) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "timeout_frames must be 1..600");
+
+			bool wasPaused = _tool.EmuClient!.IsPaused();
+			if (wasPaused) _tool.EmuClient!.Unpause();
+
+			bool bigEndian = ResolveBigEndian(a, domain);
+			ulong initial = width switch
+			{
+				8 => _tool.Memory!.ReadByte(address, domain),
+				16 => ReadValue(address, 16, domain, bigEndian),
+				_ => ReadValue(address, 32, domain, bigEndian),
+			};
+			ulong current = initial;
+			int frames = 0;
+			try
+			{
+				for (; frames < timeout; frames++)
+				{
+					AdvanceFrame();
+					current = width switch
+					{
+						8 => _tool.Memory!.ReadByte(address, domain),
+						16 => ReadValue(address, 16, domain, bigEndian),
+						_ => ReadValue(address, 32, domain, bigEndian),
+					};
+					if (current != initial) break;
+				}
+			}
+			finally
+			{
+				if (wasPaused) _tool.EmuClient!.Pause();
+			}
+
+			bool changed = current != initial;
+			return JsonRpc.Pretty(new Dictionary<string, object?>
+			{
+				["changed"] = changed,
+				["frames"] = changed ? frames + 1 : frames,
+				["initial"] = initial,
+				["value"] = current,
+				["address"] = address,
+				["endianness"] = EndianName(bigEndian),
+				["framecount"] = _tool.Emulation!.FrameCount(),
+			});
+		}
 
 		private string Trace(JsonElement? args)
 		{
