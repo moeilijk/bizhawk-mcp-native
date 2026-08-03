@@ -3,4 +3,5 @@ obj/
 *.user
 .vs/
 .idea/
-opencode.jsonbizhawk-src
+opencode.json
+bizhawk-src/
