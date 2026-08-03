@@ -1826,6 +1826,16 @@ namespace BizHawkMcp.Tests
 		}
 
 		[Fact]
+		public void Mem_state_rejects_empty_slot_name()
+		{
+			_apis.EnableMemStates();
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_memstate_save", TestHelpers.Js("{\"slot\":\"\"}")));
+			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
+			ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_memstate_save", TestHelpers.Js("{\"slot\":\"  \"}")));
+			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
+		}
+
+		[Fact]
 		public void Overlay_text_draws_and_clears()
 		{
 			_ts.Call("bizhawk_overlay_text", TestHelpers.Js("{\"x\":1,\"y\":2,\"text\":\"hi\",\"fontsize\":12}"));

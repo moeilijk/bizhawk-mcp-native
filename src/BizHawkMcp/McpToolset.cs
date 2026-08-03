@@ -2113,6 +2113,7 @@ namespace BizHawkMcp
 		{
 			var a = Required(args);
 			string slot = RequireString(a, "slot");
+			if (string.IsNullOrWhiteSpace(slot)) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "slot must be a non-empty name");
 			byte[] state = CaptureMemState();
 			_memStates[slot] = state;
 			return JsonRpc.Pretty(new Dictionary<string, object?>
