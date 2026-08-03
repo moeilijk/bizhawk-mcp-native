@@ -3,7 +3,7 @@
 Guidance for AI agents (and humans) working on this repository.
 
 - **Documentation index:** `docs/` — `ARCHITECTURE.md`, `MCP-PROTOCOL.md`, `DEVELOPMENT.md`, `CI-RELEASES.md`. When in doubt, read the relevant doc before editing. Improvement ideas live in `TODO.md`.
-- **Current status (2026-08-03):** 87 tools verified end-to-end against the user's BizHawk dev build (2.11.2, commit `ed78f70a`, Windows via WSL). Server advertises `tools` + `resources` + `prompts` capabilities (incl. `listChanged`) over `http://127.0.0.1:8767/mcp/`; 207 unit tests (`./scripts/test.sh`) pass on Linux without BizHawk — including real-HTTP end-to-end tests (HttpEndToEndTests) that boot the real `McpHttpServer` on a random port. Deployed to `F:\projects\kid\emulators\BizHawk-dev-windows\ExternalTools\`. Test loop: an agent tests against Kid Chameleon (UE) on the Genesis gpgx waterbox core.
+- **Current status (2026-08-03):** 93 tools verified end-to-end against the user's BizHawk dev build (2.11.2, commit `ed78f70a`, Windows via WSL). Server advertises `tools` + `resources` + `prompts` capabilities (incl. `listChanged`) over `http://127.0.0.1:8767/mcp/`; 216 unit tests (`./scripts/test.sh`) pass on Linux without BizHawk — including real-HTTP end-to-end tests (HttpEndToEndTests) that boot the real `McpHttpServer` on a random port. Deployed to `F:\projects\kid\emulators\BizHawk-dev-windows\ExternalTools\`. Test loop: an agent tests against Kid Chameleon (UE) on the Genesis gpgx waterbox core.
 
 ## What this is
 
@@ -64,6 +64,15 @@ Recipe with code in `docs/DEVELOPMENT.md`. In short: add a `Tool(...)` descripto
 
 ## Known limitations (skeleton state)
 
+- **Lua** (`bizhawk_lua_*`): the host is `LuaLibraries` (BizHawk.Client.Common,
+  compile-time) owned by the Lua Console tool; the plugin reaches it via the
+  REGISTERED `IToolApi.GetTool("LuaConsole")` + reflection on the private
+  `LuaImp` field (single-field reflection, like watchpoints). `lua_exec` runs
+  through the same public `ExecuteString` path as the console's REPL. Loaded
+  scripts are pumped every frame by EmuHawk's frame events (`ResumeScripts` +
+  frame callbacks in the main loop) — they run even when emulation runs
+  freely, and survive core reboots (`Restart()` re-enables `Enabled` scripts
+  from `ScriptList`). First `lua_*` call opens the Lua Console window.
 - **Freeze** (`bizhawk_freeze_*`): drives the emulator's real cheat engine —
   `MainForm.CheatList`, the same list the hex editor's Freeze uses (reached via
   the plugin form's `Owner` = MainForm, or `GlobalWin.MainForm` fallback).

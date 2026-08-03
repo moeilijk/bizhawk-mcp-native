@@ -19,6 +19,7 @@ namespace BizHawkMcp
 		IInputApi? Input { get; }
 		IMovieApi? Movie { get; }
 		IUserDataApi? UserData { get; }
+		IToolApi? ToolApi { get; }
 
 		string? ServerUrl { get; }
 

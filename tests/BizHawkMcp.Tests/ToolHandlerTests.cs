@@ -2034,6 +2034,124 @@ namespace BizHawkMcp.Tests
 		}
 
 		[Fact]
+		public void Lua_exec_returns_results()
+		{
+			var lua = _apis.EnableLua();
+			var res = Parse(_ts.Call("bizhawk_lua_exec", TestHelpers.Js("{\"code\":\"memory.read_u8(0xFF2506)\"}")));
+			Assert.True(res.GetProperty("executed").GetBoolean());
+			Assert.Equal("42", res.GetProperty("result")[0].GetString());
+			Assert.Equal("memory.read_u8(0xFF2506)", lua.Executed.Single());
+		}
+
+		[Fact]
+		public void Lua_exec_reports_script_errors_as_result_not_server_error()
+		{
+			var lua = _apis.EnableLua();
+			lua.ExecuteError = new Exception("attempt to call a nil value (global 'nope')");
+			var res = Parse(_ts.Call("bizhawk_lua_exec", TestHelpers.Js("{\"code\":\"nope()\"}")));
+			Assert.False(res.GetProperty("executed").GetBoolean());
+			Assert.Contains("nil value", res.GetProperty("error").GetString());
+		}
+
+		[Fact]
+		public void Lua_unsupported_errors_clearly()
+		{
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_lua_exec", TestHelpers.Js("{\"code\":\"1\"}")));
+			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
+			Assert.Contains("Lua", ex.Message);
+		}
+
+		private string _luaTempScript(string name, string content)
+		{
+			string path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"bizhawk-mcp-test-{name}.lua");
+			System.IO.File.WriteAllText(path, content);
+			return path;
+		}
+
+		[Fact]
+		public void Lua_load_adds_and_starts_script()
+		{
+			var lua = _apis.EnableLua();
+			string path = _luaTempScript("load", "emu.frameadvance()\n");
+			var res = Parse(_ts.Call("bizhawk_lua_load", TestHelpers.Js($"{{\"path\":\"{path}\"}}")));
+			Assert.True(res.GetProperty("enabled").GetBoolean());
+			Assert.Single(lua.ScriptList);
+			Assert.Equal(1, lua.SpawnCalls);
+			Assert.True(lua.ScriptList[0].Enabled);
+			System.IO.File.Delete(path);
+		}
+
+		[Fact]
+		public void Lua_load_missing_file_errors()
+		{
+			_apis.EnableLua();
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_lua_load", TestHelpers.Js("{\"path\":\"C:/nope/not-there.lua\"}")));
+			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
+			Assert.Contains("not found", ex.Message);
+		}
+
+		[Fact]
+		public void Lua_load_reloads_disabled_script()
+		{
+			var lua = _apis.EnableLua();
+			string path = _luaTempScript("reload", "emu.frameadvance()\n");
+			_ts.Call("bizhawk_lua_load", TestHelpers.Js($"{{\"path\":\"{path}\"}}"));
+			_ts.Call("bizhawk_lua_disable", TestHelpers.Js($"{{\"path\":\"{path}\"}}"));
+			Assert.False(lua.ScriptList[0].Enabled);
+			_ts.Call("bizhawk_lua_load", TestHelpers.Js($"{{\"path\":\"{path}\"}}"));
+			Assert.Equal(2, lua.SpawnCalls); // re-started, not duplicated
+			Assert.Single(lua.ScriptList);
+			System.IO.File.Delete(path);
+		}
+
+		[Fact]
+		public void Lua_unload_removes_and_stops()
+		{
+			var lua = _apis.EnableLua();
+			string p1 = _luaTempScript("u1", "emu.frameadvance()\n");
+			string p2 = _luaTempScript("u2", "emu.frameadvance()\n");
+			_ts.Call("bizhawk_lua_load", TestHelpers.Js($"{{\"path\":\"{p1}\"}}"));
+			_ts.Call("bizhawk_lua_load", TestHelpers.Js($"{{\"path\":\"{p2}\"}}"));
+			var res = Parse(_ts.Call("bizhawk_lua_unload", TestHelpers.Js($"{{\"path\":\"{p1}\"}}")));
+			Assert.Equal(p1, res.GetProperty("removed").GetString());
+			Assert.Single(lua.ScriptList);
+			Assert.Equal(p2, lua.ScriptList[0].Path);
+			System.IO.File.Delete(p1);
+			System.IO.File.Delete(p2);
+		}
+
+		[Fact]
+		public void Lua_enable_disable_transitions()
+		{
+			var lua = _apis.EnableLua();
+			string path = _luaTempScript("ed", "emu.frameadvance()\n");
+			_ts.Call("bizhawk_lua_load", TestHelpers.Js($"{{\"path\":\"{path}\"}}"));
+			var dis = Parse(_ts.Call("bizhawk_lua_disable", TestHelpers.Js($"{{\"path\":\"{path}\"}}")));
+			Assert.False(dis.GetProperty("enabled").GetBoolean());
+			var en = Parse(_ts.Call("bizhawk_lua_enable", TestHelpers.Js($"{{\"path\":\"{path}\"}}")));
+			Assert.True(en.GetProperty("enabled").GetBoolean());
+			Assert.Equal(2, lua.SpawnCalls);
+			System.IO.File.Delete(path);
+		}
+
+		[Fact]
+		public void Lua_list_lists_scripts()
+		{
+			_apis.EnableLua();
+			string p1 = _luaTempScript("l1", "emu.frameadvance()\n");
+			string p2 = _luaTempScript("l2", "emu.frameadvance()\n");
+			_ts.Call("bizhawk_lua_load", TestHelpers.Js($"{{\"path\":\"{p1}\"}}"));
+			_ts.Call("bizhawk_lua_load", TestHelpers.Js($"{{\"path\":\"{p2}\"}}"));
+			var res = Parse(_ts.Call("bizhawk_lua_list", null));
+			Assert.Equal(2, res.GetProperty("count").GetInt32());
+			Assert.Equal(p1, res.GetProperty("scripts")[0].GetProperty("path").GetString());
+			Assert.True(res.GetProperty("scripts")[0].GetProperty("enabled").GetBoolean());
+			Assert.False(res.GetProperty("scripts")[0].GetProperty("paused").GetBoolean());
+			System.IO.File.Delete(p1);
+			System.IO.File.Delete(p2);
+		}
+
+		[Fact]
 		public void Overlay_text_draws_and_clears()
 		{
 			_ts.Call("bizhawk_overlay_text", TestHelpers.Js("{\"x\":1,\"y\":2,\"text\":\"hi\",\"fontsize\":12}"));

@@ -53,6 +53,10 @@ namespace BizHawkMcp
 
 		[RequiredApi] public IUserDataApi? UserData { get; set; }
 
+		// optional: the Lua Console tool (used to reach the Lua runtime's
+		// LuaLibraries host; the lua_* tools error clearly when it's missing)
+		[OptionalApi] public IToolApi? ToolApi { get; set; }
+
 		public ExternalToolEntry()
 		{
 			Text = "BizHawk MCP Server";

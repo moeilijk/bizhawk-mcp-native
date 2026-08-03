@@ -598,6 +598,26 @@ namespace BizHawkMcp.Tests
 		public object? GetService(Type t) => t.IsInstanceOfType(_statable) ? _statable : null;
 	}
 
+	public sealed class FakeLuaLibraries : LuaLibraries
+	{
+		public readonly List<string> Executed = new();
+		public int SpawnCalls;
+		public Exception? ExecuteError;
+
+		public override object[] ExecuteString(string command)
+		{
+			Executed.Add(command);
+			if (ExecuteError != null) throw ExecuteError;
+			return new object[] { 42 };
+		}
+
+		public override NLua.LuaThread SpawnCoroutineAndSandbox(string file)
+		{
+			SpawnCalls++;
+			return new NLua.LuaThread();
+		}
+	}
+
 	public sealed class FakeApis : IHostApis
 	{
 		public FakeMemoryApi MemoryApi = new();
@@ -609,6 +629,8 @@ namespace BizHawkMcp.Tests
 		public FakeInputApi InputApi = new();
 		public FakeMovieApi MovieApi = new();
 		public FakeUserDataApi UserDataApi = new();
+		public FakeLuaLibraries? Lua { get; set; }
+		public IToolApi? ToolApi { get; set; }
 		public readonly List<string> Logged = new();
 		public int StopServerCalls;
 
@@ -657,6 +679,13 @@ namespace BizHawkMcp.Tests
 
 		public CheatCollection? Cheats { get; set; }
 
-		public McpToolset Toolset() => new(this, new InlineDispatcher(), () => Cheats);
+		public McpToolset Toolset() => new(this, new InlineDispatcher(), () => Cheats, () => Lua);
+
+		/// <summary>Wires up a fake Lua runtime like the Lua Console would.</summary>
+		public FakeLuaLibraries EnableLua()
+		{
+			Lua = new FakeLuaLibraries();
+			return Lua;
+		}
 	}
 }

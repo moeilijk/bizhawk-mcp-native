@@ -284,3 +284,58 @@ namespace BizHawk.Client.Common
 
 		System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
 	}
+
+	// ── Lua stubs ─────────────────────────────────────────────────────────────
+	// Mirror the members of the real LuaFile/LuaLibraries the linked
+	// McpToolset.cs uses (BizHawk.Client.Common/lua/). The real LuaThread is an
+	// NLua type — stubbed in NLuaStubs.cs.
+
+	public interface IToolForm
+	{
+	}
+
+	public interface IToolApi
+	{
+		IToolForm GetTool(string name);
+	}
+
+	public class LuaFile
+	{
+		public LuaFile(string path, Action onFunctionListChange)
+		{
+			Path = path;
+		}
+
+		public string Path { get; }
+		public bool IsSeparator => false;
+		public bool Enabled { get; private set; }
+		public bool Paused { get; private set; }
+		public NLua.LuaThread Thread { get; private set; }
+
+		public void Start(NLua.LuaThread thread)
+		{
+			Thread = thread;
+			Enabled = true;
+			Paused = false;
+		}
+
+		public void Stop() => Enabled = false;
+
+		public void TogglePause()
+		{
+			if (Enabled) Paused = !Paused;
+		}
+	}
+
+	public class LuaLibraries
+	{
+		public List<LuaFile> ScriptList { get; } = new();
+
+		public virtual object[] ExecuteString(string command) => throw new NotImplementedException();
+
+		public virtual NLua.LuaThread SpawnCoroutineAndSandbox(string file) => new();
+
+		public virtual NLua.LuaThread SpawnBlankCoroutineAndSandbox(string directory) => new();
+
+		public virtual void Close() { }
+	}

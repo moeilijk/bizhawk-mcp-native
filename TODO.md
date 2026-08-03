@@ -16,9 +16,14 @@ Legend: `[~]` partially done / covered by another tool · `[ ]` open
 
 ## Tools / API surface
 
-- [ ] **`run_lua`**: execute Lua inside EmuHawk from the plugin. The Lua runtime
-  lives in EmuHawk internals (LuaConsole/LuaEnvironment) — deep reflection,
-  fragile. Defer unless a gap really needs it.
+- [x] **Lua scripting**: NOT fragile in the pinned BizHawk — the runtime host
+  (`LuaLibraries`/`LuaFile`/`LuaSandbox`) lives in **BizHawk.Client.Common**
+  (compile-time) and `ExecuteString` is the public REPL path; only the
+  instance (`LuaImp` field on the Lua Console) needs reflection, reached via
+  the registered `IToolApi.GetTool("LuaConsole")`. Shipped `bizhawk_lua_exec`
+  (inline), `lua_load`/`unload`/`enable`/`disable` (script lifecycle) and
+  `lua_list`. Scripts run via EmuHawk's frame events every frame (even
+  free-running) and survive core reboots.
 - [x] **Freeze/cheat support**: not in the ApiHawk set, but the emulator's real
   cheat engine (`MainForm.CheatList` + `Cheat`/`Watch`) is reachable via the
   plugin form's `Owner` (the MainForm): `bizhawk_freeze_add`/`remove`/`list`/

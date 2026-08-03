@@ -27,13 +27,14 @@ namespace BizHawkMcp
 		private bool? _bigEndianOverride;
 		private string? _lastSystemId;
 
-		public McpToolset(IHostApis tool, IUiDispatcher ui) : this(tool, ui, null) { }
+		public McpToolset(IHostApis tool, IUiDispatcher ui) : this(tool, ui, null, null) { }
 
-		internal McpToolset(IHostApis tool, IUiDispatcher ui, Func<CheatCollection?>? cheatListResolver)
+		internal McpToolset(IHostApis tool, IUiDispatcher ui, Func<CheatCollection?>? cheatListResolver, Func<LuaLibraries?>? luaResolver = null)
 		{
 			_tool = tool;
 			_ui = ui;
 			_cheatListResolver = cheatListResolver;
+			_luaResolver = luaResolver;
 			_lastRomHash = CurrentRomHash();
 			LoadPersistedSymbols(_lastRomHash);
 		}
@@ -403,6 +404,22 @@ namespace BizHawkMcp
 			]),
 			Tool("bizhawk_freeze_list", "List the emulator's current freezes (cheat entries): name, domain, address, width, value, endianness, enabled. Shared with the Cheats window / hex editor freezes.", []),
 			Tool("bizhawk_freeze_clear", "Remove ALL freezes/cheats in the emulator's cheat list (including manual entries made in the Cheats window).", []),
+			Tool("bizhawk_lua_exec", "Execute a Lua snippet inline in EmuHawk's Lua runtime (the same path the Lua Console's REPL box uses). The memory/gui/emu/... libraries are available. A Lua syntax/runtime error is returned as {\"executed\": false, \"error\": ...}, not a server error. Returns the expression's values (\"return ...\" is implied, like the REPL).", [
+				Param("code", "string", "Lua code to execute, e.g. \"memory.read_u8(0xFF2506)\"."),
+			]),
+			Tool("bizhawk_lua_load", "Load a .lua script file into the emulator's script list and start it (same as loading it in the Lua Console). The script then runs every frame via EmuHawk's own frame events — even while emulation runs freely — with no further tool involvement. If already loaded but disabled, re-starts it. Opens the Lua Console window if it isn't open (it owns the Lua runtime).", [
+				Param("path", "string", "Absolute .lua path (host-side, e.g. C:/temp/script.lua)."),
+			]),
+			Tool("bizhawk_lua_unload", "Stop and remove a loaded Lua script.", [
+				Param("path", "string", "Absolute .lua path as given to lua_load."),
+			]),
+			Tool("bizhawk_lua_enable", "Start (or resume) a loaded Lua script that is currently disabled.", [
+				Param("path", "string", "Absolute .lua path."),
+			]),
+			Tool("bizhawk_lua_disable", "Stop a running Lua script (it stays in the script list, disabled).", [
+				Param("path", "string", "Absolute .lua path."),
+			]),
+			Tool("bizhawk_lua_list", "List the emulator's loaded Lua scripts: path, enabled, paused.", []),
 			Tool("bizhawk_shutdown", "Stop the MCP server (plugin stays loaded; restart via the form's button or the emulator's Lua/tools menu).", []),
 			Tool("bizhawk_overlay_text", "Draw text on the emulator's video output. Overlays ACCUMULATE until bizhawk_clear_overlay (all are re-rendered on every frame advance), so multiple hitboxes/labels can stay on screen at once.", [
 				Param("x", "integer", "X position."),
@@ -600,6 +617,12 @@ namespace BizHawkMcp
 				"bizhawk_freeze_remove" => _ui.Invoke(() => FreezeRemove(args)),
 				"bizhawk_freeze_list" => _ui.Invoke(FreezeList),
 				"bizhawk_freeze_clear" => _ui.Invoke(FreezeClear),
+				"bizhawk_lua_exec" => _ui.Invoke(() => LuaExec(args)),
+				"bizhawk_lua_load" => _ui.Invoke(() => LuaLoad(args)),
+				"bizhawk_lua_unload" => _ui.Invoke(() => LuaUnload(args)),
+				"bizhawk_lua_enable" => _ui.Invoke(() => LuaEnable(args)),
+				"bizhawk_lua_disable" => _ui.Invoke(() => LuaDisable(args)),
+				"bizhawk_lua_list" => _ui.Invoke(LuaList),
 				"bizhawk_shutdown" => Shutdown(),
 				"bizhawk_overlay_text" => _ui.Invoke(() => OverlayText(args)),
 				"bizhawk_clear_overlay" => _ui.Invoke(() => ClearOverlay()),
@@ -2474,6 +2497,157 @@ namespace BizHawkMcp
 				_ => unchecked((int)(uint)value),
 			};
 			ResolveCheatList().Add(MakeCheat(md, address, width, bigEndian, val, null));
+		}
+
+		// ── Lua ────────────────────────────────────────────────────────────────
+		// The Lua runtime host (LuaLibraries) lives in BizHawk.Client.Common and
+		// is owned by the Lua Console tool (field "LuaImp"). IToolApi.GetTool
+		// loads/instantiates the console (registered ApiHawk API), then we reach
+		// the host by reflecting the single private field — the same pattern as
+		// watchpoints. Scripts added to ScriptList are pumped by EmuHawk's main
+		// loop (ResumeScripts + frame events every frame), so they run even when
+		// emulation runs freely, with zero plugin involvement.
+		private readonly Func<LuaLibraries?>? _luaResolver;
+
+		private LuaLibraries ResolveLua()
+		{
+			if (_luaResolver != null)
+			{
+				var injected = _luaResolver();
+				if (injected != null) return injected;
+			}
+			var console = _tool.ToolApi?.GetTool("LuaConsole");
+			if (console != null)
+			{
+				var f = console.GetType().GetField("LuaImp", BindingFlags.NonPublic | BindingFlags.Instance);
+				if (f?.GetValue(console) is LuaLibraries lua) return lua;
+			}
+			throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "lua unsupported: cannot reach the emulator's Lua runtime (Lua Console not available)");
+		}
+
+		private static string LuaValueText(object? value) => value switch
+		{
+			null => "nil",
+			string s => s,
+			double d => d.ToString(System.Globalization.CultureInfo.InvariantCulture),
+			bool b => b ? "true" : "false",
+			_ => value.ToString() ?? "nil",
+		};
+
+		private string LuaExec(JsonElement? args)
+		{
+			var a = Required(args);
+			string code = RequireString(a, "code");
+			var lua = ResolveLua();
+			try
+			{
+				var results = lua.ExecuteString(code);
+				return JsonRpc.Pretty(new Dictionary<string, object?>
+				{
+					["executed"] = true,
+					["result"] = results.Select(LuaValueText).ToArray(),
+				});
+			}
+			catch (Exception e)
+			{
+				// a Lua error (syntax/runtime) is a script outcome, not a server fault
+				return JsonRpc.Pretty(new Dictionary<string, object?>
+				{
+					["executed"] = false,
+					["error"] = e.Message,
+				});
+			}
+		}
+
+		private LuaFile? FindLuaFile(LuaLibraries lua, string path)
+		{
+			string absolute = System.IO.Path.GetFullPath(path);
+			return lua.ScriptList.FirstOrDefault(f => !f.IsSeparator && System.IO.Path.GetFullPath(f.Path).Equals(absolute, StringComparison.OrdinalIgnoreCase));
+		}
+
+		private string LuaLoad(JsonElement? args)
+		{
+			var a = Required(args);
+			string path = RequireString(a, "path");
+			if (!System.IO.File.Exists(path))
+				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"script file not found: {path}");
+			var lua = ResolveLua();
+			var existing = FindLuaFile(lua, path);
+			if (existing != null)
+			{
+				if (!existing.Enabled)
+					existing.Start(lua.SpawnCoroutineAndSandbox(path));
+				return JsonRpc.Pretty(new Dictionary<string, object?>
+				{
+					["path"] = path,
+					["loaded"] = true,
+					["enabled"] = existing.Enabled,
+				});
+			}
+			var file = new LuaFile(path, () => { });
+			lua.ScriptList.Add(file);
+			file.Start(lua.SpawnCoroutineAndSandbox(path));
+			return JsonRpc.Pretty(new Dictionary<string, object?>
+			{
+				["path"] = path,
+				["loaded"] = true,
+				["enabled"] = true,
+				["scripts"] = lua.ScriptList.Count,
+			});
+		}
+
+		private string LuaUnload(JsonElement? args)
+		{
+			var a = Required(args);
+			string path = RequireString(a, "path");
+			var lua = ResolveLua();
+			var file = FindLuaFile(lua, path);
+			if (file == null)
+				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"script not loaded: {path}");
+			file.Stop();
+			lua.ScriptList.Remove(file);
+			return JsonRpc.Pretty(new Dictionary<string, object?> { ["removed"] = path });
+		}
+
+		private string LuaEnable(JsonElement? args)
+		{
+			var a = Required(args);
+			string path = RequireString(a, "path");
+			var lua = ResolveLua();
+			var file = FindLuaFile(lua, path);
+			if (file == null)
+				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"script not loaded: {path}");
+			if (!file.Enabled) file.Start(lua.SpawnCoroutineAndSandbox(path));
+			return JsonRpc.Pretty(new Dictionary<string, object?> { ["path"] = path, ["enabled"] = file.Enabled });
+		}
+
+		private string LuaDisable(JsonElement? args)
+		{
+			var a = Required(args);
+			string path = RequireString(a, "path");
+			var lua = ResolveLua();
+			var file = FindLuaFile(lua, path);
+			if (file == null)
+				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"script not loaded: {path}");
+			file.Stop();
+			return JsonRpc.Pretty(new Dictionary<string, object?> { ["path"] = path, ["enabled"] = file.Enabled });
+		}
+
+		private string LuaList()
+		{
+			var lua = ResolveLua();
+			var list = new List<object?>();
+			foreach (var file in lua.ScriptList)
+			{
+				if (file.IsSeparator) continue;
+				list.Add(new Dictionary<string, object?>
+				{
+					["path"] = file.Path,
+					["enabled"] = file.Enabled,
+					["paused"] = file.Paused,
+				});
+			}
+			return JsonRpc.Pretty(new Dictionary<string, object?> { ["scripts"] = list, ["count"] = list.Count });
 		}
 
 		private string OverlayText(JsonElement? args)

@@ -97,6 +97,14 @@ on explicit request — otherwise changes accumulate under `## [Unreleased]`.
   diagnostics instead of silent masking.
 
 ### Added
+- Lua scripting (`bizhawk_lua_exec`/`load`/`unload`/`enable`/`disable`/`list`):
+  drives EmuHawk's real Lua runtime. The host (`LuaLibraries` in
+  BizHawk.Client.Common) is reached via `IToolApi.GetTool("LuaConsole")` +
+  reflection on its private `LuaImp` field (same pattern as watchpoints) — no
+  deep reflection into the Lua machinery. `lua_exec` runs snippets through the
+  same path as the console's REPL; loaded scripts are pumped every frame by
+  EmuHawk's frame events (even free-running emulation) and survive core
+  reboots.
 - `bizhawk_read_bulk`: contiguous range as raw base64 in one call (up to 64 KiB).
   Measured live: per-call latency is ~17ms fixed (HTTP + JSON + UI-thread
   marshaling) regardless of payload, so batching wins — 4096 bytes via
