@@ -177,5 +177,24 @@ namespace BizHawkMcp.Tests
 			using var doc = ParseResult(r);
 			Assert.Equal(-32602, doc.RootElement.GetProperty("error").GetProperty("code").GetInt32());
 		}
+
+		[Fact]
+		public void Resources_templates_list_returns_read_template()
+		{
+			var r = _server.Dispatch("{\"jsonrpc\":\"2.0\",\"id\":8,\"method\":\"resources/templates/list\"}");
+			using var doc = ParseResult(r);
+			var templates = doc.RootElement.GetProperty("result").GetProperty("resourceTemplates");
+			Assert.Equal(1, templates.GetArrayLength());
+			Assert.Equal("bizhawk://read/{domain}/{range}", templates[0].GetProperty("uriTemplate").GetString());
+		}
+
+		[Fact]
+		public void Resources_read_template_via_dispatch()
+		{
+			var r = _server.Dispatch("{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"resources/read\",\"params\":{\"uri\":\"bizhawk://read/68K%20RAM/0:1\"}}");
+			using var doc = ParseResult(r);
+			var contents = doc.RootElement.GetProperty("result").GetProperty("contents")[0];
+			Assert.Equal("application/octet-stream", contents.GetProperty("mimeType").GetString());
+		}
 	}
 }

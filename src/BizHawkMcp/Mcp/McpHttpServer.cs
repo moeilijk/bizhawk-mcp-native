@@ -191,6 +191,7 @@ namespace BizHawkMcp.Mcp
 					"tools/list" => new Dictionary<string, object?> { ["tools"] = _toolset!.ToolSchemas },
 					"tools/call" => CallTool(args),
 					"resources/list" => _ui.Invoke(() => _toolset!.ListResources()),
+					"resources/templates/list" => _ui.Invoke(() => _toolset!.ListResourceTemplates()),
 					"resources/read" => _ui.Invoke(() => ReadResource(args)),
 					_ => throw new JsonRpc.Error(JsonRpc.Error.METHOD_NOT_FOUND, $"unknown method: {method}"),
 				};

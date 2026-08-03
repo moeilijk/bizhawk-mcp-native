@@ -1686,6 +1686,13 @@ namespace BizHawkMcp
 
 		public Dictionary<string, object?> ReadResource(string uri)
 		{
+			// bizhawk://read/{domain}/{start}:{end} — live read of a memory region
+			// (bytes raw, no endianness interpretation). Domain is URL-decoded.
+			if (uri.StartsWith("bizhawk://read/", StringComparison.Ordinal))
+			{
+				return ReadResourceTemplate(uri);
+			}
+
 			var artifact = _artifacts.Find(a => a.Uri == uri);
 			if (artifact == null) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"unknown resource: {uri}");
 			byte[] bytes;
@@ -1705,6 +1712,71 @@ namespace BizHawkMcp
 				},
 			};
 		}
+
+		private const long MaxTemplateBytes = 64 * 1024;
+
+		private Dictionary<string, object?> ReadResourceTemplate(string uri)
+		{
+			// uri = bizhawk://read/{domain}/{start}:{end}
+			string rest = uri.Substring("bizhawk://read/".Length);
+			int slash = rest.IndexOf('/');
+			if (slash < 0) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"malformed read URI: {uri} (expected bizhawk://read/<domain>/<start>:<end>)");
+			string domain = Uri.UnescapeDataString(rest.Substring(0, slash));
+			string range = rest.Substring(slash + 1);
+			int colon = range.LastIndexOf(':');
+			if (colon < 0) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"malformed read URI: {uri} (expected <start>:<end>)");
+			string startPart = range.Substring(0, colon);
+			string endPart = range.Substring(colon + 1);
+			if (!long.TryParse(startPart, System.Globalization.NumberStyles.HexNumber, null, out long start)
+				|| !long.TryParse(endPart, System.Globalization.NumberStyles.HexNumber, null, out long end)
+				|| end <= start)
+			{
+				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"malformed read URI: {uri} (start/end must be hex, end > start)");
+			}
+			long len = end - start;
+			if (len > MaxTemplateBytes) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"read URI too large ({len} bytes; max {MaxTemplateBytes})");
+
+			// read via the UI thread (memory API is not thread-safe off it)
+			byte[] bytes = _ui.Invoke(() =>
+			{
+				EnsureEndianness();
+				start = ValidateAddress(start, 1, domain);
+				long size = _tool.Memory!.GetMemoryDomainSize(domain);
+				if (start + len > size)
+					throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"range {start:X}:{start + len:X} outside domain \"{domain}\" (size {size})");
+				var raw = _tool.Memory!.ReadByteRange(start, (int)len, domain);
+				var buf = new byte[len];
+				for (var i = 0; i < len; i++) buf[i] = raw[i];
+				return buf;
+			});
+
+			return new Dictionary<string, object?>
+			{
+				["contents"] = new List<object?>
+				{
+					new Dictionary<string, object?>
+					{
+						["uri"] = uri,
+						["mimeType"] = "application/octet-stream",
+						["blob"] = Convert.ToBase64String(bytes),
+					},
+				},
+			};
+		}
+
+		public Dictionary<string, object?> ListResourceTemplates() =>
+			new Dictionary<string, object?>
+			{
+				["resourceTemplates"] = new List<object?>
+				{
+					new Dictionary<string, object?>
+					{
+						["uriTemplate"] = "bizhawk://read/{domain}/{range}",
+						["name"] = "Read memory region (binary)",
+						["description"] = "Raw bytes from a memory domain, offsets given as a hex range. Example: bizhawk://read/68K%20RAM/ffbc8:ffbd0. No endianness applied.",
+					},
+				},
+			};
 
 		private static JsonElement Required(JsonElement? args)
 		{

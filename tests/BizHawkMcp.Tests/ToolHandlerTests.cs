@@ -902,6 +902,64 @@ namespace BizHawkMcp.Tests
 			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.ReadResource("bizhawk://doesnotexist"));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 		}
+
+		[Fact]
+		public void Resource_template_read_returns_raw_bytes()
+		{
+			_apis.MemoryApi.Bytes[0xFBCA] = 0x00;
+			_apis.MemoryApi.Bytes[0xFBCB] = 0x08;
+			_apis.MemoryApi.Bytes[0xFBCC] = 0xFF;
+			var readDoc = JsonDocument.Parse(JsonSerializer.Serialize(_ts.ReadResource("bizhawk://read/68K%20RAM/fbca:fbcd")));
+			var contents = readDoc.RootElement.GetProperty("contents")[0];
+			Assert.Equal("bizhawk://read/68K%20RAM/fbca:fbcd", contents.GetProperty("uri").GetString());
+			Assert.Equal("application/octet-stream", contents.GetProperty("mimeType").GetString());
+			var bytes = System.Convert.FromBase64String(contents.GetProperty("blob").GetString()!);
+			Assert.Equal(3, bytes.Length);
+			Assert.Equal(new byte[] { 0x00, 0x08, 0xFF }, bytes);
+		}
+
+		[Fact]
+		public void Resource_template_respects_domain_size_and_hex_range()
+		{
+			// M68K BUS takes raw bus addresses; read 0xFF0000..0xFF0002
+			_apis.MemoryApi.Bytes[0xFF0000] = 0xAA;
+			var readDoc = JsonDocument.Parse(JsonSerializer.Serialize(_ts.ReadResource("bizhawk://read/M68K%20BUS/FF0000:FF0001")));
+			var contents = readDoc.RootElement.GetProperty("contents")[0];
+			var bytes = System.Convert.FromBase64String(contents.GetProperty("blob").GetString()!);
+			Assert.Single(bytes);
+			Assert.Equal(0xAA, bytes[0]);
+		}
+
+		[Fact]
+		public void Resource_template_errors_on_bad_range()
+		{
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.ReadResource("bizhawk://read/68K%20RAM/zz:10"));
+			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
+		}
+
+		[Fact]
+		public void Resource_template_errors_on_empty_or_inverted_range()
+		{
+			Assert.Throws<JsonRpc.Error>(() => _ts.ReadResource("bizhawk://read/68K%20RAM/10:10"));
+			Assert.Throws<JsonRpc.Error>(() => _ts.ReadResource("bizhawk://read/68K%20RAM/20:10"));
+		}
+
+		[Fact]
+		public void Resource_template_rejects_oversized_range()
+		{
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.ReadResource("bizhawk://read/68K%20RAM/0:10001"));
+			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
+		}
+
+		[Fact]
+		public void Resource_template_list_lists_read_template()
+		{
+			var listed = _ts.ListResourceTemplates();
+			var doc = JsonDocument.Parse(JsonSerializer.Serialize(listed));
+			var templates = doc.RootElement.GetProperty("resourceTemplates");
+			Assert.Equal(1, templates.GetArrayLength());
+			Assert.Equal("bizhawk://read/{domain}/{range}", templates[0].GetProperty("uriTemplate").GetString());
+		}
 	}
 
 	public class MiscToolTests
