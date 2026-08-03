@@ -34,6 +34,16 @@ Legend: `[x]` done · `[~]` partially done / covered by another tool · `[ ]` op
   Callbacks fire on the core thread and only set volatile flags; the wait loop
   frame-advances on the UI thread. **Per-instruction step is impossible** —
   gpgx's `CanStep` returns `false`; only frame stepping exists.
+  (2026-08-02: fixed a real "inert watchpoints" bug — `MemoryCallbackImpl`
+  returned `AddressMask => null`, but the core's `Call()` matches
+  `Address == (addr & AddressMask)`, so address-specific watchpoints never
+  fired on real gpgx; the fake `Fire` called every callback unconditionally so
+  tests missed it. Now `AddressMask => 0xFFFFFFFF` and the fake replicates the
+  address filter.)
+- [ ] **Polling watchpoint** (`bizhawk_watch_change`): frame-stepping variant that
+  watches an address and returns the frame + value the moment it changes, using
+  the existing `wait_until`/`ram_diff` infra — works on ANY core (no callbacks
+  needed). Useful for "who writes this RAM" on cores without memory callbacks.
 - [ ] **VRAM plane decode** (`bizhawk_read_plane`): nametable (64×32) + tiles
   (8×8, 4bpp planar) + palette → PNG. Most hardware-specific work; no new APIs
   needed (VRAM/CRAM domains exist).

@@ -257,10 +257,16 @@ namespace BizHawkMcp.Tests
 
 		System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
 
-		/// <summary>Simulates the core firing a memory access at the given address.</summary>
+		/// <summary>Simulates the core firing a memory access at the given address,
+		/// replicating MemoryCallbackSystem.Call(): only callbacks whose address
+		/// matches (addr & AddressMask) are invoked.</summary>
 		public void Fire(uint address, uint value = 0, uint flags = 0)
 		{
-			foreach (var cb in Registered) cb.Callback(address, value, flags);
+			foreach (var cb in Registered)
+			{
+				if (!cb.Address.HasValue || cb.Address == (address & cb.AddressMask))
+					cb.Callback(address, value, flags);
+			}
 		}
 	}
 

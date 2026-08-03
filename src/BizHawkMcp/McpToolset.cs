@@ -226,8 +226,9 @@ namespace BizHawkMcp
 			]),
 			Tool("bizhawk_watch_list", "List registered watchers with their current values (JSON).", []),
 			Tool("bizhawk_watch_read", "Read all watcher values in one call (JSON). Each entry has \"value\" and \"changed\" (true when it differs from the previous read).", []),
-			Tool("bizhawk_wait_until", "Advance frames until a memory condition holds (or timeout). Pauses when done. Condition ops: eq, ne, lt, gt, le, ge. Optional \"endianness\" as bizhawk_read_memory (default \"auto\").", [
-				Param("address", "integer", "Offset in the domain."),
+			Tool("bizhawk_wait_until", "Advance frames until a memory condition holds (or timeout). Pauses when done. Condition ops: eq, ne, lt, gt, le, ge. Optional \"endianness\" as bizhawk_read_memory (default \"auto\"). Accepts \"address\" or a symbol \"name\" (from bizhawk_symbols_set).", [
+				Param("address", "integer", "Offset in the domain, or use a symbol \"name\" instead."),
+				Param("name", "string", "Symbol name registered via bizhawk_symbols_set (overrides address/domain)."),
 				Param("op", "string", "eq | ne | lt | gt | le | ge.", "eq"),
 				Param("value", "integer", "Value to compare against."),
 				Param("width", "integer", "8, 16 or 32.", 8),
@@ -1551,19 +1552,21 @@ namespace BizHawkMcp
 			public string Name { get; init; } = "";
 			public MemoryCallbackDelegate Callback { get; init; } = (_, _, _) => null;
 			public uint? Address { get; init; }
-			public uint? AddressMask => null;
+			// must be non-null, or the core's Call() match
+			// (cb.Address == (addr & cb.AddressMask)) never fires for
+			// address-specific watchpoints. BizHawk's MemoryCallback ctor
+			// defaults this to 0xFFFFFFFF.
+			public uint? AddressMask => 0xFFFFFFFF;
 			public string Scope { get; init; } = "";
 		}
 
 		private string WaitUntil(JsonElement? args)
 		{
 			var a = Required(args);
-			long address = RequireLong(a, "address");
+			var (address, width, domain) = ResolveTarget(a);
 			string op = a.TryGetProperty("op", out var o) && o.ValueKind == JsonValueKind.String ? o.GetString()! : "eq";
 			if (op is not ("eq" or "ne" or "lt" or "gt" or "le" or "ge")) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"unknown op: {op}");
 			ulong value = RequireULong(a, "value");
-			var (width, domain) = WatchWidth(a);
-			address = ValidateAddress(address, width, domain);
 			int timeout = RequireInt(a, "timeout_frames", 600);
 			if (timeout is < 1 or > 600) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "timeout_frames must be 1..600");
 

@@ -709,6 +709,22 @@ namespace BizHawkMcp.Tests
 		}
 
 		[Fact]
+		public void Wait_until_accepts_symbol_name()
+		{
+			// same as above but the target is addressed by symbol, not raw offset
+			_ts.Call("bizhawk_symbols_set", TestHelpers.Js("{\"symbols\":[{\"name\":\"hp\",\"address\":100,\"width\":8}]}"));
+			var frames = 0;
+			_apis.EmuClientApi.OnFrameAdvance = () => { frames++; _apis.MemoryApi.Bytes[100] = (byte)frames; };
+			_apis.MemoryApi.Bytes[100] = 0;
+			_apis.EmuClientApi.Paused = true;
+
+			var res = Parse(_ts.Call("bizhawk_wait_until", TestHelpers.Js("{\"name\":\"hp\",\"op\":\"eq\",\"value\":3}")));
+			Assert.True(res.GetProperty("matched").GetBoolean());
+			Assert.Equal(3, res.GetProperty("frames").GetInt32());
+			Assert.Equal((ulong)3, res.GetProperty("value").GetUInt64());
+		}
+
+		[Fact]
 		public void Wait_until_times_out()
 		{
 			// value never changes → no match within 600 frames
