@@ -2,7 +2,23 @@
 
 A native [MCP](https://modelcontextprotocol.io) server for [BizHawk](https://github.com/TASEmulators/BizHawk)/EmuHawk, implemented as a **C# External Tool** that lives **inside the EmuHawk process**. It exposes the emulator to LLM agents (opencode, Claude Desktop, any MCP client) over a **Streamable HTTP** endpoint: read/write memory, drive the joypad, step frames, set breakpoints, take screenshots, manage savestates — the full ApiHawk surface plus deeper emulator internals (watchpoints, cheat engine, VDP state).
 
-Warning: This is **mostly** built with LLM agents, so it is not a polished product. It is intended for **research and experimentation** with LLMs controlling emulators.
+Warning: This is **mostly** built with LLM agents (vibe coding — see [A note on how this is built](#a-note-on-how-this-is-built)). It is intended for **research and experimentation** with LLMs controlling emulators.
+
+## A note from the author
+
+This project started as a **personal tool** to fill a specific need: driving
+the BizHawk emulator from an AI agent during game research (memory hunting,
+TAS-style experiments, parity fixtures). It is MIT-licensed and shared
+openly — **fork it freely**, adapt it, and build on it.
+
+Two things to know before you contribute:
+
+- **The author checks the repository sporadically** — sometimes weeks or
+  months go by. Issues and pull requests are read and eventually answered, but
+  there is no SLA. If you need something fast, your fork is the way.
+- **Pull requests are welcome**, and the bar is a good one: small and focused,
+  tests green, zero build warnings, docs updated. See
+  [CONTRIBUTING.md](CONTRIBUTING.md) for the full guidelines.
 
 ## Status
 
@@ -317,6 +333,22 @@ curl -s -X POST http://127.0.0.1:8767/mcp/ -H 'Content-Type: application/json' \
 - Trigger: `workflow_dispatch` (manual) or pushing a `v*` tag — on tag push the zips are attached to a GitHub release (notes from `CHANGELOG.md`).
 - Everything runs on `ubuntu-latest`; the Linux flavor validates the Mono target.
 
+## A note on how this is built
+
+Honesty clause: almost every line of this codebase was **written by AI
+agents** — the author prompts, directs, reviews, and (crucially) **verifies
+everything against the real emulator**. The development loop is: agent writes
+code + tests → author deploys into a live BizHawk → a second, independent
+agent runs a behavioral test checklist against the running emulator → bugs
+found get fixed and regression-tested. That loop has caught real bugs
+(an ambiguous reflection lookup, a silently disabled fast path, wrong
+endianness handling) that unit tests alone missed.
+
+So: it is "vibe coded" in origin, but the **final delivery is held to a real
+standard** — clean builds with zero warnings, 200+ unit tests, documentation,
+and live end-to-end verification for every feature. If you find a rough edge,
+an issue with a reproducible case is the best contribution.
+
 ## Project layout
 
 ```
@@ -324,6 +356,8 @@ curl -s -X POST http://127.0.0.1:8767/mcp/ -H 'Content-Type: application/json' \
 .env                           # your local config (gitignored): BIZHAWK_INSTALL etc.
 bizhawk.build                  # pinned BizHawk commit the tool compiles against
 Directory.Build.props          # BizHawkInstallDir resolution (env → legacy → error)
+LICENSE                        # MIT
+CONTRIBUTING.md                 # how to open issues/PRs (async-friendly)
 opencode.mcp.example.json      # opencode remote-MCP config
 src/BizHawkMcp/
   BizHawkMcp.csproj            # net48, refs the installed dll/ assemblies
@@ -358,3 +392,9 @@ AGENTS.md                      # orientation + hard constraints for AI agents
 ## Roadmap
 
 See [`TODO.md`](TODO.md) for the full, maintained list.
+
+## License
+
+[MIT](LICENSE) — use it, fork it, ship it. Contributions are welcome
+(see [CONTRIBUTING.md](CONTRIBUTING.md)), just keep in mind the author checks
+in from time to time, not on a schedule.
