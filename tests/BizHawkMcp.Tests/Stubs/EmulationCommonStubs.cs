@@ -64,4 +64,20 @@ namespace BizHawk.Emulation.Common
 		void SaveStateBinary(System.IO.BinaryWriter writer);
 		void LoadStateBinary(System.IO.BinaryReader reader);
 	}
+
+	// Minimal MemoryDomain — only the members the freeze (cheat) path touches:
+	// Name/Writable for the guard, plus a test seam for the Watch reads/writes.
+	public class MemoryDomain
+	{
+		public string Name = "";
+		public long Size;
+		public bool Writable = true;
+
+		public Func<long, byte>? PeekByteFn;
+		public Action<long, byte>? PokeByteFn;
+
+		public virtual byte PeekByte(long addr) => PeekByteFn != null ? PeekByteFn(addr) : (byte)0;
+
+		public virtual void PokeByte(long addr, byte val) => PokeByteFn?.Invoke(addr, val);
+	}
 }

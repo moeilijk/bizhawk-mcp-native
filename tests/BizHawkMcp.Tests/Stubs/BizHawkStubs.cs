@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using BizHawk.Emulation.Common;
 
 // Stubs of the BizHawk ApiHawk interfaces used by McpToolset — only the
 // members the linked-in source actually calls. Do NOT extend these unless
@@ -145,3 +146,141 @@ namespace BizHawk.Client.Common
 		bool Remove(string key);
 	}
 }
+
+	// ── freeze (emulator cheat engine) stubs ─────────────────────────────────
+	// Mirror the members of the real Cheat/Watch/CheatCollection the linked
+	// McpToolset.cs uses. The real types are in BizHawk.Client.Common (see
+	// tools/Cheat.cs, tools/Watch/Watch.cs, tools/CheatList.cs).
+
+	public enum WatchSize : int
+	{
+		Byte = 1,
+		Word = 2,
+		DWord = 4,
+		Separator = 0,
+	}
+
+	public enum WatchDisplayType
+	{
+		Hex,
+	}
+
+	public class Watch
+	{
+		public MemoryDomain Domain { get; }
+		public long Address { get; }
+		public WatchSize Size { get; }
+		public bool BigEndian { get; set; }
+		public string Notes { get; set; } = "";
+		public int Value => (int)Domain.PeekByte(Address);
+
+		public Watch(MemoryDomain domain, long address, WatchSize size, bool bigEndian, string note)
+		{
+			Domain = domain;
+			Address = address;
+			Size = size;
+			BigEndian = bigEndian;
+			Notes = note;
+		}
+
+		public static Watch GenerateWatch(MemoryDomain domain, long address, WatchSize size, WatchDisplayType type, bool bigEndian, string note = "", long value = 0, long prev = 0, int changeCount = 0)
+		{
+			return new Watch(domain, address, size, bigEndian, note);
+		}
+
+		public bool Contains(long addr) => Size switch
+		{
+			WatchSize.Word => addr == Address || addr == Address + 1,
+			WatchSize.DWord => addr >= Address && addr <= Address + 3,
+			_ => addr == Address,
+		};
+	}
+
+	public class Cheat
+	{
+		private readonly Watch _watch;
+		private readonly int _val;
+		private readonly bool _enabled;
+
+		public enum CompareType
+		{
+			None,
+			Equal,
+		}
+
+		public Cheat(Watch watch, int value, int? compare = null, bool enabled = true, CompareType comparisonType = CompareType.None)
+		{
+			_watch = watch;
+			_val = value;
+			_enabled = enabled;
+			// mirrors Cheat.Pulse(): poke per watch size/endianness
+			if (_watch.Domain.PokeByteFn != null)
+			{
+				void Poke(long addr, byte b) => _watch.Domain.PokeByte(addr, b);
+				switch (_watch.Size)
+				{
+					case WatchSize.Byte:
+						Poke(_watch.Address, (byte)value);
+						break;
+					case WatchSize.Word:
+						if (_watch.BigEndian) { Poke(_watch.Address, (byte)(value >> 8)); Poke(_watch.Address + 1, (byte)value); }
+						else { Poke(_watch.Address, (byte)value); Poke(_watch.Address + 1, (byte)(value >> 8)); }
+						break;
+					case WatchSize.DWord:
+						if (_watch.BigEndian)
+						{
+							Poke(_watch.Address, (byte)(value >> 24)); Poke(_watch.Address + 1, (byte)(value >> 16));
+							Poke(_watch.Address + 2, (byte)(value >> 8)); Poke(_watch.Address + 3, (byte)value);
+						}
+						else
+						{
+							Poke(_watch.Address, (byte)value); Poke(_watch.Address + 1, (byte)(value >> 8));
+							Poke(_watch.Address + 2, (byte)(value >> 16)); Poke(_watch.Address + 3, (byte)(value >> 24));
+						}
+						break;
+				}
+			}
+		}
+
+		public bool IsSeparator => false;
+		public bool Enabled => _enabled;
+		public long? Address => _watch.Address;
+		public int? Value => _val;
+		public bool? BigEndian => _watch.BigEndian;
+		public MemoryDomain Domain => _watch.Domain;
+		public WatchSize Size => _watch.Size;
+		public string Name => _watch.Notes;
+
+		public bool Contains(long addr) => _watch.Contains(addr);
+	}
+
+	public class CheatCollection : ICollection<Cheat>
+	{
+		private readonly List<Cheat> _cheats = new();
+
+		public int Count => _cheats.Count;
+		public bool IsReadOnly => false;
+
+		public void Add(Cheat cheat) => _cheats.Add(cheat);
+
+		public void AddRange(IEnumerable<Cheat> cheats) => _cheats.AddRange(cheats);
+
+		public void RemoveRange(IEnumerable<Cheat> cheats)
+		{
+			foreach (var c in cheats) _cheats.Remove(c);
+		}
+
+		public void Clear() => _cheats.Clear();
+
+		public bool Contains(Cheat cheat) => _cheats.Contains(cheat);
+
+		public bool Remove(Cheat cheat) => _cheats.Remove(cheat);
+
+		public bool IsActive(MemoryDomain domain, long address) => _cheats.Exists(c => !c.IsSeparator && c.Domain == domain && c.Address == address);
+
+		public void CopyTo(Cheat[] array, int arrayIndex) => _cheats.CopyTo(array, arrayIndex);
+
+		public IEnumerator<Cheat> GetEnumerator() => _cheats.GetEnumerator();
+
+		System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+	}

@@ -27,10 +27,13 @@ namespace BizHawkMcp
 		private bool? _bigEndianOverride;
 		private string? _lastSystemId;
 
-		public McpToolset(IHostApis tool, IUiDispatcher ui)
+		public McpToolset(IHostApis tool, IUiDispatcher ui) : this(tool, ui, null) { }
+
+		internal McpToolset(IHostApis tool, IUiDispatcher ui, Func<CheatCollection?>? cheatListResolver)
 		{
 			_tool = tool;
 			_ui = ui;
+			_cheatListResolver = cheatListResolver;
 			_lastRomHash = CurrentRomHash();
 			LoadPersistedSymbols(_lastRomHash);
 		}
@@ -184,13 +187,14 @@ namespace BizHawkMcp
 				Param("domain", "string", "Optional domain (defaults to BizHawk's current one)."),
 				Param("endianness", "string", "\"auto\" (domain default), \"big\" or \"little\".", "auto"),
 			]),
-			Tool("bizhawk_write_memory", "Write u8/u16/u32 to a memory domain. Optional \"endianness\" as bizhawk_read_memory (default \"auto\" = domain native). Bus domains mask 32-bit addresses as in read. Either \"address\" or a symbol \"name\" is required.", [
+			Tool("bizhawk_write_memory", "Write u8/u16/u32 to a memory domain. Optional \"endianness\" as bizhawk_read_memory (default \"auto\" = domain native). Bus domains mask 32-bit addresses as in read. Either \"address\" or a symbol \"name\" is required. Set \"freeze\": true to also register the written address as a freeze (re-written every frame by the emulator's cheat engine — see bizhawk_freeze_add).", [
 				Param("address", "integer", "Offset in the domain, 0-based. For bus domains use the raw bus address."),
 				Param("name", "string", "Symbol name registered via bizhawk_symbols_set (overrides address/domain)."),
 				Param("width", "integer", "8, 16 or 32.", 8),
 				Param("value", "integer", "Value to write (must fit the width)."),
 				Param("domain", "string", "Optional domain."),
 				Param("endianness", "string", "\"auto\" (domain default), \"big\" or \"little\".", "auto"),
+				Param("freeze", "boolean", "Optional: also freeze the written address with this value.", false),
 			]),
 			Tool("bizhawk_read_range", "Read a contiguous range (up to 4096 bytes) and return it as hex.", [
 				Param("address", "integer", "Start offset."),
@@ -247,15 +251,16 @@ namespace BizHawkMcp
 				Param("items", "array", "Array of {\"address\": int | \"name\": string, \"width\"?: 8|16|32, \"domain\"?: string, \"endianness\"?: \"big\"|\"little\"|\"auto\"}."),
 				Param("consistent", "boolean", "Pause emulation for the duration of the batch so reads are frame-consistent.", false),
 			]),
-			Tool("bizhawk_write_range", "Write a contiguous byte range from a values array (up to 4096 bytes). \"fill\" + \"length\" mode writes the same byte across the range with a tiny payload (use it for large clears — some MCP clients drop requests above ~1-2 KB, so prefer fill or chunk values into <=1024-byte calls). Returns {\"wrote\", \"address\", \"fill\"} in fill mode.", [
+			Tool("bizhawk_write_range", "Write a contiguous byte range from a values array (up to 4096 bytes). \"fill\" + \"length\" mode writes the same byte across the range with a tiny payload (use it for large clears — some MCP clients drop requests above ~1-2 KB, so prefer fill or chunk values into <=1024-byte calls). Returns {\"wrote\", \"address\", \"fill\"} in fill mode. Set \"freeze\": true to also register the whole range as a freeze (re-written every frame — see bizhawk_freeze_add).", [
 				Param("address", "integer", "Start offset in the domain, 0-based."),
 				Param("values", "array", "Byte values (0..255) to write in order."),
 				Param("fill", "integer", "Optional: write this byte value across the whole range (use with \"length\"; values must be absent).", null),
 				Param("length", "integer", "Optional: bytes to write when using \"fill\", 1..4096.", null),
 				Param("domain", "string", "Optional domain."),
+				Param("freeze", "boolean", "Optional: also freeze the written range with the written bytes.", false),
 			]),
-			Tool("bizhawk_write_many", "Write several values in one call (up to 256; non-contiguous). Each item accepts \"address\" or symbol \"name\", width, value and optional \"endianness\" as bizhawk_read_memory (default \"auto\" = each item's domain). Bad items (unknown symbol, out-of-range address, value too wide) fail only themselves: returns {wrote, failed, failures: [{index, address, reason}]} and valid items still write.", [
-				Param("items", "array", "Array of {\"address\": int | \"name\": string, \"width\"?: 8|16|32, \"value\": int, \"domain\"?: string, \"endianness\"?: \"big\"|\"little\"|\"auto\"}."),
+			Tool("bizhawk_write_many", "Write several values in one call (up to 256; non-contiguous). Each item accepts \"address\" or symbol \"name\", width, value and optional \"endianness\" as bizhawk_read_memory (default \"auto\" = each item's domain), and optional \"freeze\": true to also register that address as a freeze. Bad items (unknown symbol, out-of-range address, value too wide) fail only themselves: returns {wrote, failed, failures: [{index, address, reason}]} and valid items still write.", [
+				Param("items", "array", "Array of {\"address\": int | \"name\": string, \"width\"?: 8|16|32, \"value\": int, \"domain\"?: string, \"endianness\"?: \"big\"|\"little\"|\"auto\", \"freeze\"?: bool}."),
 			]),
 			Tool("bizhawk_start_fixture", "Scripted fixture capture: advance N frames (optionally after a \"delay\" to skip title screens) with an input timeline, sampling a set of addresses/symbols each frame, and write the result as CSV to a host-side path (default: temp dir). Replaces the manual capture_fixture.lua flow.", [
 				Param("frames", "integer", "Frames to run and sample, 1..600."),
@@ -373,6 +378,25 @@ namespace BizHawkMcp
 				Param("slot", "string", "Slot name previously saved."),
 			]),
 			Tool("bizhawk_memstate_list", "List in-memory core state slots (names + sizes).", []),
+			Tool("bizhawk_freeze_add", "Freeze a memory address or range: the emulator's cheat engine (the same MainForm.CheatList the hex editor's Freeze uses) re-writes the value EVERY frame, even while emulation runs freely — so the game can't change it. Use it to lock a timer (\"freeze time\"), lives/health (repeated death tests), or any value you need stable while analyzing. Without \"value\", the current contents are snapshotted; with \"value\", that value is written every frame. \"length\" > 1 freezes a range as 8-bit entries (\"value\" then fills every byte, 0..255). Width 8/16/32 applies to single-address freezes. Entries are the emulator's real cheats: they appear in the Cheats window and persist on exit.", [
+				Param("address", "integer", "Offset in the domain, or use a symbol \"name\" instead."),
+				Param("name", "string", "Symbol name registered via bizhawk_symbols_set (overrides address/domain)."),
+				Param("note", "string", "Optional label for the freeze entry (shown in freeze_list; usable in freeze_remove)."),
+				Param("width", "integer", "8, 16 or 32 (single-address freezes).", 8),
+				Param("domain", "string", "Optional domain."),
+				Param("endianness", "string", "\"auto\" (domain default), \"big\" or \"little\".", "auto"),
+				Param("value", "integer", "Optional value to write every frame (default: snapshot the current contents)."),
+				Param("length", "integer", "Optional: freeze a range of this many bytes (8-bit entries).", 1),
+			]),
+			Tool("bizhawk_freeze_remove", "Un-freeze entries: by the \"note\" label given at freeze_add, or by address (or symbol \"name\") with optional \"length\" and \"domain\" — removes every entry starting in that range, same domain only.", [
+				Param("note", "string", "Label of the freeze to remove (from freeze_add or freeze_list)."),
+				Param("address", "integer", "Address to un-freeze, or use a symbol \"name\" instead."),
+				Param("name", "string", "Symbol name registered via bizhawk_symbols_set (overrides address/domain)."),
+				Param("length", "integer", "Optional: un-freeze the range [address, address+length).", 1),
+				Param("domain", "string", "Optional domain (default: current)."),
+			]),
+			Tool("bizhawk_freeze_list", "List the emulator's current freezes (cheat entries): name, domain, address, width, value, endianness, enabled. Shared with the Cheats window / hex editor freezes.", []),
+			Tool("bizhawk_freeze_clear", "Remove ALL freezes/cheats in the emulator's cheat list (including manual entries made in the Cheats window).", []),
 			Tool("bizhawk_shutdown", "Stop the MCP server (plugin stays loaded; restart via the form's button or the emulator's Lua/tools menu).", []),
 			Tool("bizhawk_overlay_text", "Draw text on the emulator's video output. Overlays ACCUMULATE until bizhawk_clear_overlay (all are re-rendered on every frame advance), so multiple hitboxes/labels can stay on screen at once.", [
 				Param("x", "integer", "X position."),
@@ -565,6 +589,10 @@ namespace BizHawkMcp
 				"bizhawk_memstate_save" => _ui.Invoke(() => MemStateSave(args)),
 				"bizhawk_memstate_load" => _ui.Invoke(() => MemStateLoad(args)),
 				"bizhawk_memstate_list" => _ui.Invoke(MemStateList),
+				"bizhawk_freeze_add" => _ui.Invoke(() => FreezeAdd(args)),
+				"bizhawk_freeze_remove" => _ui.Invoke(() => FreezeRemove(args)),
+				"bizhawk_freeze_list" => _ui.Invoke(FreezeList),
+				"bizhawk_freeze_clear" => _ui.Invoke(FreezeClear),
 				"bizhawk_shutdown" => Shutdown(),
 				"bizhawk_overlay_text" => _ui.Invoke(() => OverlayText(args)),
 				"bizhawk_clear_overlay" => _ui.Invoke(() => ClearOverlay()),
@@ -671,10 +699,13 @@ namespace BizHawkMcp
 				case 16: WriteValue(address, 16, domain, value, bigEndian); break;
 				case 32: WriteValue(address, 32, domain, value, bigEndian); break;
 			}
+			if (a.TryGetProperty("freeze", out var fz) && fz.ValueKind == JsonValueKind.True)
+				FreezeWritten(address, width, domain, bigEndian, value);
 			return JsonRpc.Pretty(new Dictionary<string, object?>
 			{
 				["ok"] = true,
 				["endianness"] = EndianName(bigEndian),
+				["frozen"] = a.TryGetProperty("freeze", out var fz2) && fz2.ValueKind == JsonValueKind.True,
 			});
 		}
 
@@ -1188,14 +1219,28 @@ namespace BizHawkMcp
 			address = ValidateAddress(address, 8, domain);
 			if (!TryBulkWrite(domain, address, bytes))
 				_tool.Memory!.WriteByteRange(address, bytes, domain);
+			if (a.TryGetProperty("freeze", out var fz) && fz.ValueKind == JsonValueKind.True)
+			{
+				var md = ResolveDomain(domain);
+				var list = new List<Cheat>();
+				for (var i = 0; i < bytes.Length; i++)
+					list.Add(MakeCheat(md, address + i, 8, false, bytes[i], null));
+				ResolveCheatList().AddRange(list);
+			}
 			if (fill != null)
 				return JsonRpc.Pretty(new Dictionary<string, object?>
 				{
 					["wrote"] = bytes.Length,
 					["address"] = address,
 					["fill"] = fill.Value,
+					["frozen"] = a.TryGetProperty("freeze", out var fz2) && fz2.ValueKind == JsonValueKind.True,
 				});
-			return $"wrote {bytes.Length} byte(s) at {address}";
+			return JsonRpc.Pretty(new Dictionary<string, object?>
+			{
+				["wrote"] = bytes.Length,
+				["address"] = address,
+				["frozen"] = a.TryGetProperty("freeze", out var fz3) && fz3.ValueKind == JsonValueKind.True,
+			});
 		}
 
 		// Writes a whole range with ONE waterbox crossing when the domain exposes
@@ -1308,6 +1353,8 @@ namespace BizHawkMcp
 						case 16: WriteValue(address, 16, domain, value, bigEndian); break;
 						case 32: WriteValue(address, 32, domain, value, bigEndian); break;
 					}
+					if (item.TryGetProperty("freeze", out var fz) && fz.ValueKind == JsonValueKind.True)
+						FreezeWritten(address, width, domain, bigEndian, value);
 					written++;
 				}
 				catch (JsonRpc.Error ex)
@@ -2146,6 +2193,210 @@ namespace BizHawkMcp
 			return JsonRpc.Pretty(new Dictionary<string, object?> { ["states"] = states });
 		}
 
+		// ── freeze (emulator cheat engine) ────────────────────────────────────
+		// The hex editor's "Freeze" is implemented as Cheat entries in
+		// MainForm.CheatList; EmuHawk's main loop pulses the whole list every
+		// frame (even while running freely), so frozen values survive the game
+		// overwriting them. We drive the same list, with the same semantics:
+		//   freeze   = Watch.GenerateWatch(domain, addr, size, Hex, bigEndian)
+		//              + new Cheat(watch, value)  (Cheat ctor pulses immediately)
+		//   unfreeze = CheatList.RemoveRange(cheats.Where(c => c.Contains(addr)))
+		// The CheatCollection is on MainForm; the plugin form's Owner is the
+		// MainForm (ToolManager sets form.Owner). Reached via reflection (the
+		// plugin cannot reference BizHawk.Client.EmuHawk), same as watchpoints.
+		private readonly Func<CheatCollection?>? _cheatListResolver;
+
+		private CheatCollection ResolveCheatList()
+		{
+			if (_cheatListResolver != null)
+			{
+				var injected = _cheatListResolver();
+				if (injected != null) return injected;
+			}
+			var owner = _tool.GetType().GetProperty("Owner", BindingFlags.Public | BindingFlags.Instance)?.GetValue(_tool);
+			if (owner != null)
+			{
+				var p = owner.GetType().GetProperty("CheatList", BindingFlags.Public | BindingFlags.Instance);
+				if (p?.GetValue(owner) is CheatCollection cl) return cl;
+			}
+			// fallback: GlobalWin.MainForm in the EmuHawk assembly
+			var gwType = Type.GetType("BizHawk.Client.EmuHawk.GlobalWin, BizHawk.Client.EmuHawk");
+			var mf = gwType?.GetProperty("MainForm", BindingFlags.Public | BindingFlags.Static)?.GetValue(null);
+			if (mf != null && mf.GetType().GetProperty("CheatList", BindingFlags.Public | BindingFlags.Instance)?.GetValue(mf) is CheatCollection cl2)
+				return cl2;
+			throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "freeze unsupported: cannot reach the emulator's cheat list (MainForm.CheatList)");
+		}
+
+		// Reaches MemoryApi.DomainList[name] (same reflection as TryBulkWrite)
+		// and returns the real MemoryDomain for the cheat Watch.
+		private MemoryDomain ResolveDomain(string? domainName)
+		{
+			var memApi = _tool.Memory!;
+			var listProp = memApi.GetType().GetProperty("DomainList", BindingFlags.Public | BindingFlags.Instance);
+			var list = listProp?.GetValue(memApi);
+			var indexer = list?.GetType().GetProperty("Item");
+			var md = indexer?.GetValue(list, new object[] { domainName ?? memApi.GetCurrentMemoryDomain() }) as MemoryDomain;
+			if (md == null)
+				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"unknown domain: {domainName ?? memApi.GetCurrentMemoryDomain()}");
+			return md;
+		}
+
+		private static WatchSize SizeOfWidth(int width) => width switch
+		{
+			8 => WatchSize.Byte,
+			16 => WatchSize.Word,
+			_ => WatchSize.DWord,
+		};
+
+		private Cheat MakeCheat(MemoryDomain domain, long address, int width, bool bigEndian, int value, string? note)
+		{
+			var watch = Watch.GenerateWatch(domain, address, SizeOfWidth(width), WatchDisplayType.Hex, bigEndian, note ?? "");
+			return new Cheat(watch, value);
+		}
+
+		private string FreezeAdd(JsonElement? args)
+		{
+			var a = Required(args);
+			string? note = OptionalString(a, "note");
+			var (address, width, domain) = ResolveTarget(a);
+			bool bigEndian = ResolveBigEndian(a, domain);
+			int length = RequireInt(a, "length", 1);
+			if (length is < 1 or > 4096) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "length must be 1..4096");
+			if (length > 1 && width != 8)
+				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "range freezes use 8-bit entries; set width to 8 (or omit it)");
+			long? value = a.TryGetProperty("value", out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt64() : (long?)null;
+			if (length > 1 && value.HasValue && value is < 0 or > 0xFF)
+				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"range fill value must fit a byte (got {value})");
+
+			var md = ResolveDomain(domain);
+			if (!md.Writable) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"domain \"{md.Name}\" is not writable");
+			var cheats = ResolveCheatList();
+
+			if (length > 1)
+			{
+				uint size = _tool.Memory!.GetMemoryDomainSize(domain);
+				if (address + length > size)
+					throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"range {address}:{address + length} outside domain \"{md.Name}\" (size {size})");
+				var list = new List<Cheat>();
+				for (var i = 0; i < length; i++)
+				{
+					long addr = address + i;
+					int byteVal = value.HasValue ? (int)value.Value : (int)_tool.Memory!.ReadByte(addr, domain);
+					list.Add(MakeCheat(md, addr, 8, bigEndian, byteVal, note));
+				}
+				cheats.AddRange(list);
+				return JsonRpc.Pretty(new Dictionary<string, object?>
+				{
+					["frozen"] = length,
+					["address"] = address,
+					["length"] = length,
+					["domain"] = md.Name,
+					["mode"] = value.HasValue ? "fill" : "snapshot",
+				});
+			}
+
+			ulong current = width switch
+			{
+				8 => _tool.Memory!.ReadByte(address, domain),
+				16 => ReadValue(address, 16, domain, bigEndian),
+				_ => ReadValue(address, 32, domain, bigEndian),
+			};
+			int val = width switch
+			{
+				8 => value.HasValue ? (int)value.Value : (int)current,
+				16 => value.HasValue ? (int)value.Value : (int)current,
+				_ => value.HasValue ? unchecked((int)(uint)value.Value) : unchecked((int)current),
+			};
+			cheats.Add(MakeCheat(md, address, width, bigEndian, val, note));
+			return JsonRpc.Pretty(new Dictionary<string, object?>
+			{
+				["note"] = note,
+				["address"] = address,
+				["width"] = width,
+				["value"] = val,
+				["domain"] = md.Name,
+				["endianness"] = EndianName(bigEndian),
+			});
+		}
+
+		private string FreezeRemove(JsonElement? args)
+		{
+			var a = Required(args);
+			var cheats = ResolveCheatList();
+			string? note = OptionalString(a, "note");
+			long? start = null;
+			long end = 0;
+			string? domain = null;
+			if (note == null)
+			{
+				var (masked, _, dom) = ResolveTarget(a); // validates/masks like reads
+				start = masked;
+				domain = dom;
+				int length = RequireInt(a, "length", 1);
+				if (length is < 1 or > 4096) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "length must be 1..4096");
+				end = masked + length;
+			}
+
+			var toRemove = new List<Cheat>();
+			foreach (var cheat in cheats)
+			{
+				if (cheat.IsSeparator) continue;
+				if (note != null)
+				{
+					if (cheat.Name == note) toRemove.Add(cheat);
+				}
+				else if (cheat.Domain.Name == (domain ?? _tool.Memory!.GetCurrentMemoryDomain())
+					&& cheat.Address >= start && cheat.Address < end)
+				{
+					toRemove.Add(cheat);
+				}
+			}
+			cheats.RemoveRange(toRemove);
+			return JsonRpc.Pretty(new Dictionary<string, object?> { ["removed"] = toRemove.Count });
+		}
+
+		private string FreezeList()
+		{
+			var cheats = ResolveCheatList();
+			var list = new List<object?>();
+			foreach (var c in cheats)
+			{
+				if (c.IsSeparator) continue;
+				list.Add(new Dictionary<string, object?>
+				{
+					["name"] = c.Name,
+					["domain"] = c.Domain.Name,
+					["address"] = c.Address,
+					["width"] = c.Size switch { WatchSize.Byte => 8, WatchSize.Word => 16, _ => 32 },
+					["value"] = c.Value,
+					["endianness"] = c.BigEndian == true ? "big" : "little",
+					["enabled"] = c.Enabled,
+				});
+			}
+			return JsonRpc.Pretty(new Dictionary<string, object?> { ["freezes"] = list, ["count"] = list.Count });
+		}
+
+		private string FreezeClear()
+		{
+			var cheats = ResolveCheatList();
+			int count = cheats.Count;
+			cheats.Clear();
+			return JsonRpc.Pretty(new Dictionary<string, object?> { ["cleared"] = count });
+		}
+
+		// shared by the write tools: registers the written value(s) as a freeze
+		private void FreezeWritten(long address, int width, string? domain, bool bigEndian, ulong value)
+		{
+			var md = ResolveDomain(domain);
+			int val = width switch
+			{
+				8 => (int)value,
+				16 => (int)value,
+				_ => unchecked((int)(uint)value),
+			};
+			ResolveCheatList().Add(MakeCheat(md, address, width, bigEndian, val, null));
+		}
+
 		private string OverlayText(JsonElement? args)
 		{
 			var a = Required(args);
@@ -2369,7 +2620,7 @@ namespace BizHawkMcp
 		// all in one call. No event hooks (IMemoryEventsApi is not registered),
 		// so this is polling-based — read after frame_advance to detect changes.
 
-		private sealed class Watch
+		private sealed class Watcher
 		{
 			public string Name = "";
 			public long Address;
@@ -2379,7 +2630,7 @@ namespace BizHawkMcp
 			public ulong? Last;
 		}
 
-		private readonly List<Watch> _watches = new();
+		private readonly List<Watcher> _watches = new();
 
 		// ── symbols ────────────────────────────────────────────────────────────
 		// name → (address, width, domain). Lets agents use names from Ghidra /
@@ -2499,7 +2750,7 @@ namespace BizHawkMcp
 			var (width, domain) = WatchWidth(a);
 			address = ValidateAddress(address, width, domain);
 			bool bigEndian = ResolveBigEndian(a, domain);
-			_watches.Add(new Watch { Name = name, Address = address, Width = width, Domain = domain, BigEndian = bigEndian });
+			_watches.Add(new Watcher { Name = name, Address = address, Width = width, Domain = domain, BigEndian = bigEndian });
 			return $"watcher added: {name} @ {address} (w{width})";
 		}
 
@@ -2548,7 +2799,7 @@ namespace BizHawkMcp
 			return JsonRpc.Pretty(new Dictionary<string, object?> { ["watchers"] = watches });
 		}
 
-		private ulong ReadWatchValue(Watch w)
+		private ulong ReadWatchValue(Watcher w)
 		{
 			return w.Width switch
 			{

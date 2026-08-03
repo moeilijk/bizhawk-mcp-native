@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Text.Json;
 using BizHawk.Emulation.Common;
 using BizHawkMcp;
@@ -468,7 +469,7 @@ namespace BizHawkMcp.Tests
 		[Fact]
 		public void Write_range_uses_bulk_path_when_domain_is_pointer_backed()
 		{
-			_apis.MemoryApi.DomainList = new FakeMemoryApi.FakeDomainList();
+			_apis.MemoryApi.DomainList = new FakeMemoryApi.FakeDomainList(_apis.MemoryApi.Bytes);
 			FakeMemoryApi.FakeMemoryDomain.BulkWriteUsed = false;
 			_ts.Call("bizhawk_write_range", TestHelpers.Js("{\"address\":100,\"values\":[1,2,3,4,5,6,7,8]}"));
 			Assert.True(FakeMemoryApi.FakeMemoryDomain.BulkWriteUsed, "bulk path not taken; logs: " + string.Join(" | ", _apis.Logged));
@@ -1833,6 +1834,148 @@ namespace BizHawkMcp.Tests
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 			ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_memstate_save", TestHelpers.Js("{\"slot\":\"  \"}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
+		}
+
+		[Fact]
+		public void Freeze_add_snapshots_current_value()
+		{
+			_apis.EnableCheats();
+			_apis.MemoryApi.Bytes[100] = 0x42;
+			var res = Parse(_ts.Call("bizhawk_freeze_add", TestHelpers.Js("{\"address\":100,\"width\":8,\"domain\":\"68K RAM\"}")));
+			Assert.Equal(100L, res.GetProperty("address").GetInt64());
+			Assert.Equal(0x42, res.GetProperty("value").GetInt32());
+			var cheat = _apis.Cheats!.Single();
+			Assert.Equal(100L, cheat.Address);
+			Assert.Equal(0x42, cheat.Value);
+			Assert.Equal("68K RAM", cheat.Domain.Name);
+		}
+
+		[Fact]
+		public void Freeze_add_with_explicit_value_and_note()
+		{
+			_apis.EnableCheats();
+			var res = Parse(_ts.Call("bizhawk_freeze_add", TestHelpers.Js("{\"address\":100,\"width\":16,\"value\":513,\"domain\":\"68K RAM\",\"note\":\"lives\"}")));
+			Assert.Equal("lives", res.GetProperty("note").GetString());
+			var cheat = _apis.Cheats!.Single();
+			Assert.Equal(513, cheat.Value);
+			Assert.Equal("lives", cheat.Name);
+			Assert.Equal(WatchSize.Word, cheat.Size);
+			Assert.True(cheat.BigEndian == true);
+		}
+
+		[Fact]
+		public void Freeze_add_range_snapshot_and_fill()
+		{
+			_apis.EnableCheats();
+			for (var i = 0; i < 5; i++) _apis.MemoryApi.Bytes[100 + i] = (byte)(i + 1);
+
+			var res = Parse(_ts.Call("bizhawk_freeze_add", TestHelpers.Js("{\"address\":100,\"length\":5,\"domain\":\"68K RAM\"}")));
+			Assert.Equal("snapshot", res.GetProperty("mode").GetString());
+			Assert.Equal(5, res.GetProperty("frozen").GetInt32());
+			Assert.Equal(5, _apis.Cheats!.Count);
+			Assert.Equal(3, _apis.Cheats.ElementAt(2).Value); // byte 3 of the snapshot
+
+			var fill = Parse(_ts.Call("bizhawk_freeze_add", TestHelpers.Js("{\"address\":200,\"length\":4,\"value\":0,\"domain\":\"68K RAM\"}")));
+			Assert.Equal("fill", fill.GetProperty("mode").GetString());
+			Assert.Equal(9, _apis.Cheats!.Count);
+			Assert.All(_apis.Cheats!.Skip(5), c => Assert.Equal(0, c.Value));
+		}
+
+		[Fact]
+		public void Freeze_add_rejects_bad_inputs()
+		{
+			_apis.EnableCheats();
+			// range with width 16
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_freeze_add", TestHelpers.Js("{\"address\":100,\"length\":2,\"width\":16}")));
+			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
+			// range fill value not a byte
+			ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_freeze_add", TestHelpers.Js("{\"address\":100,\"length\":2,\"value\":256}")));
+			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
+			// non-writable domain (VRAM in the fake)
+			ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_freeze_add", TestHelpers.Js("{\"address\":0,\"width\":8,\"domain\":\"VRAM\"}")));
+			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
+			Assert.Contains("not writable", ex.Message);
+		}
+
+		[Fact]
+		public void Freeze_remove_by_note_and_by_range()
+		{
+			_apis.EnableCheats();
+			_ts.Call("bizhawk_freeze_add", TestHelpers.Js("{\"address\":100,\"note\":\"lives\"}"));
+			_ts.Call("bizhawk_freeze_add", TestHelpers.Js("{\"address\":200,\"note\":\"timer\"}"));
+			_ts.Call("bizhawk_freeze_add", TestHelpers.Js("{\"address\":300,\"length\":4}"));
+
+			var byNote = Parse(_ts.Call("bizhawk_freeze_remove", TestHelpers.Js("{\"note\":\"lives\"}")));
+			Assert.Equal(1, byNote.GetProperty("removed").GetInt32());
+			Assert.Equal(5, _apis.Cheats!.Count);
+
+			var byRange = Parse(_ts.Call("bizhawk_freeze_remove", TestHelpers.Js("{\"address\":301,\"length\":2,\"domain\":\"68K RAM\"}")));
+			Assert.Equal(2, byRange.GetProperty("removed").GetInt32());
+			Assert.Equal(3, _apis.Cheats!.Count);
+			Assert.Equal(200L, _apis.Cheats!.First().Address); // timer survived
+		}
+
+		[Fact]
+		public void Freeze_list_and_clear()
+		{
+			_apis.EnableCheats();
+			_ts.Call("bizhawk_freeze_add", TestHelpers.Js("{\"address\":100,\"width\":16,\"value\":513,\"note\":\"hp\"}"));
+			_ts.Call("bizhawk_freeze_add", TestHelpers.Js("{\"address\":200,\"value\":7}"));
+
+			var list = Parse(_ts.Call("bizhawk_freeze_list", null));
+			Assert.Equal(2, list.GetProperty("count").GetInt32());
+			var first = list.GetProperty("freezes")[0];
+			Assert.Equal("hp", first.GetProperty("name").GetString());
+			Assert.Equal(16, first.GetProperty("width").GetInt32());
+			Assert.Equal("big", first.GetProperty("endianness").GetString());
+			Assert.True(first.GetProperty("enabled").GetBoolean());
+
+			var clear = Parse(_ts.Call("bizhawk_freeze_clear", null));
+			Assert.Equal(2, clear.GetProperty("cleared").GetInt32());
+			Assert.Empty(_apis.Cheats!);
+		}
+
+		[Fact]
+		public void Freeze_unsupported_errors_clearly()
+		{
+			// domain resolvable, but no cheat list wired → like a host where
+			// MainForm.CheatList is unreachable
+			_apis.MemoryApi.DomainList = new FakeMemoryApi.FakeDomainList(_apis.MemoryApi.Bytes);
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_freeze_add", TestHelpers.Js("{\"address\":100}")));
+			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
+			Assert.Contains("cheat list", ex.Message);
+		}
+
+		[Fact]
+		public void Write_memory_with_freeze_registers_cheat()
+		{
+			_apis.EnableCheats();
+			var res = Parse(_ts.Call("bizhawk_write_memory", TestHelpers.Js("{\"address\":100,\"width\":16,\"value\":513,\"freeze\":true,\"domain\":\"68K RAM\"}")));
+			Assert.True(res.GetProperty("frozen").GetBoolean());
+			Assert.Equal((byte)0x02, _apis.MemoryApi.Bytes[100]); // big-endian write
+			var cheat = _apis.Cheats!.Single();
+			Assert.Equal(100L, cheat.Address);
+			Assert.Equal(513, cheat.Value);
+			Assert.Equal(WatchSize.Word, cheat.Size);
+		}
+
+		[Fact]
+		public void Write_many_freezes_only_marked_items()
+		{
+			_apis.EnableCheats();
+			_ts.Call("bizhawk_write_many", TestHelpers.Js("{\"items\":[{\"address\":100,\"width\":8,\"value\":1,\"freeze\":true},{\"address\":200,\"width\":8,\"value\":2}]}"));
+			Assert.Single(_apis.Cheats!);
+			Assert.Equal(100L, _apis.Cheats!.Single().Address);
+		}
+
+		[Fact]
+		public void Write_range_with_freeze_registers_whole_range()
+		{
+			_apis.EnableCheats();
+			_ts.Call("bizhawk_write_range", TestHelpers.Js("{\"address\":100,\"values\":[1,2,3],\"freeze\":true,\"domain\":\"68K RAM\"}"));
+			Assert.Equal(3, _apis.Cheats!.Count);
+			Assert.Equal(101L, _apis.Cheats!.ElementAt(1).Address);
+			Assert.Equal(2, _apis.Cheats!.ElementAt(1).Value);
 		}
 
 		[Fact]

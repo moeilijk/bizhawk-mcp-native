@@ -165,16 +165,38 @@ namespace BizHawkMcp.Tests
 
 		public sealed class FakeDomainList
 		{
-			public FakeMemoryDomain this[string name] => new();
+			private readonly Dictionary<long, byte> _bytes;
+
+			public FakeDomainList(Dictionary<long, byte> bytes) => _bytes = bytes;
+
+			public FakeMemoryDomain this[string name] => new(_bytes, name);
 		}
 
-		public sealed class FakeMemoryDomain
+		// MemoryDomain so the freeze path (ResolveDomain) can cast; also carries
+		// the raw pointer members the bulk write path reflects on.
+		public sealed class FakeMemoryDomain : MemoryDomain
 		{
 			// pinned buffer that Marshal.Copy can write into (bulk path)
 			private static readonly byte[] Buffer = new byte[1024 * 1024];
 			private static readonly GCHandle Handle = GCHandle.Alloc(Buffer, GCHandleType.Pinned);
 
 			public static bool BulkWriteUsed;
+
+			public FakeMemoryDomain(Dictionary<long, byte> bytes, string name)
+			{
+				Name = name;
+				Size = name switch
+				{
+					"68K RAM" => 65536,
+					"Z80 RAM" => 8192,
+					"VRAM" => 65536,
+					"CRAM" => 128,
+					_ => 16 * 1024 * 1024,
+				};
+				Writable = name != "VRAM";
+				PeekByteFn = addr => bytes.TryGetValue(addr, out var b) ? b : (byte)0;
+				PokeByteFn = (addr, val) => bytes[addr] = val;
+			}
 
 			public IntPtr Data => Handle.AddrOfPinnedObject();
 
@@ -616,6 +638,18 @@ namespace BizHawkMcp.Tests
 			return emu;
 		}
 
-		public McpToolset Toolset() => new(this, new InlineDispatcher());
+		/// <summary>Wires up the emulator cheat list like MainForm would (the
+		/// freeze tools resolve it via the injected resolver; the memory domain
+		/// list is wired so ResolveDomain finds a real MemoryDomain).</summary>
+		public CheatCollection EnableCheats()
+		{
+			MemoryApi.DomainList ??= new FakeMemoryApi.FakeDomainList(MemoryApi.Bytes);
+			Cheats = new CheatCollection();
+			return Cheats;
+		}
+
+		public CheatCollection? Cheats { get; set; }
+
+		public McpToolset Toolset() => new(this, new InlineDispatcher(), () => Cheats);
 	}
 }

@@ -84,6 +84,13 @@ on explicit request — otherwise changes accumulate under `## [Unreleased]`.
   diagnostics instead of silent masking.
 
 ### Added
+- Memory freeze (`bizhawk_freeze_add`/`remove`/`list`/`clear`): drives the emulator's
+  real cheat engine (`MainForm.CheatList` — the same list the hex editor's
+  Freeze uses), so frozen values are re-written EVERY frame by EmuHawk's main
+  loop, even while emulation runs freely. Snapshot or explicit value; ranges
+  (8-bit entries); optional `freeze: true` on `write_memory`/`write_many`/
+  `write_range`. Lock timers, lives, health for analysis. Entries are shared
+  with the Cheats window and persist on exit.
 - In-memory core savestates (`bizhawk_memstate_save`/`load`/`list`): session-local
   byte arrays of the core state via the real `IStatable` service (reached by
   reflection on `EmulationApi.Emulator`, like watchpoints) — fast save/restore
