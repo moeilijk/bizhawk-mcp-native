@@ -1290,6 +1290,67 @@ namespace BizHawkMcp.Tests
 		}
 
 		[Fact]
+		public void Sound_get_set_work()
+		{
+			var res = Parse(_ts.Call("bizhawk_get_sound", null));
+			Assert.True(res.GetProperty("sound_on").GetBoolean());
+			_ts.Call("bizhawk_set_sound", TestHelpers.Js("{\"enabled\":false}"));
+			Assert.False(_apis.EmuClientApi.SoundOn);
+			res = Parse(_ts.Call("bizhawk_get_sound", null));
+			Assert.False(res.GetProperty("sound_on").GetBoolean());
+			_ts.Call("bizhawk_set_sound", null);
+			Assert.True(_apis.EmuClientApi.SoundOn); // default enables
+		}
+
+		[Fact]
+		public void Enable_rewind_toggles()
+		{
+			_ts.Call("bizhawk_enable_rewind", TestHelpers.Js("{\"enabled\":true}"));
+			Assert.True(_apis.EmuClientApi.RewindEnabled);
+			Assert.Equal(1, _apis.EmuClientApi.RewindCalls);
+			_ts.Call("bizhawk_enable_rewind", TestHelpers.Js("{\"enabled\":false}"));
+			Assert.False(_apis.EmuClientApi.RewindEnabled);
+		}
+
+		[Fact]
+		public void Frame_skip_sets_count()
+		{
+			_ts.Call("bizhawk_frameskip", TestHelpers.Js("{\"count\":3}"));
+			Assert.Equal(3, _apis.EmuClientApi.FrameSkipValue);
+			_ts.Call("bizhawk_frameskip", TestHelpers.Js("{\"count\":0}"));
+			Assert.Equal(0, _apis.EmuClientApi.FrameSkipValue);
+		}
+
+		[Fact]
+		public void Limit_framerate_toggles()
+		{
+			_ts.Call("bizhawk_limit_framerate", TestHelpers.Js("{\"enabled\":false}"));
+			Assert.False(_apis.EmulationApi.LimitFramerateValue);
+			_ts.Call("bizhawk_limit_framerate", null);
+			Assert.True(_apis.EmulationApi.LimitFramerateValue);
+		}
+
+		[Fact]
+		public void Rom_open_close_reboot_work()
+		{
+			var res = Parse(_ts.Call("bizhawk_open_rom", TestHelpers.Js("{\"path\":\"F:/roms/game.md\"}")));
+			Assert.True(res.GetProperty("loaded").GetBoolean());
+			Assert.Single(_apis.EmuClientApi.OpenedRoms);
+			Assert.Equal("F:/roms/game.md", _apis.EmuClientApi.OpenedRoms[0]);
+			_ts.Call("bizhawk_close_rom", null);
+			Assert.Equal(1, _apis.EmuClientApi.CloseRomCalls);
+			_ts.Call("bizhawk_reboot", null);
+			Assert.Equal(1, _apis.EmuClientApi.RebootCalls);
+		}
+
+		[Fact]
+		public void Open_rom_requires_path()
+		{
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_open_rom", TestHelpers.Js("{}")));
+			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
+		}
+
+		[Fact]
 		public void Get_registers_returns_map()
 		{
 			var res = Parse(_ts.Call("bizhawk_get_registers", null));

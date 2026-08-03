@@ -214,6 +214,29 @@ namespace BizHawkMcp.Tests
 
 		public void SpeedMode(int percent) => SpeedModePercent = percent;
 
+		public bool RewindEnabled;
+		public int RewindCalls;
+		public int FrameSkipValue = -1;
+		public bool SoundOn = true;
+		public bool OpenRomResult = true;
+		public readonly List<string> OpenedRoms = new();
+		public int CloseRomCalls;
+		public int RebootCalls;
+
+		public void EnableRewind(bool enabled) { RewindEnabled = enabled; RewindCalls++; }
+
+		public void FrameSkip(int numFrames) => FrameSkipValue = numFrames;
+
+		public bool GetSoundOn() => SoundOn;
+
+		public void SetSoundOn(bool enable) => SoundOn = enable;
+
+		public bool OpenRom(string path) { OpenedRoms.Add(path); return OpenRomResult; }
+
+		public void CloseRom() => CloseRomCalls++;
+
+		public void RebootCore() => RebootCalls++;
+
 		public bool OsdEnabled = true;
 		public readonly List<bool> OsdChanges = new();
 
@@ -275,6 +298,10 @@ namespace BizHawkMcp.Tests
 		public string GetDisplayType() => DisplayType;
 
 		public IReadOnlyDictionary<string, string?> GetGameOptions() => new Dictionary<string, string?> { ["region"] = "USA" };
+
+		public bool LimitFramerateValue = true;
+
+		public void LimitFramerate(bool enabled) => LimitFramerateValue = enabled;
 	}
 
 	/// <summary>Fake IDebuggable whose MemoryCallbacks can be fired manually from a test.</summary>

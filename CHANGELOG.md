@@ -38,6 +38,10 @@ on explicit request — otherwise changes accumulate under `## [Unreleased]`.
   with actual requests (initialize/tools/list/ping/tools-call/errors).
 - `bizhawk_write_range` bulk path: writes through the domain's raw pointer in a
   single waterbox crossing (up to ~400x fewer crossings) with a safe fallback.
+- Sound control (`bizhawk_get_sound`/`set_sound`), rewind toggle
+  (`bizhawk_enable_rewind`), frameskip (`bizhawk_frameskip`), framerate limit
+  (`bizhawk_limit_framerate`), and ROM management (`bizhawk_open_rom`/
+  `close_rom`/`reboot`).
 
 ### Fixed
 - `read_many`/`search_memory` ignored configured endianness (little-endian

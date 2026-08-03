@@ -64,6 +64,7 @@ namespace BizHawk.Client.Common
 		string GetBoardName();
 		string GetDisplayType();
 		IReadOnlyDictionary<string, string?> GetGameOptions();
+		void LimitFramerate(bool enabled);
 	}
 
 	public interface IEmuClientApi
@@ -77,6 +78,13 @@ namespace BizHawk.Client.Common
 		void SpeedMode(int percent);
 		void Screenshot(string path = null);
 		void SetScreenshotOSD(bool value);
+		void EnableRewind(bool enabled);
+		void FrameSkip(int numFrames);
+		bool GetSoundOn();
+		void SetSoundOn(bool enable);
+		bool OpenRom(string path);
+		void CloseRom();
+		void RebootCore();
 	}
 
 	public interface IJoypadApi

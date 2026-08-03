@@ -316,6 +316,24 @@ namespace BizHawkMcp
 			Tool("bizhawk_speed_mode", "Set emulation speed as a percent of full speed.", [
 				Param("percent", "integer", "e.g. 100 = normal, 50 = half speed, 400 = turbo."),
 			]),
+			Tool("bizhawk_get_sound", "Get whether emulator sound is enabled.", []),
+			Tool("bizhawk_set_sound", "Enable or disable emulator sound.", [
+				Param("enabled", "boolean", "True to enable sound.", true),
+			]),
+			Tool("bizhawk_enable_rewind", "Enable or disable the emulator's rewind feature (state history).", [
+				Param("enabled", "boolean", "True to enable rewind.", true),
+			]),
+			Tool("bizhawk_frameskip", "Set the emulator frameskip: how many frames to skip between rendered frames. 0 = render every frame.", [
+				Param("count", "integer", "Frames to skip, 0..600.", 0),
+			]),
+			Tool("bizhawk_limit_framerate", "Enable or disable the emulator's framerate limit (clock throttle). Disabling lets emulation run as fast as the CPU allows.", [
+				Param("enabled", "boolean", "True to limit framerate.", true),
+			]),
+			Tool("bizhawk_open_rom", "Open a ROM file. The path is host-side (Windows path when EmuHawk runs on Windows, e.g. F:/roms/game.md).", [
+				Param("path", "string", "Absolute path to a ROM file."),
+			]),
+			Tool("bizhawk_close_rom", "Close the current ROM (emulator returns to the null-ROM state).", []),
+			Tool("bizhawk_reboot", "Reboot the current core (restart the loaded game from power-on).", []),
 			Tool("bizhawk_get_joypad", "Read the current joypad state as a map of button -> value (bool or int for analog).", [
 				Param("controller", "integer", "Optional controller index (1-based).", 1),
 			]),
@@ -508,6 +526,14 @@ namespace BizHawkMcp
 				"bizhawk_unpause" => _ui.Invoke(() => UnpauseTool()),
 				"bizhawk_toggle_pause" => _ui.Invoke(() => TogglePauseTool()),
 				"bizhawk_speed_mode" => _ui.Invoke(() => SpeedMode(args)),
+				"bizhawk_get_sound" => _ui.Invoke(GetSound),
+				"bizhawk_set_sound" => _ui.Invoke(() => SetSound(args)),
+				"bizhawk_enable_rewind" => _ui.Invoke(() => EnableRewind(args)),
+				"bizhawk_frameskip" => _ui.Invoke(() => FrameSkipTool(args)),
+				"bizhawk_limit_framerate" => _ui.Invoke(() => LimitFramerate(args)),
+				"bizhawk_open_rom" => _ui.Invoke(() => OpenRom(args)),
+				"bizhawk_close_rom" => _ui.Invoke(CloseRom),
+				"bizhawk_reboot" => _ui.Invoke(Reboot),
 				"bizhawk_get_joypad" => _ui.Invoke(() => GetJoypad(args)),
 				"bizhawk_get_registers" => _ui.Invoke(GetRegisters),
 				"bizhawk_set_register" => _ui.Invoke(() => SetRegister(args)),
@@ -1725,6 +1751,60 @@ namespace BizHawkMcp
 			if (percent is < 1 or > 6400) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "percent must be 1..6400");
 			_tool.EmuClient!.SpeedMode(percent);
 			return $"speed mode set to {percent}%";
+		}
+
+		private string GetSound()
+		{
+			return JsonRpc.Pretty(new Dictionary<string, object?> { ["sound_on"] = _tool.EmuClient!.GetSoundOn() });
+		}
+
+		private string SetSound(JsonElement? args)
+		{
+			bool enabled = args is not { } a || !a.TryGetProperty("enabled", out var v) || v.GetBoolean();
+			_tool.EmuClient!.SetSoundOn(enabled);
+			return JsonRpc.Pretty(new Dictionary<string, object?> { ["sound_on"] = _tool.EmuClient!.GetSoundOn() });
+		}
+
+		private string EnableRewind(JsonElement? args)
+		{
+			bool enabled = args is not { } a || !a.TryGetProperty("enabled", out var v) || v.GetBoolean();
+			_tool.EmuClient!.EnableRewind(enabled);
+			return $"rewind {(enabled ? "enabled" : "disabled")}";
+		}
+
+		private string FrameSkipTool(JsonElement? args)
+		{
+			int count = args is { } a ? RequireInt(a, "count", 0) : 0;
+			if (count is < 0 or > 600) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "count must be 0..600");
+			_tool.EmuClient!.FrameSkip(count);
+			return count == 0 ? "frameskip disabled" : $"frameskip set to {count}";
+		}
+
+		private string LimitFramerate(JsonElement? args)
+		{
+			bool enabled = args is not { } a || !a.TryGetProperty("enabled", out var v) || v.GetBoolean();
+			_tool.Emulation!.LimitFramerate(enabled);
+			return $"framerate limit {(enabled ? "enabled" : "disabled")}";
+		}
+
+		private string OpenRom(JsonElement? args)
+		{
+			var a = Required(args);
+			string path = RequireString(a, "path");
+			bool ok = _tool.EmuClient!.OpenRom(path);
+			return JsonRpc.Pretty(new Dictionary<string, object?> { ["loaded"] = ok, ["path"] = path });
+		}
+
+		private string CloseRom()
+		{
+			_tool.EmuClient!.CloseRom();
+			return "rom closed";
+		}
+
+		private string Reboot()
+		{
+			_tool.EmuClient!.RebootCore();
+			return "core rebooted";
 		}
 
 		private string GetJoypad(JsonElement? args)

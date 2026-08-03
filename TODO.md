@@ -121,11 +121,11 @@ Legend: `[x]` done · `[~]` partially done / covered by another tool · `[ ]` op
   1..10 quick-save slots via `ISaveStateApi.SaveSlot/LoadSlot`.
 - [x] **Core/board info** (`bizhawk_get_board_info`): `GetBoardName`,
   `GetDisplayType`, `GetGameOptions` — identifies the game revision.
-- [ ] **Rewind/frameskip**: `bizhawk_enable_rewind`, `bizhawk_frameskip`,
+- [x] **Rewind/frameskip**: `bizhawk_enable_rewind`, `bizhawk_frameskip`,
   `bizhawk_limit_framerate` (`IEmuClientApi`/`IEmulationApi`).
-- [ ] **ROM management**: `bizhawk_open_rom`/`bizhawk_close_rom`/`bizhawk_reboot`
-  (careful: path is host-side).
-- [ ] **Sound**: `bizhawk_set_sound` / `bizhawk_get_sound` (`SetSoundOn`,
+- [x] **ROM management**: `bizhawk_open_rom`/`bizhawk_close_rom`/`bizhawk_reboot`
+  (path is host-side).
+- [x] **Sound**: `bizhawk_set_sound` / `bizhawk_get_sound` (`SetSoundOn`,
   `GetSoundOn`).
 - [~] **`fixture_capture(scenario.json)`**: orchestrate press_buttons +
   read_many per frame → CSV. Implemented as `bizhawk_start_fixture` (input
