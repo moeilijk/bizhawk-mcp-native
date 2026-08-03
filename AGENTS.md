@@ -3,7 +3,7 @@
 Guidance for AI agents (and humans) working on this repository.
 
 - **Documentation index:** `docs/` — `ARCHITECTURE.md`, `MCP-PROTOCOL.md`, `DEVELOPMENT.md`, `CI-RELEASES.md`. When in doubt, read the relevant doc before editing. Improvement ideas live in `TODO.md`.
-- **Current status (2026-08-02):** 69 tools verified end-to-end against the user's BizHawk dev build (2.11.2, commit `ed78f70a`, Windows via WSL). Server advertises `tools` + `resources` capabilities over `http://127.0.0.1:8767/mcp/`; 163 unit tests (`./scripts/test.sh`) pass on Linux without BizHawk — including real-HTTP end-to-end tests (HttpEndToEndTests). Deployed to `F:\projects\kid\emulators\BizHawk-dev-windows\ExternalTools\`. Test loop: an agent tests against Kid Chameleon (UE) on the Genesis gpgx waterbox core.
+- **Current status (2026-08-02):** 70 tools verified end-to-end against the user's BizHawk dev build (2.11.2, commit `ed78f70a`, Windows via WSL). Server advertises `tools` + `resources` capabilities over `http://127.0.0.1:8767/mcp/`; 163 unit tests (`./scripts/test.sh`) pass on Linux without BizHawk — including real-HTTP end-to-end tests (HttpEndToEndTests) that boot the real `McpHttpServer` on a random port. Deployed to `F:\projects\kid\emulators\BizHawk-dev-windows\ExternalTools\`. Test loop: an agent tests against Kid Chameleon (UE) on the Genesis gpgx waterbox core.
 
 ## What this is
 
@@ -62,7 +62,9 @@ Recipe with code in `docs/DEVELOPMENT.md`. In short: add a `Tool(...)` descripto
 
 ## Known limitations (skeleton state)
 
-- No in-memory savestates: `IMemorySaveStateApi` is not registered by the provider, so only disk-based `bizhawk_save_state`/`load_state` exist.
+- No in-memory savestates: `IMemorySaveStateApi` is not registered by the provider, so only disk-based `bizhawk_save_state`/`load_state` exist — plus the emulator's **quick-save slots** (`bizhawk_save_slot`/`load_slot`, 1..10, via `ISaveStateApi.SaveSlot/LoadSlot`).
+- Movie controls: `bizhawk_movie_start` (with `path` = load-and-play a .bk2; without = start recording for the loaded ROM), `bizhawk_movie_save`, `bizhawk_movie_stop`. `bizhawk_get_board_info` reports board name/display type/game options (game revision).
+- `bizhawk_get_vdp_view` returns the Genesis nametable bases + dims from the core (Genesis gpgx only; error otherwise).
 - Symbols persist across EmuHawk restarts via the plugin's user data store, **scoped per ROM hash + namespace** (key `mcp.symbols`, shape `{romHash: {namespace: [symbols]}}`); saved on every `symbols_set`/`symbols_clear`, reloaded automatically when the ROM changes (`get_info`). Default namespace `"default"`; agents on the same ROM partition with explicit namespaces (`"ghidra"`, `"fixture"`, …). `symbols_clear` accepts `namespace` to clear just one. Everything else (watchers, watchpoints, endianness override) is session-local.
 - `bizhawk_start_fixture` is the orchestrated fixture capture: input timeline + per-frame samples + CSV on the host disk. It frame-advances (pausing/unpausing like `frame_advance`) and samples after each frame; max 600 frames. `bizhawk_read_struct` reads relative-offset fields from a base/symbol in one pass.
 - **`write_range` bulk path:** ApiHawk's `WriteByteRange` loops `PokeByte` per byte — on gpgx that's one waterbox interop call per byte (slow for hundreds of bytes). `WriteRange` first tries `TryBulkWrite`, which reaches the domain's raw `Data` pointer (via reflection on `MemoryApi.DomainList[name]`, like watchpoints) and does ONE `Marshal.Copy` inside a single `Enter`/`Exit` — up to ~400x fewer crossings — falling back to `WriteByteRange` for domains without a pointer.
@@ -110,14 +112,21 @@ before debugging anything on the Genesis core.
 - **Palette formats:** Genesis CRAM = 16-bit `0x0RRR0GGG0BBB` (R at bits 1-3,
   G 5-7, B 9-11), big-endian bytes; SNES CGRAM = 16-bit BGR555 (R at bits 0-4),
   little-endian bytes. `bizhawk_read_palette` handles both. **`bizhawk_read_plane`**
-  decodes a Genesis background nametable (plane A/B, default bases 0xC000/0xE000
-  from VDP regs 2/4) + 8×8 4bpp tiles + CRAM → PNG. Genesis tiles are NOT
+  decodes a Genesis background nametable (plane A/B) + 8×8 4bpp tiles + CRAM →
+  PNG. The plane base is **auto-detected from the core's VDP view** when `base`
+  isn't given (`get_vdp_view` exposes NTA/NTB via reflection on
+  `UpdateVDPViewContext()`, same pattern as watchpoints; Kid Chameleon uses
+  plane A at 0x0000, NOT the typical 0xC000 — fallback constants 0xC000/0xE000
+  only apply when the core doesn't expose the view). `offset_x`/`offset_y`
+  (tiles) crop to a camera window (~40×28 visible tiles; the rest of the 64×32
+  nametable is uninitialized "garbage" — not a bug). Genesis tiles are NOT
   plane-per-byte: each tile row is 4 bytes holding TWO packed 4-bit pixels each
   (high nibble = left pixel); pixel color = `(byte[x>>1] >> ((x&1)?0:4)) & 0xF`,
   tile base = `tileIndex * 0x20 + row*4`. Nametable entry (16-bit BE): bit15
   priority, bits14-13 palette block (×16 CRAM), bit12 V-flip, bit11 H-flip,
   bits10-0 tile index. The PNG encoder is self-contained (DeflateStream, no
-  System.Drawing) so it runs on net48 and Linux.
+  System.Drawing) so it runs on net48 and Linux. Note: the gpgx API does NOT
+  expose the individual VDP registers (only the nametable bases via the view).
 - **Validated Kid Chameleon addresses:** mainFunction = `0xFFFBCA` (u16),
   cameraX = `0xFFF81C` (u32), isFading = `0xFFFBCE`, levelLayout = `0xFFA652`,
   playerSprPtr = `0xFFF85E`; RAM also holds resident code (sound driver, e.g.

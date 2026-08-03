@@ -63,18 +63,23 @@ Legend: `[x]` done · `[~]` partially done / covered by another tool · `[ ]` op
   restarts via the user data store, **scoped per ROM hash + namespace**
   (`mcp.symbols` = `{romHash: {ns: [symbols]}}`). Reloaded automatically when
   the ROM changes (`get_info`); `symbols_clear {namespace}` clears one scope.
-- [ ] **Polling watchpoint** (`bizhawk_watch_change`): frame-stepping variant that
-  watches an address and returns the frame + value the moment it changes, using
-  the existing `wait_until`/`ram_diff` infra — works on ANY core (no callbacks
-  needed). Useful for "who writes this RAM" on cores without memory callbacks.
-- [x] **VRAM plane decode** (`bizhawk_read_plane`): nametable (plane A/B, default
-  bases 0xC000/0xE000, overridable) + tiles (8×8, 4bpp packed nibbles) +
-  CRAM palette → PNG via a self-contained encoder (DeflateStream, no
-  System.Drawing — runs on net48 and Linux). Genesis Mode 5 only.
+- [~] **Polling watchpoint** (`bizhawk_watch_change`): frame-stepping variant that
+  watches an address and returns the frame + value the moment it changes.
+  Covered by `bizhawk_wait_until` (condition break) + `ram_snapshot`/`ram_diff`
+  (change detection) — only worth a dedicated tool if agents need "first change
+  frame" semantics in one call.
+- [x] **VRAM plane decode** (`bizhawk_read_plane`): nametable (plane A/B, base
+  auto-detected from the core's VDP view — Kid Chameleon uses plane A at 0x0000,
+  fallback 0xC000/0xE000) + tiles (8×8, 4bpp packed nibbles) + CRAM palette →
+  PNG via a self-contained encoder (DeflateStream, no System.Drawing — runs on
+  net48 and Linux). `offset_x`/`offset_y` crop to a camera window.
   (Also fixed `read_palette`: Genesis CRAM bits are 0x0RRR0GGG0BBB — R at
   bits 1-3, B at 9-11 — the old decode had R/B in the wrong positions.)
-- [ ] **`pointer_scan`**: find all RAM words/pointers pointing at address X.
-  Mostly covered by `bizhawk_search_memory` (u16/u32 `value` = target address) —
+- [x] **VDP view** (`bizhawk_get_vdp_view`): reads the Genesis nametable bases +
+  dims from the core via reflection on `UpdateVDPViewContext()` (same pattern as
+  watchpoints). Note: the gpgx API does NOT expose the individual VDP registers.
+- [~] **`pointer_scan`**: find all RAM words/pointers pointing at address X.
+  Covered by `bizhawk_search_memory` (u16/u32 `value` = target address) —
   only worth a wrapper if the search tool's `max_results`/domain narrowing is
   not enough.
 - [x] **`state_diff`**: implemented as `bizhawk_ram_snapshot`/`ram_diff` — snapshot
@@ -112,6 +117,8 @@ Legend: `[x]` done · `[~]` partially done / covered by another tool · `[ ]` op
 - [x] **Movie controls** (`bizhawk_movie_start`/`movie_save`/`movie_stop`):
   load-and-play a .bk2 (or start a new recording), save, stop. Feeds
   `start_fixture` with real inputs for deterministic parity fixtures.
+- [x] **Quick-save slots** (`bizhawk_save_slot`/`load_slot`): the emulator's
+  1..10 quick-save slots via `ISaveStateApi.SaveSlot/LoadSlot`.
 - [x] **Core/board info** (`bizhawk_get_board_info`): `GetBoardName`,
   `GetDisplayType`, `GetGameOptions` — identifies the game revision.
 - [ ] **Rewind/frameskip**: `bizhawk_enable_rewind`, `bizhawk_frameskip`,
@@ -120,8 +127,9 @@ Legend: `[x]` done · `[~]` partially done / covered by another tool · `[ ]` op
   (careful: path is host-side).
 - [ ] **Sound**: `bizhawk_set_sound` / `bizhawk_get_sound` (`SetSoundOn`,
   `GetSoundOn`).
-- [ ] **`fixture_capture(scenario.json)`**: orchestrate press_buttons +
-  read_many per frame → CSV. All pieces exist; just needs an orchestrator.
+- [~] **`fixture_capture(scenario.json)`**: orchestrate press_buttons +
+  read_many per frame → CSV. Implemented as `bizhawk_start_fixture` (input
+  timeline + per-frame samples → CSV).
 - [ ] **`run_lua`**: execute Lua inside EmuHawk from the plugin. The Lua runtime
   lives in EmuHawk internals (LuaConsole/LuaEnvironment) — deep reflection,
   fragile. Defer unless a gap really needs it.
@@ -131,7 +139,12 @@ Legend: `[x]` done · `[~]` partially done / covered by another tool · `[ ]` op
 ## Robustness / correctness
 
 - [x] **Screenshot OSD toggle**: `SetScreenshotOSD(false)` before capture,
-  restore after (`bizhawk_screenshot`).
+  restore after (`bizhawk_screenshot`); gained `include_overlays: true` to
+  compose the overlay/OSD layer into the PNG.
+- [x] **`write_range` bulk path**: `TryBulkWrite` reaches the domain's raw
+  `Data` pointer via reflection on `MemoryApi.DomainList[name]` and does one
+  `Marshal.Copy` in a single waterbox `Enter`/`Exit` — up to ~400x fewer
+  crossings vs ApiHawk's per-byte `PokeByte` loop. Falls back safely.
 - [x] **Concurrency guard**: all tool calls serialized (`McpToolset._callGate`) —
   the active domain/endianness are global emulator state.
 - [x] **Out-of-range address validation**: `read/write*` reject addresses beyond
@@ -146,9 +159,9 @@ Legend: `[x]` done · `[~]` partially done / covered by another tool · `[ ]` op
 
 ## DX / tooling
 
-- [x] **More tests**: 80+ unit tests — schema contract, dispatch, memory
+- [x] **More tests**: 163 unit tests — schema contract, dispatch, memory
   round-trips, endianness, search, watchers, trace, palette, bus masking,
-  resources, symbols.
+  resources, symbols, overlays, fixtures, structs, planes, slots, movies.
 - [x] **Test the HTTP layer end-to-end**: `McpHttpServer` boots on a random
   port in tests (`HttpEndToEndTests`) and gets real HTTP requests —
   initialize/tools/list/ping/tools-call roundtrips + JSON-RPC errors.
@@ -164,10 +177,10 @@ Legend: `[x]` done · `[~]` partially done / covered by another tool · `[ ]` op
 - [ ] **Verify Mono (Linux EmuHawk)**: all tests + smoke on Mono; check
   `HttpListener` and `System.Text.Json` behave (known limitation: Linux is a
   compile target but Windows is the tested host).
-- [ ] **Endianness per domain**: some cores have mixed-endian domains (e.g.
-  GB VRAM is little, Genesis bus is big). Investigate whether ApiHawk's
-  `SetBigEndian` is global or per-domain — if global, document the limitation
-  in `bizhawk_get_info`.
+- [x] **Endianness per domain**: implemented — every memory tool accepts an
+  explicit `endianness` param (default `auto` = the domain's native endianness,
+  e.g. Z80 RAM little vs 68K RAM big on Genesis), independent of the global
+  `bizhawk_set_big_endian` override.
 - [ ] **Latency**: measure per-call overhead (JSON parse, UI-thread marshaling)
   for `read_memory`-heavy loops; consider a `bizhawk_read_bulk` that returns
   base64 to cut JSON size.

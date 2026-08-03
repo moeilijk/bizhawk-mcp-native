@@ -12,14 +12,6 @@ on explicit request — otherwise changes accumulate under `## [Unreleased]`.
 ## [Unreleased]
 
 ### Added
-- _(nothing yet — next release's changes land here)_
-
-## [v0.1.0] - 2026-08-02
-
-### Added
-- Baseline: native MCP server (Streamable HTTP over `HttpListener`), memory
-  read/write/search, symbols, watchers, watchpoints, trace, save/load,
-  screenshot, overlays, movies, userdata.
 - Per-domain endianness: optional `endianness` param on all memory tools
   (default `auto` = the domain's native endianness, e.g. Z80 RAM little vs
   68K RAM big on Genesis); every read returns the endianness actually used.
@@ -31,10 +23,13 @@ on explicit request — otherwise changes accumulate under `## [Unreleased]`.
   address or symbol, per-field endianness.
 - Plane decode (`bizhawk_read_plane`): Genesis background nametable (plane A/B)
   + 4bpp tiles + CRAM → PNG (self-contained encoder, exposed as a resource).
+  Plane base auto-detected from the core's VDP view; `offset_x`/`offset_y`
+  crop to a camera window.
+- VDP view (`bizhawk_get_vdp_view`): Genesis nametable bases + dimensions from
+  the core (via reflection on `UpdateVDPViewContext`, like watchpoints).
 - `bizhawk://read/{domain}/{start}:{end}` resource template for raw memory reads.
 - Symbols persist across restarts, scoped per ROM hash + namespace
   (`symbols_set/list/clear` accept `namespace`; `get_info` reloads on ROM change).
-
 - Save/load quick-save slots (`bizhawk_save_slot`/`load_slot`, 1..10).
 - Movie controls (`bizhawk_movie_start`/`movie_save`/`movie_stop`): load-and-play
   a .bk2 or start a new recording; feeds `start_fixture` with real inputs.
@@ -62,3 +57,10 @@ on explicit request — otherwise changes accumulate under `## [Unreleased]`.
   `overlay_line` accept `rects`/`lines` arrays to draw many shapes in one call.
 - `bizhawk_screenshot` gained `include_overlays: true` to compose the
   overlay/OSD layer into the PNG (EmuHawk's `ScreenshotCaptureOsd`).
+
+## [v0.1.0] - 2026-08-02
+
+### Added
+- Baseline: native MCP server (Streamable HTTP over `HttpListener`), memory
+  read/write/search, symbols, watchers, watchpoints, trace, save/load,
+  screenshot, overlays, movies, userdata.
