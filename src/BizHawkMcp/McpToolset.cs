@@ -404,8 +404,8 @@ namespace BizHawkMcp
 			]),
 			Tool("bizhawk_freeze_list", "List the emulator's current freezes (cheat entries): name, domain, address, width, value, endianness, enabled. Shared with the Cheats window / hex editor freezes.", []),
 			Tool("bizhawk_freeze_clear", "Remove ALL freezes/cheats in the emulator's cheat list (including manual entries made in the Cheats window).", []),
-			Tool("bizhawk_lua_exec", "Execute a Lua snippet inline in EmuHawk's Lua runtime (the same path the Lua Console's REPL box uses). The memory/gui/emu/... libraries are available. A Lua syntax/runtime error is returned as {\"executed\": false, \"error\": ...}, not a server error. Returns the expression's values (\"return ...\" is implied, like the REPL).", [
-				Param("code", "string", "Lua code to execute, e.g. \"memory.read_u8(0xFF2506)\"."),
+			Tool("bizhawk_lua_exec", "Execute a Lua snippet inline in EmuHawk's Lua runtime (the same path the Lua Console's REPL box uses). The memory/gui/emu/... libraries are available (note the BizHawk memory API uses underscore forms: memory.read_u8 / read_u16_be / read_u32_le / write_u8 / write_u16_be / write_u32_le). A Lua syntax/runtime error is returned as {\"executed\": false, \"error\": ...}, not a server error. Returns the expression's values (\"return ...\" is implied, like the REPL).", [
+				Param("code", "string", "Lua code to execute, e.g. \"memory.read_u32_be(0xFF2506)\"."),
 			]),
 			Tool("bizhawk_lua_load", "Load a .lua script file into the emulator's script list and start it (same as loading it in the Lua Console). The script then runs every frame via EmuHawk's own frame events — even while emulation runs freely — with no further tool involvement. If already loaded but disabled, re-starts it. Opens the Lua Console window if it isn't open (it owns the Lua runtime).", [
 				Param("path", "string", "Absolute .lua path (host-side, e.g. C:/temp/script.lua)."),
