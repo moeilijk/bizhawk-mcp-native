@@ -3,7 +3,7 @@
 Guidance for AI agents (and humans) working on this repository.
 
 - **Documentation index:** `docs/` — `ARCHITECTURE.md`, `MCP-PROTOCOL.md`, `DEVELOPMENT.md`, `CI-RELEASES.md`. When in doubt, read the relevant doc before editing. Improvement ideas live in `TODO.md`.
-- **Current status (2026-08-03):** 86 tools verified end-to-end against the user's BizHawk dev build (2.11.2, commit `ed78f70a`, Windows via WSL). Server advertises `tools` + `resources` + `prompts` capabilities (incl. `listChanged`) over `http://127.0.0.1:8767/mcp/`; 202 unit tests (`./scripts/test.sh`) pass on Linux without BizHawk — including real-HTTP end-to-end tests (HttpEndToEndTests) that boot the real `McpHttpServer` on a random port. Deployed to `F:\projects\kid\emulators\BizHawk-dev-windows\ExternalTools\`. Test loop: an agent tests against Kid Chameleon (UE) on the Genesis gpgx waterbox core.
+- **Current status (2026-08-03):** 86 tools verified end-to-end against the user's BizHawk dev build (2.11.2, commit `ed78f70a`, Windows via WSL). Server advertises `tools` + `resources` + `prompts` capabilities (incl. `listChanged`) over `http://127.0.0.1:8767/mcp/`; 203 unit tests (`./scripts/test.sh`) pass on Linux without BizHawk — including real-HTTP end-to-end tests (HttpEndToEndTests) that boot the real `McpHttpServer` on a random port. Deployed to `F:\projects\kid\emulators\BizHawk-dev-windows\ExternalTools\`. Test loop: an agent tests against Kid Chameleon (UE) on the Genesis gpgx waterbox core.
 
 ## What this is
 
@@ -145,6 +145,13 @@ before debugging anything on the Genesis core.
 
 - EmuHawk locks loaded DLLs: redeploy fails with MSB3021 (non-fatal) while the
   tool form is open. Close the form (or EmuHawk), then `./scripts/deploy.sh`.
+- **`MemoryDomainList` has TWO `Item` indexers** (`this[int]` inherited from
+  `ReadOnlyCollection<MemoryDomain>` + `this[string]` declared) — `GetProperty("Item")`
+  throws `AmbiguousMatchException`. Any reflection that resolves a domain by
+  name must find the string indexer by parameter type (`FindStringIndexer` in
+  McpToolset). This bit the freeze tools AND silently disabled the `write_range`
+  bulk fast path (it swallowed the exception and fell back) until the 2026-08-03
+  live QA; the test fake now mirrors both indexers as a regression guard.
 - The csproj copy target (`CopyToExternalTools`) broke twice: (1) a condition
   with unquoted `$(BizHawkInstallDir)` → MSB4090; (2) an `Inputs/Outputs` target
   whose `ItemGroup` lived inside the target → the copy was silently skipped.
