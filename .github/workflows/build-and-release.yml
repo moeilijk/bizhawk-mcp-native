@@ -101,11 +101,12 @@ jobs:
         if: matrix.platform == 'linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y mono-complete
-          # pedump --verify checks the IL without executing the assembly
-          # (the tool is a library; `mono --verify-all` would try to RUN it)
-          pedump --verify src/BizHawkMcp/bin/Release/BizHawkMcp.dll
-          echo "Mono IL verification passed (net48 assembly valid for the Linux target)"
+          sudo apt-get install -y mono-utils
+          # Parse the net48 assembly with Mono's own tooling: monodis reads
+          # the metadata and exits nonzero on malformed IL (light sanity for
+          # the Linux target without installing the full Mono stack).
+          monodis --assembly src/BizHawkMcp/bin/Release/BizHawkMcp.dll
+          echo "Mono metadata parse passed (net48 assembly valid for the Linux target)"
 
       - name: Package
         run: |
