@@ -204,7 +204,15 @@ AGENTS.md                      # orientation + hard constraints for AI agents
 
 ## Roadmap
 
-- [ ] Memory domain enumeration (ApiHawk has no domain list; currently reports current domain + size)
-- [ ] SSE server-initiated messages / sessions
-- [ ] Resources (e.g. savestate slots as MCP resources)
-- [ ] End-to-end smoke test against a pinned ROM in CI (headless)
+See [`TODO.md`](TODO.md) for the full, maintained list. Current highlights:
+
+- [ ] Sessions (`mcp-session-id`) / SSE server-initiated messages (not required by opencode today)
+- [ ] VRAM plane decode → PNG (`read_plane`: nametable + tiles + palette)
+- [ ] `fixture_capture(scenario.json)` — declarative input+read-per-frame → CSV
+- [ ] End-to-end HTTP test (spins up the real `HttpListener` on a random port)
+- [ ] `run_lua` (fragile, deferred — deep reflection into EmuHawk's Lua runtime)
+
+Done recently: real watchpoints (Genesis gpgx only), symbols (Ghidra↔BizHawk
+names), memory dumps as resources, batch read/write, RAM snapshots/diffs,
+geometric overlays, VDP palette reader, 68K bus address masking, core-aware
+endianness, `bus_base` per domain.

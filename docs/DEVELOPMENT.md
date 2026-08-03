@@ -14,8 +14,9 @@ dotnet test tests/BizHawkMcp.Tests/BizHawkMcp.Tests.csproj
 
 The test project **links in the product's `.cs` files** (`McpToolset`, `JsonRpc`, `McpHttpServer`, `IHostApis`, `IUiDispatcher`) and provides:
 - `Stubs/BizHawkStubs.cs` — minimal `BizHawk.Client.Common` ApiHawk interfaces (only the members `McpToolset` uses; keep in sync when adding API surface, see constraint 5).
+- `Stubs/EmulationCommonStubs.cs` — minimal `BizHawk.Emulation.Common` service interfaces (`IDebuggable`, `IMemoryCallbackSystem`, `IMemoryCallback`, …) used by the watchpoint path.
 - `Stubs/SystemStubs.cs` — the net48 `System.Windows.Forms`/`System.Drawing` types used by the linked code (`Application.DoEvents`, `ColorTranslator`).
-- `Fakes.cs` — in-memory fakes (`FakeMemoryApi`, `FakeEmuClientApi`, …) wired into a `FakeApis : IHostApis`; the `InlineDispatcher` runs handlers on the calling thread.
+- `Fakes.cs` — in-memory fakes (`FakeMemoryApi`, `FakeEmuClientApi`, …) wired into a `FakeApis : IHostApis`; the `InlineDispatcher` runs handlers on the calling thread. `FakeApis.EnableWatchpoints()` wires a `FakeDebuggable` whose `FakeMemoryCallbacks.Fire()` simulates core memory accesses.
 
 Tests cover: tool schema contract (every schema has a dispatch arm), JSON-RPC dispatch (parse errors, unknown methods, notifications), memory round-trips, core-aware endianness + override, search narrowing, screenshot→resource base64 round-trip, pause/frame-advance semantics.
 
@@ -63,6 +64,8 @@ Param helpers available: `Required`, `RequireLong`, `RequireInt`, `RequireULong`
 
 - **Primary surface:** the tool form's log TextBox — every HTTP error and handler exception is appended there (`ExternalToolEntry.Log`). Keep messages short and greppable.
 - **Silent load failure:** if the menu item is disabled (red exclamation icon), hover it: EmuHawk prints the reason (`ExternalToolManager.GenerateToolTipFromFileName` → e.g. "doesn't contain a class implementing IExternalToolForm"). Common causes: missing `[ExternalTool]` attribute, or a `[RequiredApi]` type the provider doesn't register (never use it on `ApiContainer`).
+- **Watchpoint reflection:** `bizhawk_watchpoint_*` reach `IDebuggable.MemoryCallbacks` via reflection on `EmulationApi.DebuggableCore`. If a BizHawk bump renames that private property, watchpoints fail with a clear error, not a crash. `MemoryCallbackSystem` is also where the core activates its native hooks (`ActiveChanged` → `gpgx_set_mem_callback`).
+- **Address semantics on Genesis:** a "bug" report of domains disagreeing is usually the bus-vs-offset convention (see AGENTS.md "Domain & address conventions"). Always pass `domain` explicitly and convert Ghidra's 32-bit addresses to the 24-bit bus before reading.
 - **First load on Release builds** shows a trust prompt (checksum stored in `config.ini`); Debug builds skip it.
 - **Redeploy while loaded:** Windows locks assemblies in use — if the tool form is open in EmuHawk, the copy to `ExternalTools` fails (MSB3021, non-fatal warning in the csproj). Close the form (or EmuHawk) and rebuild.
 - **Crash:** the tool runs inside EmuHawk — an unhandled exception in a handler takes EmuHawk down. Handlers already isolate `JsonRpc.Error` and generic exceptions into JSON-RPC errors; keep `StartServer`/`StopServer` wrapped in try/catch.

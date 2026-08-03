@@ -3,7 +3,7 @@
 Guidance for AI agents (and humans) working on this repository.
 
 - **Documentation index:** `docs/` — `ARCHITECTURE.md`, `MCP-PROTOCOL.md`, `DEVELOPMENT.md`, `CI-RELEASES.md`. When in doubt, read the relevant doc before editing. Improvement ideas live in `TODO.md`.
-- **Current status (2026-08-02):** 39 tools verified end-to-end against the user's BizHawk dev build (2.11.2, commit `ed78f70a`, Windows via WSL). Server advertises `tools` + `resources` capabilities over `http://127.0.0.1:8767/mcp/`; 52 unit tests (`./scripts/test.sh`) pass on Linux without BizHawk. Deployed to `F:\projects\kid\emulators\BizHawk-dev-windows\ExternalTools\`.
+- **Current status (2026-08-02):** 60 tools verified end-to-end against the user's BizHawk dev build (2.11.2, commit `ed78f70a`, Windows via WSL). Server advertises `tools` + `resources` capabilities over `http://127.0.0.1:8767/mcp/`; 104 unit tests (`./scripts/test.sh`) pass on Linux without BizHawk. Deployed to `F:\projects\kid\emulators\BizHawk-dev-windows\ExternalTools\`. Test loop: an agent tests against Kid Chameleon (UE) on the Genesis gpgx waterbox core.
 
 ## What this is
 
@@ -70,6 +70,46 @@ Recipe with code in `docs/DEVELOPMENT.md`. In short: add a `Tool(...)` descripto
 - `bizhawk_screenshot`/`save_state`/`load_state` paths are host-side (Windows paths when EmuHawk runs on Windows). `bizhawk_screenshot` returns the effective path plus a `bizhawk://` resource URI; `resources/read` serves the PNG as base64.
 - `bizhawk_search_memory` matches via the same endianness semantics as `bizhawk_read_memory` (core default, overridable with `bizhawk_set_big_endian`).
 - Endianness defaults are core-aware (`SystemIsBigEndian` map: GEN/SMD/32X/SNES/SNESBG/N64/SAT → big-endian); ApiHawk's `SetBigEndian` has no getter, so the toolset tracks its own state (`_bigEndianOverride`).
+
+## Domain & address conventions (hard-won, Genesis/Kid Chameleon)
+
+These were the root cause of several false "bugs" reported by test agents — read
+before debugging anything on the Genesis core.
+
+- **RAM base:** 68K work RAM is 64KB at bus `0xFF0000-0xFFFFFF`. In `M68K BUS`,
+  use raw bus addresses (`0xFFFBC8`); in `68K RAM`, use 0-based offsets
+  (`0xFBC8`). The two domains read the same physical RAM — writes cross-visible.
+  `bizhawk_list_memory_domains` reports `bus_base` (e.g. 68K RAM = 0xFF0000).
+- **32-bit disassembly addresses:** the game code (and Ghidra, which models the
+  68000 as 32-bit) references RAM as `0xFFFFxxxx` (e.g. `move.l (0xfffff832).w`)
+  — the real 24-bit bus masks them, so `0xFFFFF832 == 0xFFF832`. `ValidateAddress`
+  applies this mask **only on 68K-family systems** (GEN/SMD/32X/SAT bus domains);
+  other cores keep strict out-of-range rejection. Agents can copy addresses
+  straight from Ghidra into `bizhawk_read_memory`.
+- **Register names are prefixed:** the gpgx core names them `M68K PC`, `M68K A0`,
+  `M68K SR`, `M68K SP`, … — NOT `PC`. `bizhawk_get_registers` shows the raw keys;
+  `bizhawk_trace`/`FindRegister` match by suffix. `bizhawk_set_register` needs the
+  exact key (e.g. `M68K PC`) — and gpgx does NOT implement register writes at all
+  (`SetCpuRegister` throws `NotImplementedException`, swallowed by ApiHawk).
+- **Palette formats:** Genesis CRAM = 16-bit BGR with 3 bits/channel packed
+  `0BBB0GGG0RRR0` (R in bits 0-2), big-endian bytes; SNES CGRAM = 16-bit BGR555
+  (R in bits 0-4), little-endian bytes. `bizhawk_read_palette` handles both,
+  endianness-independent of `set_big_endian`.
+- **Validated Kid Chameleon addresses:** mainFunction = `0xFFFBCA` (u16),
+  cameraX = `0xFFF81C` (u32), isFading = `0xFFFBCE`, levelLayout = `0xFFA652`,
+  playerSprPtr = `0xFFF85E`; RAM also holds resident code (sound driver, e.g.
+  `0x60FB`/`0x60FC` = BRA opcodes around `0xFFF81C+`).
+
+## Deploy quirks (do not get bitten twice)
+
+- EmuHawk locks loaded DLLs: redeploy fails with MSB3021 (non-fatal) while the
+  tool form is open. Close the form (or EmuHawk), then `./scripts/deploy.sh`.
+- The csproj copy target (`CopyToExternalTools`) broke twice: (1) a condition
+  with unquoted `$(BizHawkInstallDir)` → MSB4090; (2) an `Inputs/Outputs` target
+  whose `ItemGroup` lived inside the target → the copy was silently skipped.
+  Keep the `_ToolOutput` ItemGroup **outside** the target; no Inputs/Outputs.
+- `dotnet` may live in `~/.dotnet` (WSL): `deploy.sh`/`test.sh` add it to PATH
+  automatically.
 
 ## CI notes
 
