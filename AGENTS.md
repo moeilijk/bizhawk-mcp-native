@@ -7,7 +7,7 @@ Guidance for AI agents (and humans) working on this repository.
 
 ## What this is
 
-A native [MCP](https://modelcontextprotocol.io) server for BizHawk/EmuHawk implemented as a C# **External Tool** (`net48`, single DLL) that runs inside the EmuHawk process and exposes a Streamable HTTP endpoint (`http://127.0.0.1:8767/mcp` by default). See `README.md` for the rationale vs. the Node/Lua `mcp-bizhawk` bridge.
+A native [MCP](https://modelcontextprotocol.io) server for BizHawk/EmuHawk implemented as a C# **External Tool** (`net48`, single DLL) that runs inside the EmuHawk process and exposes a Streamable HTTP endpoint (`http://127.0.0.1:8767/mcp` by default). See `README.md` for how it works and its design decisions.
 
 ## Architecture in one paragraph
 

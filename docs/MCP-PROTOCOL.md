@@ -51,7 +51,7 @@ curl -s -i -X POST http://127.0.0.1:8767/mcp/ -H 'Content-Type: application/json
 
 ## Tool result convention
 
-Every tool returns a **single text blob** as `content[0].text` (same style as the old Lua bridge). Structured data (e.g. `bizhawk_get_info`, `bizhawk_read_memory`) is JSON inside the text; simple operations return plain strings (`pong`, `ok`, paths). Agents should `JSON.parse` the text when the tool description says it returns JSON.
+Every tool returns a **single text blob** as `content[0].text`. Structured data (e.g. `bizhawk_get_info`, `bizhawk_read_memory`) is JSON inside the text; simple operations return plain strings (`pong`, `ok`, paths). Agents should `JSON.parse` the text when the tool description says it returns JSON.
 
 ## Resources
 
