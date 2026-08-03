@@ -7,7 +7,7 @@ Warning: This is **mostly** built with LLM agents, so it is not a polished produ
 ## Status
 
 - **94 tools** verified end-to-end against the user's BizHawk dev build (2.11.2, commit `ed78f70a`, running on Windows via WSL).
-- **220 unit tests** (`./scripts/test.sh`) pass on Linux without BizHawk — including `HttpEndToEndTests`, which boot the real `McpHttpServer` on a random port and hit it with actual HTTP requests.
+- **222 unit tests** (`./scripts/test.sh`) pass on Linux without BizHawk — including `HttpEndToEndTests`, which boot the real `McpHttpServer` on a random port and hit it with actual HTTP requests.
 - Test loop: agents drive Kid Chameleon (UE) on the Genesis gpgx waterbox core.
 - Server advertises `tools` + `resources` + `prompts` capabilities (incl. `listChanged`) at `http://127.0.0.1:8767/mcp/`.
 
