@@ -13,6 +13,9 @@
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
+    <!-- SystemStubs.cs intentionally shadows System.Drawing.Color (the test
+         project can't reference real WinForms); silence the conflict warning -->
+    <NoWarn>$(NoWarn);CS0436</NoWarn>
     <ImplicitUsings>disable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
     <IsPackable>false</IsPackable>

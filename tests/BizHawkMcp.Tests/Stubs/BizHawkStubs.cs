@@ -24,28 +24,28 @@ namespace BizHawk.Client.Common
 		string GetCurrentMemoryDomain();
 		uint GetCurrentMemoryDomainSize();
 		bool UseMemoryDomain(string domain);
-		string HashRegion(long addr, int count, string domain = null);
-		uint ReadByte(long addr, string domain = null);
-		IReadOnlyList<byte> ReadByteRange(long addr, int length, string domain = null);
-		float ReadFloat(long addr, string domain = null);
-		int ReadS8(long addr, string domain = null);
-		int ReadS16(long addr, string domain = null);
-		int ReadS24(long addr, string domain = null);
-		int ReadS32(long addr, string domain = null);
-		uint ReadU8(long addr, string domain = null);
-		uint ReadU16(long addr, string domain = null);
-		uint ReadU32(long addr, string domain = null);
-		void WriteByte(long addr, uint value, string domain = null);
-		void WriteByteRange(long addr, IReadOnlyList<byte> memoryblock, string domain = null);
-		void WriteFloat(long addr, float value, string domain = null);
-		void WriteS8(long addr, int value, string domain = null);
-		void WriteS16(long addr, int value, string domain = null);
-		void WriteS24(long addr, int value, string domain = null);
-		void WriteS32(long addr, int value, string domain = null);
-		void WriteU8(long addr, uint value, string domain = null);
-		void WriteU16(long addr, uint value, string domain = null);
-		void WriteU24(long addr, uint value, string domain = null);
-		void WriteU32(long addr, uint value, string domain = null);
+		string HashRegion(long addr, int count, string? domain = null);
+		uint ReadByte(long addr, string? domain = null);
+		IReadOnlyList<byte> ReadByteRange(long addr, int length, string? domain = null);
+		float ReadFloat(long addr, string? domain = null);
+		int ReadS8(long addr, string? domain = null);
+		int ReadS16(long addr, string? domain = null);
+		int ReadS24(long addr, string? domain = null);
+		int ReadS32(long addr, string? domain = null);
+		uint ReadU8(long addr, string? domain = null);
+		uint ReadU16(long addr, string? domain = null);
+		uint ReadU32(long addr, string? domain = null);
+		void WriteByte(long addr, uint value, string? domain = null);
+		void WriteByteRange(long addr, IReadOnlyList<byte> memoryblock, string? domain = null);
+		void WriteFloat(long addr, float value, string? domain = null);
+		void WriteS8(long addr, int value, string? domain = null);
+		void WriteS16(long addr, int value, string? domain = null);
+		void WriteS24(long addr, int value, string? domain = null);
+		void WriteS32(long addr, int value, string? domain = null);
+		void WriteU8(long addr, uint value, string? domain = null);
+		void WriteU16(long addr, uint value, string? domain = null);
+		void WriteU24(long addr, uint value, string? domain = null);
+		void WriteU32(long addr, uint value, string? domain = null);
 	}
 
 	public interface IEmulationApi
@@ -77,7 +77,7 @@ namespace BizHawk.Client.Common
 		void Unpause();
 		void TogglePause();
 		void SpeedMode(int percent);
-		void Screenshot(string path = null);
+		void Screenshot(string? path = null);
 		void SetScreenshotOSD(bool value);
 		void EnableRewind(bool enabled);
 		void FrameSkip(int numFrames);
@@ -109,9 +109,10 @@ namespace BizHawk.Client.Common
 	{
 		void AddMessage(string message, int? duration = null);
 		void ClearText();
+		void WithSurface(DisplaySurfaceID surfaceID, Action<IGuiApi> drawingCallsFunc);
 		void WithSurface(DisplaySurfaceID surfaceID, Action drawingCallsFunc);
 		void ClearGraphics(DisplaySurfaceID? surfaceID = null);
-		void DrawString(int x, int y, string message, System.Drawing.Color? forecolor = null, System.Drawing.Color? backcolor = null, int? fontsize = null, string fontfamily = null, string fontstyle = null, string horizalign = null, string vertalign = null, DisplaySurfaceID? surfaceID = null);
+		void DrawString(int x, int y, string message, System.Drawing.Color? forecolor = null, System.Drawing.Color? backcolor = null, int? fontsize = null, string? fontfamily = null, string? fontstyle = null, string? horizalign = null, string? vertalign = null, DisplaySurfaceID? surfaceID = null);
 		void DrawRectangle(int x, int y, int width, int height, System.Drawing.Color? line = null, System.Drawing.Color? background = null, DisplaySurfaceID? surfaceID = null);
 		void DrawLine(int x1, int y1, int x2, int y2, System.Drawing.Color? color = null, DisplaySurfaceID? surfaceID = null);
 	}
@@ -141,7 +142,7 @@ namespace BizHawk.Client.Common
 	public interface IUserDataApi
 	{
 		void Set(string name, object value);
-		object Get(string key);
+		object? Get(string key);
 		void Clear();
 		bool Remove(string key);
 	}
@@ -310,7 +311,7 @@ namespace BizHawk.Client.Common
 		public bool IsSeparator => false;
 		public bool Enabled { get; private set; }
 		public bool Paused { get; private set; }
-		public NLua.LuaThread Thread { get; private set; }
+		public NLua.LuaThread? Thread { get; private set; }
 
 		public void Start(NLua.LuaThread thread)
 		{

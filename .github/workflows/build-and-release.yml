@@ -18,9 +18,9 @@ jobs:
         platform: [win, linux]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
@@ -145,7 +145,7 @@ jobs:
           EOF
           (cd "$STAGE" && zip -r "../BizHawkMcp-${{ matrix.flavor }}-${{ matrix.platform }}-${{ steps.resolve.outputs.bizhawk_label }}.zip" .)
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: BizHawkMcp-${{ matrix.flavor }}-${{ matrix.platform }}
           path: BizHawkMcp-${{ matrix.flavor }}-${{ matrix.platform }}-*.zip
@@ -158,9 +158,9 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           path: artifacts
 

@@ -10,6 +10,10 @@
   -->
 
   <PropertyGroup>
+    <!-- The NuGet System.Memory facade (4.0.1.2) vs BizHawk's DLLs (bound to
+         4.0.5.0): unified at runtime by the host (EmuHawk ships its own), so
+         the build-time MSB3277 conflict is expected and harmless. -->
+    <NoWarn>$(NoWarn);MSB3277</NoWarn>
     <TargetFramework>net48</TargetFramework>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>

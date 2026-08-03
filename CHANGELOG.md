@@ -9,6 +9,17 @@ and uses it as the GitHub release notes; if no section exists it falls back to
 auto-generated notes. A versioned section is only created when a release is cut
 on explicit request — otherwise changes accumulate under `## [Unreleased]`.
 
+## [Unreleased]
+
+### Fixed
+- Zero compiler warnings: nullable-annotated the ApiHawk stubs/fakes
+  (`string? domain = null`), migrated the overlay tools to the non-obsolete
+  `WithSurface(DisplaySurfaceID, Action<IGuiApi>)` overload, silenced the
+  intentional System.Drawing stub shadow (CS0436) and the System.Memory
+  facade unification (MSB3277), and null-hardened the path/JSON call sites.
+- CI: actions bumped to v5 (Node 24 — removes the Node 20 deprecation
+  warning).
+
 ## [v0.2.0] - 2026-08-03
 
 ### Added

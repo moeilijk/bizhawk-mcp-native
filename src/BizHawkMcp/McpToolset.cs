@@ -62,9 +62,9 @@ namespace BizHawkMcp
 			{
 				var raw = _tool.UserData?.Get(SymbolsUserKey) as string;
 				if (string.IsNullOrEmpty(raw) || string.IsNullOrEmpty(romHash)) return;
-				using var doc = JsonDocument.Parse(raw);
+				using var doc = JsonDocument.Parse(raw!);
 				if (doc.RootElement.ValueKind != JsonValueKind.Object) return;
-				if (!doc.RootElement.TryGetProperty(romHash, out var byNs)) return;
+				if (!doc.RootElement.TryGetProperty(romHash!, out var byNs)) return;
 				if (byNs.ValueKind != JsonValueKind.Object) return;
 				foreach (var nsProp in byNs.EnumerateObject())
 				{
@@ -108,7 +108,7 @@ namespace BizHawkMcp
 				{
 					try
 					{
-						using var doc = JsonDocument.Parse(raw);
+						using var doc = JsonDocument.Parse(raw!);
 						if (doc.RootElement.ValueKind == JsonValueKind.Object)
 						{
 							foreach (var romProp in doc.RootElement.EnumerateObject())
@@ -539,7 +539,7 @@ namespace BizHawkMcp
 		private void RedrawOverlays()
 		{
 			if (_overlays.Count == 0) return;
-			_tool.Gui!.WithSurface(DisplaySurfaceID.Client, () => _tool.Gui!.ClearGraphics());
+			_tool.Gui!.WithSurface(DisplaySurfaceID.Client, gui => gui.ClearGraphics());
 			foreach (var draw in _overlays) draw();
 		}
 
@@ -774,7 +774,7 @@ namespace BizHawkMcp
 			var (address, _, domain) = ResolveTarget(a);
 			address = ValidateAddress(address, 8, domain);
 			string name = domain ?? _tool.Memory!.GetCurrentMemoryDomain();
-			uint size = _tool.Memory!.GetMemoryDomainSize(domain);
+			uint size = _tool.Memory!.GetMemoryDomainSize(domain ?? "");
 			if (address + length > size)
 				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"range {address}:{address + length} outside domain \"{name}\" (size {size})");
 			var raw = _tool.Memory!.ReadByteRange(address, length, domain);
@@ -793,7 +793,7 @@ namespace BizHawkMcp
 		{
 			string? domain = null;
 			if (args is { } a && a.ValueKind == JsonValueKind.Object) domain = OptionalString(a, "domain");
-			uint size = _tool.Memory!.GetMemoryDomainSize(domain);
+			uint size = _tool.Memory!.GetMemoryDomainSize(domain ?? "");
 
 			string? path = null;
 			if (args is { } b && b.ValueKind == JsonValueKind.Object) path = OptionalString(b, "path");
@@ -818,7 +818,7 @@ namespace BizHawkMcp
 				}
 			}
 
-			string uri = RegisterArtifact(path, "application/octet-stream", $"memory dump {domain ?? _tool.Memory!.GetCurrentMemoryDomain()} ({size} bytes)");
+			string uri = RegisterArtifact(path!, "application/octet-stream", $"memory dump {domain ?? _tool.Memory!.GetCurrentMemoryDomain()} ({size} bytes)");
 			return JsonRpc.Pretty(new Dictionary<string, object?>
 			{
 				["path"] = path,
@@ -846,7 +846,7 @@ namespace BizHawkMcp
 			string? domain = null;
 			if (args is { } a && a.ValueKind == JsonValueKind.Object) domain = OptionalString(a, "domain");
 			string name = domain ?? _tool.Memory!.GetCurrentMemoryDomain();
-			uint size = _tool.Memory!.GetMemoryDomainSize(domain);
+			uint size = _tool.Memory!.GetMemoryDomainSize(domain ?? "");
 
 			var bytes = new byte[size];
 			const int chunk = 0x10000;
@@ -878,7 +878,7 @@ namespace BizHawkMcp
 			if (!_ramSnapshots.TryGetValue(name, out var snap))
 				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"no snapshot for domain {name}; call bizhawk_ram_snapshot first");
 
-			uint size = _tool.Memory!.GetMemoryDomainSize(domain);
+			uint size = _tool.Memory!.GetMemoryDomainSize(domain ?? "");
 			var changes = new List<object?>();
 			var prev = snap.Bytes;
 			var cur = new byte[Math.Max(prev.Length, (int)size)];
@@ -1006,7 +1006,7 @@ namespace BizHawkMcp
 			else
 			{
 				long rangeStart = a.TryGetProperty("range_start", out var rs) && rs.ValueKind == JsonValueKind.Number ? rs.GetInt64() : 0;
-				long rangeLen = a.TryGetProperty("range_length", out var rl) && rl.ValueKind == JsonValueKind.Number ? rl.GetInt64() : mem.GetMemoryDomainSize(domain);
+				long rangeLen = a.TryGetProperty("range_length", out var rl) && rl.ValueKind == JsonValueKind.Number ? rl.GetInt64() : mem.GetMemoryDomainSize(domain ?? "");
 				if (rangeStart < 0 || rangeLen < 1) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "range_start/range_length must be positive");
 				if (rangeLen > 16 * 1024 * 1024) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "range_length too large (max 16 MiB)");
 
@@ -1842,12 +1842,12 @@ namespace BizHawkMcp
 			}
 			else
 			{
-				path = outPath;
+				path = outPath!;
 				var dir = System.IO.Path.GetDirectoryName(path);
 				if (!string.IsNullOrEmpty(dir)) System.IO.Directory.CreateDirectory(dir);
 				WritePng(path, px, py, img);
 			}
-			string uri = RegisterArtifact(path, "image/png", $"plane {plane} ({cols}x{rows} tiles @0x{baseAddr:X})");
+			string uri = RegisterArtifact(path!, "image/png", $"plane {plane} ({cols}x{rows} tiles @0x{baseAddr:X})");
 			return JsonRpc.Pretty(new Dictionary<string, object?>
 			{
 				["plane"] = plane,
@@ -2160,7 +2160,7 @@ namespace BizHawkMcp
 				// restore to the no-overlay default; each call re-applies its own
 				_tool.EmuClient!.SetScreenshotOSD(false);
 			}
-			string uri = RegisterArtifact(path, "image/png", $"screenshot {System.IO.Path.GetFileName(path)}");
+			string uri = RegisterArtifact(path!, "image/png", $"screenshot {System.IO.Path.GetFileName(path)}");
 			return JsonRpc.Pretty(new Dictionary<string, object?>
 			{
 				["path"] = path,
@@ -2381,7 +2381,7 @@ namespace BizHawkMcp
 
 			if (length > 1)
 			{
-				uint size = _tool.Memory!.GetMemoryDomainSize(domain);
+				uint size = _tool.Memory!.GetMemoryDomainSize(domain ?? "");
 				if (address + length > size)
 					throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"range {address}:{address + length} outside domain \"{md.Name}\" (size {size})");
 				var list = new List<Cheat>();
@@ -2743,8 +2743,8 @@ namespace BizHawkMcp
 			// core framebuffer, which is not visible in the EmuHawk window.
 			_overlays.Add(() =>
 			{
-				_tool.Gui!.WithSurface(DisplaySurfaceID.Client, () =>
-					_tool.Gui!.DrawString(x, y, text, color, null, fontSize, null, null, "Left", "Top"));
+				_tool.Gui!.WithSurface(DisplaySurfaceID.Client, gui =>
+					gui.DrawString(x, y, text, color, null, fontSize, null, null, "Left", "Top"));
 			});
 			RedrawOverlays();
 			return $"overlay text drawn (overlay count: {_overlays.Count})";
@@ -2785,8 +2785,8 @@ namespace BizHawkMcp
 		{
 			_overlays.Add(() =>
 			{
-				_tool.Gui!.WithSurface(DisplaySurfaceID.Client, () =>
-					_tool.Gui!.DrawRectangle(x, y, width, height, line, fill));
+				_tool.Gui!.WithSurface(DisplaySurfaceID.Client, gui =>
+					gui.DrawRectangle(x, y, width, height, line, fill));
 			});
 		}
 
@@ -2823,15 +2823,15 @@ namespace BizHawkMcp
 		{
 			_overlays.Add(() =>
 			{
-				_tool.Gui!.WithSurface(DisplaySurfaceID.Client, () =>
-					_tool.Gui!.DrawLine(x1, y1, x2, y2, color));
+				_tool.Gui!.WithSurface(DisplaySurfaceID.Client, gui =>
+					gui.DrawLine(x1, y1, x2, y2, color));
 			});
 		}
 
 		private string ClearOverlay()
 		{
 			_overlays.Clear();
-			_tool.Gui!.WithSurface(DisplaySurfaceID.Client, () => _tool.Gui!.ClearGraphics());
+			_tool.Gui!.WithSurface(DisplaySurfaceID.Client, gui => gui.ClearGraphics());
 			_tool.Gui!.ClearText();
 			return "overlay cleared";
 		}
@@ -3738,7 +3738,7 @@ namespace BizHawkMcp
 			{
 				EnsureEndianness();
 				start = ValidateAddress(start, 1, domain);
-				long size = _tool.Memory!.GetMemoryDomainSize(domain);
+				long size = _tool.Memory!.GetMemoryDomainSize(domain ?? "");
 				if (start + len > size)
 					throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"range {start:X}:{start + len:X} outside domain \"{domain}\" (size {size})");
 				var raw = _tool.Memory!.ReadByteRange(start, (int)len, domain);
@@ -3820,7 +3820,7 @@ namespace BizHawkMcp
 		// VRAM, ...) are offsets and must fit — out-of-range is an error.
 		private long ValidateAddress(long address, int width, string? domain)
 		{
-			uint size = _tool.Memory!.GetMemoryDomainSize(domain);
+			uint size = _tool.Memory!.GetMemoryDomainSize(domain ?? "");
 			string name = domain ?? _tool.Memory.GetCurrentMemoryDomain();
 			if (Has24BitBus() && name.IndexOf("BUS", StringComparison.OrdinalIgnoreCase) >= 0)
 			{

@@ -948,7 +948,7 @@ namespace BizHawkMcp.Tests
 			var path = res.GetProperty("path").GetString();
 			Assert.Contains("bizhawk-mcp", path);
 			Assert.Equal(65536L, res.GetProperty("size").GetInt64());
-			var fileBytes = System.IO.File.ReadAllBytes(path);
+			var fileBytes = System.IO.File.ReadAllBytes(path!);
 			Assert.Equal((byte)0xDE, fileBytes[0]);
 			Assert.Equal((byte)0xAD, fileBytes[1]);
 
@@ -1661,7 +1661,7 @@ namespace BizHawkMcp.Tests
 			var path = res.GetProperty("path").GetString();
 			Assert.Contains("bizhawk-mcp", path);
 			Assert.StartsWith("bizhawk://", res.GetProperty("resource").GetString());
-			Assert.Equal(1, _apis.EmuClientApi.Screenshots.Count);
+			Assert.Single(_apis.EmuClientApi.Screenshots);
 		}
 
 		[Fact]

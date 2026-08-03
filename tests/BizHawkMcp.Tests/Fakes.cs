@@ -49,11 +49,11 @@ namespace BizHawkMcp.Tests
 			return true;
 		}
 
-		public string HashRegion(long addr, int count, string domain = null) => "deadbeef";
+		public string HashRegion(long addr, int count, string? domain = null) => "deadbeef";
 
-		public uint ReadByte(long addr, string domain = null) => Bytes.TryGetValue(addr + DomainBase(domain), out var b) ? b : (uint)0;
+		public uint ReadByte(long addr, string? domain = null) => Bytes.TryGetValue(addr + DomainBase(domain), out var b) ? b : (uint)0;
 
-		public IReadOnlyList<byte> ReadByteRange(long addr, int length, string domain = null)
+		public IReadOnlyList<byte> ReadByteRange(long addr, int length, string? domain = null)
 		{
 			var list = new byte[length];
 			for (var i = 0; i < length; i++) list[i] = (byte)ReadByte(addr + i, domain);
@@ -70,88 +70,88 @@ namespace BizHawkMcp.Tests
 			_ => 0L,
 		};
 
-		public float ReadFloat(long addr, string domain = null) => BitConverter.ToSingle(new[] { (byte)ReadByte(addr), (byte)ReadByte(addr + 1), (byte)ReadByte(addr + 2), (byte)ReadByte(addr + 3) }, 0);
+		public float ReadFloat(long addr, string? domain = null) => BitConverter.ToSingle(new[] { (byte)ReadByte(addr), (byte)ReadByte(addr + 1), (byte)ReadByte(addr + 2), (byte)ReadByte(addr + 3) }, 0);
 
-		public int ReadS8(long addr, string domain = null) => (sbyte)ReadByte(addr);
+		public int ReadS8(long addr, string? domain = null) => (sbyte)ReadByte(addr);
 
-		public int ReadS16(long addr, string domain = null) => (short)ReadU16(addr, domain);
+		public int ReadS16(long addr, string? domain = null) => (short)ReadU16(addr, domain);
 
-		public int ReadS24(long addr, string domain = null)
+		public int ReadS24(long addr, string? domain = null)
 		{
 			uint v = ReadU8(addr, domain) | (ReadU8(addr + 1, domain) << 8) | (ReadU8(addr + 2, domain) << 16);
 			return (int)(v & 0x800000) == 0 ? (int)v : (int)(v | 0xFF000000);
 		}
 
-		public int ReadS32(long addr, string domain = null) => (int)ReadU32(addr, domain);
+		public int ReadS32(long addr, string? domain = null) => (int)ReadU32(addr, domain);
 
-		public uint ReadU8(long addr, string domain = null) => ReadByte(addr, domain);
+		public uint ReadU8(long addr, string? domain = null) => ReadByte(addr, domain);
 
-		public uint ReadU16(long addr, string domain = null)
+		public uint ReadU16(long addr, string? domain = null)
 		{
 			byte a = (byte)ReadByte(addr), b = (byte)ReadByte(addr + 1);
 			return BigEndian ? (uint)((a << 8) | b) : (uint)(a | (b << 8));
 		}
 
-		public uint ReadU24(long addr, string domain = null)
+		public uint ReadU24(long addr, string? domain = null)
 		{
 			byte a = (byte)ReadByte(addr), b = (byte)ReadByte(addr + 1), c = (byte)ReadByte(addr + 2);
 			return BigEndian ? (uint)((a << 16) | (b << 8) | c) : (uint)(a | (b << 8) | (c << 16));
 		}
 
-		public uint ReadU32(long addr, string domain = null)
+		public uint ReadU32(long addr, string? domain = null)
 		{
 			byte a = (byte)ReadByte(addr), b = (byte)ReadByte(addr + 1), c = (byte)ReadByte(addr + 2), d = (byte)ReadByte(addr + 3);
 			return BigEndian ? (uint)((a << 24) | (b << 16) | (c << 8) | d) : (uint)(a | (b << 8) | (c << 16) | (d << 24));
 		}
 
-		public void WriteByte(long addr, uint value, string domain = null) => Bytes[addr + DomainBase(domain)] = (byte)value;
+		public void WriteByte(long addr, uint value, string? domain = null) => Bytes[addr + DomainBase(domain)] = (byte)value;
 
-		public void WriteByteRange(long addr, IReadOnlyList<byte> memoryblock, string domain = null)
+		public void WriteByteRange(long addr, IReadOnlyList<byte> memoryblock, string? domain = null)
 		{
 			for (var i = 0; i < memoryblock.Count; i++) Bytes[addr + DomainBase(domain) + i] = memoryblock[i];
 		}
 
-		public void WriteFloat(long addr, float value, string domain = null)
+		public void WriteFloat(long addr, float value, string? domain = null)
 		{
 			var bytes = BitConverter.GetBytes(value);
 			for (var i = 0; i < 4; i++) Bytes[addr + DomainBase(domain) + i] = bytes[i];
 		}
 
-		public void WriteS8(long addr, int value, string domain = null) => WriteByte(addr, (uint)(sbyte)value);
+		public void WriteS8(long addr, int value, string? domain = null) => WriteByte(addr, (uint)(sbyte)value);
 
-		public void WriteS16(long addr, int value, string domain = null)
+		public void WriteS16(long addr, int value, string? domain = null)
 		{
 			if (BigEndian) { WriteByte(addr, (uint)((short)value >> 8)); WriteByte(addr + 1, (uint)(short)value); }
 			else { WriteByte(addr, (uint)(short)value); WriteByte(addr + 1, (uint)((short)value >> 8)); }
 		}
 
-		public void WriteS24(long addr, int value, string domain = null)
+		public void WriteS24(long addr, int value, string? domain = null)
 		{
 			if (BigEndian) { WriteByte(addr, (uint)(value >> 16)); WriteByte(addr + 1, (uint)(value >> 8)); WriteByte(addr + 2, (uint)value); }
 			else { WriteByte(addr, (uint)value); WriteByte(addr + 1, (uint)(value >> 8)); WriteByte(addr + 2, (uint)(value >> 16)); }
 		}
 
-		public void WriteS32(long addr, int value, string domain = null)
+		public void WriteS32(long addr, int value, string? domain = null)
 		{
 			if (BigEndian) { WriteByte(addr, (uint)(value >> 24)); WriteByte(addr + 1, (uint)(value >> 16)); WriteByte(addr + 2, (uint)(value >> 8)); WriteByte(addr + 3, (uint)value); }
 			else { WriteByte(addr, (uint)value); WriteByte(addr + 1, (uint)(value >> 8)); WriteByte(addr + 2, (uint)(value >> 16)); WriteByte(addr + 3, (uint)(value >> 24)); }
 		}
 
-		public void WriteU8(long addr, uint value, string domain = null) => WriteByte(addr, value);
+		public void WriteU8(long addr, uint value, string? domain = null) => WriteByte(addr, value);
 
-		public void WriteU16(long addr, uint value, string domain = null)
+		public void WriteU16(long addr, uint value, string? domain = null)
 		{
 			if (BigEndian) { WriteByte(addr, value >> 8); WriteByte(addr + 1, value); }
 			else { WriteByte(addr, value); WriteByte(addr + 1, value >> 8); }
 		}
 
-		public void WriteU24(long addr, uint value, string domain = null)
+		public void WriteU24(long addr, uint value, string? domain = null)
 		{
 			if (BigEndian) { WriteByte(addr, value >> 16); WriteByte(addr + 1, value >> 8); WriteByte(addr + 2, value); }
 			else { WriteByte(addr, value); WriteByte(addr + 1, value >> 8); WriteByte(addr + 2, value >> 16); }
 		}
 
-		public void WriteU32(long addr, uint value, string domain = null)
+		public void WriteU32(long addr, uint value, string? domain = null)
 		{
 			if (BigEndian) { WriteByte(addr, value >> 24); WriteByte(addr + 1, value >> 16); WriteByte(addr + 2, value >> 8); WriteByte(addr + 3, value); }
 			else { WriteByte(addr, value); WriteByte(addr + 1, value >> 8); WriteByte(addr + 2, value >> 16); WriteByte(addr + 3, value >> 24); }
@@ -275,10 +275,10 @@ namespace BizHawkMcp.Tests
 			OsdChanges.Add(value);
 		}
 
-		public void Screenshot(string path = null)
+		public void Screenshot(string? path = null)
 		{
-			Screenshots.Add(path);
-			System.IO.File.WriteAllBytes(path, new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A });
+			Screenshots.Add(path!);
+			System.IO.File.WriteAllBytes(path!, new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A });
 		}
 	}
 
@@ -360,8 +360,8 @@ namespace BizHawkMcp.Tests
 
 		public sealed class FakeVdpView
 		{
-			public FakeNameTable NTA;
-			public FakeNameTable NTB;
+			public FakeNameTable NTA = null!;
+			public FakeNameTable NTB = null!;
 		}
 
 		public sealed class FakeNameTable
@@ -462,11 +462,13 @@ namespace BizHawkMcp.Tests
 
 		public void ClearText() => ClearTextCalls++;
 
+		public void WithSurface(DisplaySurfaceID surfaceID, Action<IGuiApi> drawingCallsFunc) => drawingCallsFunc(this);
+
 		public void WithSurface(DisplaySurfaceID surfaceID, Action drawingCallsFunc) => drawingCallsFunc();
 
 		public void ClearGraphics(DisplaySurfaceID? surfaceID = null) => ClearTextCalls++;
 
-		public void DrawString(int x, int y, string message, System.Drawing.Color? forecolor = null, System.Drawing.Color? backcolor = null, int? fontsize = null, string fontfamily = null, string fontstyle = null, string horizalign = null, string vertalign = null, DisplaySurfaceID? surfaceID = null)
+		public void DrawString(int x, int y, string message, System.Drawing.Color? forecolor = null, System.Drawing.Color? backcolor = null, int? fontsize = null, string? fontfamily = null, string? fontstyle = null, string? horizalign = null, string? vertalign = null, DisplaySurfaceID? surfaceID = null)
 		{
 			DrawCount++;
 			LastDraw = (x, y, message, fontsize);
@@ -542,7 +544,7 @@ namespace BizHawkMcp.Tests
 
 		public void Set(string name, object value) => Data[name] = value;
 
-		public object Get(string key) => Data.TryGetValue(key, out var v) ? v : null;
+		public object? Get(string key) => Data.TryGetValue(key, out var v) ? v : null;
 
 		public void Clear() => Data.Clear();
 
