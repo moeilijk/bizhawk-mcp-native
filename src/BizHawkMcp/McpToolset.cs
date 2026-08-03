@@ -1515,6 +1515,7 @@ namespace BizHawkMcp
 			bool explicitMode = inputMode == "explicit";
 
 			string? path = OptionalString(a, "path");
+			path = NormalizeHostPath(path, IsWindowsHost());
 			if (string.IsNullOrEmpty(path))
 			{
 				var dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "bizhawk-mcp");
@@ -1833,7 +1834,7 @@ namespace BizHawkMcp
 				}
 			}
 
-			string? outPath = OptionalString(a, "path");
+			string? outPath = NormalizeHostPath(OptionalString(a, "path"), IsWindowsHost());
 			string path;
 			if (string.IsNullOrEmpty(outPath))
 			{
@@ -2059,7 +2060,7 @@ namespace BizHawkMcp
 		private string OpenRom(JsonElement? args)
 		{
 			var a = Required(args);
-			string path = RequireString(a, "path");
+			string path = NormalizeHostPath(RequireString(a, "path"), IsWindowsHost())!;
 			bool ok = _tool.EmuClient!.OpenRom(path);
 			return JsonRpc.Pretty(new Dictionary<string, object?> { ["loaded"] = ok, ["path"] = path });
 		}
@@ -2135,7 +2136,7 @@ namespace BizHawkMcp
 			bool includeOverlays = false;
 			if (args is { } a && a.ValueKind == JsonValueKind.Object)
 			{
-				path = OptionalString(a, "path");
+				path = NormalizeHostPath(OptionalString(a, "path"), IsWindowsHost());
 				includeOverlays = a.TryGetProperty("include_overlays", out var io) && io.ValueKind == JsonValueKind.True;
 			}
 			if (string.IsNullOrEmpty(path))
@@ -2171,7 +2172,7 @@ namespace BizHawkMcp
 		private string SaveState(JsonElement? args)
 		{
 			var a = Required(args);
-			string path = RequireString(a, "path");
+			string path = NormalizeHostPath(RequireString(a, "path"), IsWindowsHost())!;
 			_tool.SaveState!.Save(path);
 			return $"state saved: {path}";
 		}
@@ -2179,7 +2180,7 @@ namespace BizHawkMcp
 		private string LoadState(JsonElement? args)
 		{
 			var a = Required(args);
-			string path = RequireString(a, "path");
+			string path = NormalizeHostPath(RequireString(a, "path"), IsWindowsHost())!;
 			bool ok = _tool.SaveState!.Load(path);
 			return ok ? $"state loaded: {path}" : $"failed to load state: {path}";
 		}
@@ -2538,6 +2539,31 @@ namespace BizHawkMcp
 			_ => value.ToString() ?? "nil",
 		};
 
+		// Host-side paths: EmuHawk owns the filesystem, and on a Windows host
+		// an agent driving it from WSL passes /mnt/f/... paths. Convert WSL
+		// mount paths to Windows drive paths (and the reverse when the host is
+		// Linux/Mono and the caller passes C:\...). Applied to every tool that
+		// takes a host-side path (open_rom, save/load_state, screenshot, ...).
+		public static string? NormalizeHostPath(string? path, bool windowsHost)
+		{
+			if (string.IsNullOrEmpty(path)) return path;
+			if (windowsHost)
+			{
+				var m = System.Text.RegularExpressions.Regex.Match(path, @"^/mnt/([a-zA-Z])/(.*)$");
+				if (m.Success)
+					return $"{char.ToUpperInvariant(m.Groups[1].Value[0])}:\\{m.Groups[2].Value.Replace('/', '\\')}";
+			}
+			else
+			{
+				var m = System.Text.RegularExpressions.Regex.Match(path, @"^([a-zA-Z]):[\\/](.*)$");
+				if (m.Success)
+					return $"/mnt/{char.ToLowerInvariant(m.Groups[1].Value[0])}/{m.Groups[2].Value.Replace('\\', '/')}";
+			}
+			return path;
+		}
+
+		private static bool IsWindowsHost() => Environment.OSVersion.Platform == PlatformID.Win32NT;
+
 		private string LuaExec(JsonElement? args)
 		{
 			var a = Required(args);
@@ -2572,7 +2598,7 @@ namespace BizHawkMcp
 		private string LuaLoad(JsonElement? args)
 		{
 			var a = Required(args);
-			string path = RequireString(a, "path");
+			string path = NormalizeHostPath(RequireString(a, "path"), IsWindowsHost())!;
 			if (!System.IO.File.Exists(path))
 				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"script file not found: {path}");
 			var lua = ResolveLua();
@@ -2603,7 +2629,7 @@ namespace BizHawkMcp
 		private string LuaUnload(JsonElement? args)
 		{
 			var a = Required(args);
-			string path = RequireString(a, "path");
+			string path = NormalizeHostPath(RequireString(a, "path"), IsWindowsHost())!;
 			var lua = ResolveLua();
 			var file = FindLuaFile(lua, path);
 			if (file == null)
@@ -2616,7 +2642,7 @@ namespace BizHawkMcp
 		private string LuaEnable(JsonElement? args)
 		{
 			var a = Required(args);
-			string path = RequireString(a, "path");
+			string path = NormalizeHostPath(RequireString(a, "path"), IsWindowsHost())!;
 			var lua = ResolveLua();
 			var file = FindLuaFile(lua, path);
 			if (file == null)
@@ -2628,7 +2654,7 @@ namespace BizHawkMcp
 		private string LuaDisable(JsonElement? args)
 		{
 			var a = Required(args);
-			string path = RequireString(a, "path");
+			string path = NormalizeHostPath(RequireString(a, "path"), IsWindowsHost())!;
 			var lua = ResolveLua();
 			var file = FindLuaFile(lua, path);
 			if (file == null)
@@ -2866,7 +2892,7 @@ namespace BizHawkMcp
 			// with a path: load that movie file and start playback from frame 0;
 			// without: start recording a new movie for the currently loaded ROM.
 			string path = "";
-			if (args is { } a && a.ValueKind == JsonValueKind.Object) path = OptionalString(a, "path") ?? "";
+			if (args is { } a && a.ValueKind == JsonValueKind.Object) path = NormalizeHostPath(OptionalString(a, "path"), IsWindowsHost()) ?? "";
 			bool ok = _tool.Movie!.PlayFromStart(path);
 			return ok
 				? (string.IsNullOrEmpty(path) ? "movie started (recording)" : $"movie loaded and playing: {path}")
@@ -2876,7 +2902,7 @@ namespace BizHawkMcp
 		private string MovieSave(JsonElement? args)
 		{
 			string path = "";
-			if (args is { } a && a.ValueKind == JsonValueKind.Object) path = OptionalString(a, "path") ?? "";
+			if (args is { } a && a.ValueKind == JsonValueKind.Object) path = NormalizeHostPath(OptionalString(a, "path"), IsWindowsHost()) ?? "";
 			_tool.Movie!.Save(path);
 			return string.IsNullOrEmpty(path) ? "movie saved" : $"movie saved: {path}";
 		}

@@ -9,9 +9,19 @@ and uses it as the GitHub release notes; if no section exists it falls back to
 auto-generated notes. A versioned section is only created when a release is cut
 on explicit request — otherwise changes accumulate under `## [Unreleased]`.
 
-## [Unreleased]
+## [v0.2.0] - 2026-08-03
 
 ### Added
+- WSL↔Windows host path translation: tools that take host-side paths
+  (`open_rom`, `save_state`/`load_state`, `screenshot`, `dump_memory`,
+  `start_fixture`, `lua_load`, movies, planes) accept `/mnt/f/...` forms when
+  EmuHawk runs on Windows (and `C:\...` forms when it runs on Linux/Mono),
+  converting automatically.
+- `scripts/smoke.sh`: one-command deployment verification against a running
+  server (read-only: initialize/ping/tools/get_info/read/freeze/resources,
+  optional `--with-lua`).
+- CI: the linux flavor now runs `mono --verify-all` on the built DLL (IL
+  sanity for the Mono target).
 - Per-domain endianness: optional `endianness` param on all memory tools
   (default `auto` = the domain's native endianness, e.g. Z80 RAM little vs
   68K RAM big on Genesis); every read returns the endianness actually used.
@@ -42,6 +52,52 @@ on explicit request — otherwise changes accumulate under `## [Unreleased]`.
   (`bizhawk_enable_rewind`), frameskip (`bizhawk_frameskip`), framerate limit
   (`bizhawk_limit_framerate`), and ROM management (`bizhawk_open_rom`/
   `close_rom`/`reboot`).
+
+- `bizhawk_lua_docs` + `bizhawk://lua-docs` / `bizhawk://lua-docs/{library}`:
+  agent-friendly JSON of the Lua API docs, served live from the running
+  emulator — the same `[LuaMethod]` → `LuaLibraries.Docs` chain that generates
+  the tasvideos.org LuaFunctions page, with signatures AND examples (which the
+  wiki omits).
+- Lua scripting (`bizhawk_lua_exec`/`load`/`unload`/`enable`/`disable`/`list`):
+  drives EmuHawk's real Lua runtime. The host (`LuaLibraries` in
+  BizHawk.Client.Common) is reached via `IToolApi.GetTool("LuaConsole")` +
+  reflection on its private `LuaImp` field (same pattern as watchpoints) — no
+  deep reflection into the Lua machinery. `lua_exec` runs snippets through the
+  same path as the console's REPL (memory API uses underscore forms:
+  `read_u8`/`read_u16_be`/`read_u32_le`/`write_u8`/...); loaded scripts are pumped every frame by
+  EmuHawk's frame events (even free-running emulation) and survive core
+  reboots.
+- `bizhawk_read_bulk`: contiguous range as raw base64 in one call (up to 64 KiB).
+  Measured live: per-call latency is ~17ms fixed (HTTP + JSON + UI-thread
+  marshaling) regardless of payload, so batching wins — 4096 bytes via
+  `read_many` costs 16 calls (~290ms), via `read_bulk` costs 1 (~17ms), and
+  base64 payloads are ~4x smaller than per-item JSON.
+- Memory freeze (`bizhawk_freeze_add`/`remove`/`list`/`clear`): drives the emulator's
+  real cheat engine (`MainForm.CheatList` — the same list the hex editor's
+  Freeze uses), so frozen values are re-written EVERY frame by EmuHawk's main
+  loop, even while emulation runs freely. Snapshot or explicit value; ranges
+  (8-bit entries); optional `freeze: true` on `write_memory`/`write_many`/
+  `write_range`. Lock timers, lives, health for analysis. Entries are shared
+  with the Cheats window and persist on exit.
+- In-memory core savestates (`bizhawk_memstate_save`/`load`/`list`): session-local
+  byte arrays of the core state via the real `IStatable` service (reached by
+  reflection on `EmulationApi.Emulator`, like watchpoints) — fast save/restore
+  for search/TAS iteration, no disk, no 10-slot limit. Core state only
+  (CPU + memory); framecount/lag count are NOT restored.
+- MCP prompts: `prompts/list` + `prompts/get` (`memory_research`, `tas_frame`)
+  with a `prompts` capability advertised on `initialize`.
+- `bizhawk_watch_change`: advance frames until the value at an address changes
+  from its call-time baseline (first-change-frame semantics, no target value
+  needed — unlike `wait_until`).
+- `tools/list` change notifications: capabilities advertise `listChanged: true`
+  and the first SSE stream of each server lifetime carries a
+  `notifications/tools/list_changed` message (a redeployed DLL may serve a
+  different tool list).
+- `scripts/bump-bizhawk.sh`: half-automates the BizHawk version bump — updates
+  `bizhawk.build`, re-pins the source, and diffs the ApiHawk interface files
+  between the old and new commits.
+- `bizhawk://read/{domain}/{range}` resource cap raised to 256 KiB (was 64 KiB).
+
 
 ### Fixed
 - `freeze_*` and the `write_range` bulk path failed on the real core with
@@ -95,52 +151,6 @@ on explicit request — otherwise changes accumulate under `## [Unreleased]`.
   `address` — `read_many` items and `read_memory`/`read_signed`/`read_float`
   responses — so off-bus arithmetic mistakes (e.g. `0x1002024`) are visible
   diagnostics instead of silent masking.
-
-### Added
-- `bizhawk_lua_docs` + `bizhawk://lua-docs` / `bizhawk://lua-docs/{library}`:
-  agent-friendly JSON of the Lua API docs, served live from the running
-  emulator — the same `[LuaMethod]` → `LuaLibraries.Docs` chain that generates
-  the tasvideos.org LuaFunctions page, with signatures AND examples (which the
-  wiki omits).
-- Lua scripting (`bizhawk_lua_exec`/`load`/`unload`/`enable`/`disable`/`list`):
-  drives EmuHawk's real Lua runtime. The host (`LuaLibraries` in
-  BizHawk.Client.Common) is reached via `IToolApi.GetTool("LuaConsole")` +
-  reflection on its private `LuaImp` field (same pattern as watchpoints) — no
-  deep reflection into the Lua machinery. `lua_exec` runs snippets through the
-  same path as the console's REPL (memory API uses underscore forms:
-  `read_u8`/`read_u16_be`/`read_u32_le`/`write_u8`/...); loaded scripts are pumped every frame by
-  EmuHawk's frame events (even free-running emulation) and survive core
-  reboots.
-- `bizhawk_read_bulk`: contiguous range as raw base64 in one call (up to 64 KiB).
-  Measured live: per-call latency is ~17ms fixed (HTTP + JSON + UI-thread
-  marshaling) regardless of payload, so batching wins — 4096 bytes via
-  `read_many` costs 16 calls (~290ms), via `read_bulk` costs 1 (~17ms), and
-  base64 payloads are ~4x smaller than per-item JSON.
-- Memory freeze (`bizhawk_freeze_add`/`remove`/`list`/`clear`): drives the emulator's
-  real cheat engine (`MainForm.CheatList` — the same list the hex editor's
-  Freeze uses), so frozen values are re-written EVERY frame by EmuHawk's main
-  loop, even while emulation runs freely. Snapshot or explicit value; ranges
-  (8-bit entries); optional `freeze: true` on `write_memory`/`write_many`/
-  `write_range`. Lock timers, lives, health for analysis. Entries are shared
-  with the Cheats window and persist on exit.
-- In-memory core savestates (`bizhawk_memstate_save`/`load`/`list`): session-local
-  byte arrays of the core state via the real `IStatable` service (reached by
-  reflection on `EmulationApi.Emulator`, like watchpoints) — fast save/restore
-  for search/TAS iteration, no disk, no 10-slot limit. Core state only
-  (CPU + memory); framecount/lag count are NOT restored.
-- MCP prompts: `prompts/list` + `prompts/get` (`memory_research`, `tas_frame`)
-  with a `prompts` capability advertised on `initialize`.
-- `bizhawk_watch_change`: advance frames until the value at an address changes
-  from its call-time baseline (first-change-frame semantics, no target value
-  needed — unlike `wait_until`).
-- `tools/list` change notifications: capabilities advertise `listChanged: true`
-  and the first SSE stream of each server lifetime carries a
-  `notifications/tools/list_changed` message (a redeployed DLL may serve a
-  different tool list).
-- `scripts/bump-bizhawk.sh`: half-automates the BizHawk version bump — updates
-  `bizhawk.build`, re-pins the source, and diffs the ApiHawk interface files
-  between the old and new commits.
-- `bizhawk://read/{domain}/{range}` resource cap raised to 256 KiB (was 64 KiB).
 
 ### Changed
 - Genesis-only tools are now named with a system prefix so agents don't assume

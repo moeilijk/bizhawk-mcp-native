@@ -97,6 +97,14 @@ jobs:
       - name: Run unit tests
         run: dotnet test tests/BizHawkMcp.Tests/BizHawkMcp.Tests.csproj
 
+      - name: Mono sanity (linux flavor only)
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mono-complete
+          mono --verify-all src/BizHawkMcp/bin/Release/BizHawkMcp.dll
+          echo "Mono IL verification passed (net48 assembly valid for the Linux target)"
+
       - name: Package
         run: |
           STAGE="staging"

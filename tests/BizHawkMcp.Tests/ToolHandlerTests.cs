@@ -1584,7 +1584,7 @@ namespace BizHawkMcp.Tests
 			var res = Parse(_ts.Call("bizhawk_open_rom", TestHelpers.Js("{\"path\":\"F:/roms/game.md\"}")));
 			Assert.True(res.GetProperty("loaded").GetBoolean());
 			Assert.Single(_apis.EmuClientApi.OpenedRoms);
-			Assert.Equal("F:/roms/game.md", _apis.EmuClientApi.OpenedRoms[0]);
+			Assert.Equal("/mnt/f/roms/game.md", _apis.EmuClientApi.OpenedRoms[0]);
 			_ts.Call("bizhawk_close_rom", null);
 			Assert.Equal(1, _apis.EmuClientApi.CloseRomCalls);
 			_ts.Call("bizhawk_reboot", null);
@@ -1786,7 +1786,7 @@ namespace BizHawkMcp.Tests
 		public void Save_load_state_forward()
 		{
 			_ts.Call("bizhawk_save_state", TestHelpers.Js("{\"path\":\"C:/x.State\"}"));
-			Assert.Equal("C:/x.State", _apis.SaveStateApi.SavedTo);
+			Assert.Equal("/mnt/c/x.State", _apis.SaveStateApi.SavedTo);
 			var res = _ts.Call("bizhawk_load_state", TestHelpers.Js("{\"path\":\"C:/x.State\"}"));
 			Assert.Contains("loaded", res);
 		}
@@ -2207,6 +2207,31 @@ namespace BizHawkMcp.Tests
 		}
 
 		[Fact]
+		public void Host_path_wsl_to_windows_conversion()
+		{
+			// agent drives from WSL, EmuHawk runs on Windows
+			Assert.Equal(@"F:\roms\kid.md", McpToolset.NormalizeHostPath("/mnt/f/roms/kid.md", windowsHost: true));
+			Assert.Equal(@"F:\roms\kid.md", McpToolset.NormalizeHostPath("/mnt/F/roms/kid.md", windowsHost: true));
+			Assert.Equal(@"C:\temp\shot.png", McpToolset.NormalizeHostPath("/mnt/c/temp/shot.png", windowsHost: true));
+			// already a Windows path — unchanged
+			Assert.Equal(@"F:\roms\kid.md", McpToolset.NormalizeHostPath(@"F:\roms\kid.md", windowsHost: true));
+		}
+
+		[Fact]
+		public void Host_path_windows_to_wsl_conversion()
+		{
+			// agent passes a Windows path while EmuHawk runs on Linux (Mono)
+			Assert.Equal("/mnt/f/roms/kid.md", McpToolset.NormalizeHostPath(@"F:\roms\kid.md", windowsHost: false));
+			Assert.Equal("/mnt/f/roms/kid.md", McpToolset.NormalizeHostPath(@"F:/roms/kid.md", windowsHost: false));
+			// already a WSL path — unchanged
+			Assert.Equal("/mnt/f/roms/kid.md", McpToolset.NormalizeHostPath("/mnt/f/roms/kid.md", windowsHost: false));
+			// relative paths and non-mount paths untouched
+			Assert.Equal("roms/kid.md", McpToolset.NormalizeHostPath("roms/kid.md", windowsHost: false));
+			Assert.Equal("/tmp/x.bin", McpToolset.NormalizeHostPath("/tmp/x.bin", windowsHost: true));
+			Assert.Null(McpToolset.NormalizeHostPath(null, windowsHost: true));
+		}
+
+		[Fact]
 		public void Overlay_text_draws_and_clears()
 		{
 			_ts.Call("bizhawk_overlay_text", TestHelpers.Js("{\"x\":1,\"y\":2,\"text\":\"hi\",\"fontsize\":12}"));
@@ -2302,7 +2327,7 @@ namespace BizHawkMcp.Tests
 		{
 			var res = _ts.Call("bizhawk_movie_start", TestHelpers.Js("{\"path\":\"C:/movies/run.bk2\"}"));
 			Assert.Contains("playing", res);
-			Assert.Equal("C:/movies/run.bk2", _apis.MovieApi.PlayedPath);
+			Assert.Equal("/mnt/c/movies/run.bk2", _apis.MovieApi.PlayedPath);
 		}
 
 		[Fact]
@@ -2317,7 +2342,7 @@ namespace BizHawkMcp.Tests
 		public void Movie_save_and_stop_forward()
 		{
 			_ts.Call("bizhawk_movie_save", TestHelpers.Js("{\"path\":\"C:/movies/out.bk2\"}"));
-			Assert.Equal("C:/movies/out.bk2", _apis.MovieApi.SavedPath);
+			Assert.Equal("/mnt/c/movies/out.bk2", _apis.MovieApi.SavedPath);
 			var res = _ts.Call("bizhawk_movie_stop", null);
 			Assert.Contains("stopped", res);
 			Assert.True(_apis.MovieApi.Stopped);
