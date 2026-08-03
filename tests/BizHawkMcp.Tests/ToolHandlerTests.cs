@@ -200,6 +200,51 @@ namespace BizHawkMcp.Tests
 		}
 
 		[Fact]
+		public void Search_memory_u16_respects_big_endian_on_genesis()
+		{
+			// bytes 00 08 at 100 = 8 in BE, 2048 in LE (the mainFunction regression)
+			_apis.MemoryApi.Bytes[100] = 0x00;
+			_apis.MemoryApi.Bytes[101] = 0x08;
+			var res = Parse(_ts.Call("bizhawk_search_memory", TestHelpers.Js("{\"value\":8,\"width\":16,\"max_results\":10}")));
+			Assert.Equal(1, res.GetProperty("count").GetInt32());
+			Assert.Equal((long)100, res.GetProperty("matches")[0].GetProperty("address").GetInt64());
+		}
+
+		[Fact]
+		public void Search_memory_u32_respects_big_endian_on_genesis()
+		{
+			// bytes 12 34 56 78 at 100 = 0x12345678 in BE, 0x78563412 in LE
+			_apis.MemoryApi.Bytes[100] = 0x12;
+			_apis.MemoryApi.Bytes[101] = 0x34;
+			_apis.MemoryApi.Bytes[102] = 0x56;
+			_apis.MemoryApi.Bytes[103] = 0x78;
+			var res = Parse(_ts.Call("bizhawk_search_memory", TestHelpers.Js("{\"value\":305419896,\"width\":32,\"max_results\":10}")));
+			Assert.Equal(1, res.GetProperty("count").GetInt32());
+			Assert.Equal((long)100, res.GetProperty("matches")[0].GetProperty("address").GetInt64());
+		}
+
+		[Fact]
+		public void Search_memory_respects_little_endian_override()
+		{
+			// on GEN the override to LE must make 08 00 match value 8
+			_apis.MemoryApi.Bytes[100] = 0x08;
+			_apis.MemoryApi.Bytes[101] = 0x00;
+			_ts.Call("bizhawk_set_big_endian", TestHelpers.Js("{\"enabled\":false}"));
+			var res = Parse(_ts.Call("bizhawk_search_memory", TestHelpers.Js("{\"value\":8,\"width\":16,\"max_results\":10}")));
+			Assert.Equal(1, res.GetProperty("count").GetInt32());
+			Assert.Equal((long)100, res.GetProperty("matches")[0].GetProperty("address").GetInt64());
+		}
+
+		[Fact]
+		public void Search_memory_addresses_scan_respects_big_endian()
+		{
+			_apis.MemoryApi.Bytes[100] = 0x00;
+			_apis.MemoryApi.Bytes[101] = 0x08;
+			var res = Parse(_ts.Call("bizhawk_search_memory", TestHelpers.Js("{\"value\":8,\"width\":16,\"addresses\":[100]}")));
+			Assert.Equal(1, res.GetProperty("count").GetInt32());
+		}
+
+		[Fact]
 		public void Hash_region_returns_hash()
 		{
 			var res = Parse(_ts.Call("bizhawk_hash_region", TestHelpers.Js("{\"address\":0,\"length\":64}")));
@@ -240,6 +285,26 @@ namespace BizHawkMcp.Tests
 		{
 			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_read_many", TestHelpers.Js("{\"items\":[{\"address\":10,\"width\":7}]}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
+		}
+
+		[Fact]
+		public void Read_many_u16_respects_big_endian_on_genesis()
+		{
+			// mainFunction regression: bytes 00 08 = 8 in BE, 2048 in LE
+			_apis.MemoryApi.Bytes[100] = 0x00;
+			_apis.MemoryApi.Bytes[101] = 0x08;
+			var res = Parse(_ts.Call("bizhawk_read_many", TestHelpers.Js("{\"items\":[{\"address\":100,\"width\":16}]}")));
+			Assert.Equal((ulong)8, res.GetProperty("reads")[0].GetProperty("value").GetUInt64());
+		}
+
+		[Fact]
+		public void Read_many_respects_little_endian_override()
+		{
+			_apis.MemoryApi.Bytes[100] = 0x08;
+			_apis.MemoryApi.Bytes[101] = 0x00;
+			_ts.Call("bizhawk_set_big_endian", TestHelpers.Js("{\"enabled\":false}"));
+			var res = Parse(_ts.Call("bizhawk_read_many", TestHelpers.Js("{\"items\":[{\"address\":100,\"width\":16}]}")));
+			Assert.Equal((ulong)8, res.GetProperty("reads")[0].GetProperty("value").GetUInt64());
 		}
 
 		[Fact]

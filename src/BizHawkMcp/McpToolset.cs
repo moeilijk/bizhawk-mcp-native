@@ -591,6 +591,8 @@ namespace BizHawkMcp
 
 			var matches = new List<object>();
 
+			bool bigEndian = EffectiveEndianness() == "big";
+
 			// restricted scan over a caller-provided address list
 			if (a.TryGetProperty("addresses", out var addrs) && addrs.ValueKind == JsonValueKind.Array)
 			{
@@ -600,7 +602,7 @@ namespace BizHawkMcp
 					if (i++ >= 4096) break;
 					if (matches.Count >= maxResults) break;
 					long addr = el.GetInt64();
-					if (ReadLe(mem, addr, width, domain) == value)
+					if (ReadValue(mem, addr, width, domain, bigEndian) == value)
 						matches.Add(new Dictionary<string, object?> { ["address"] = addr, ["value"] = value });
 				}
 			}
@@ -616,7 +618,7 @@ namespace BizHawkMcp
 				for (int off = 0; off < bytes.Count && matches.Count < maxResults; off++)
 				{
 					if (off + bytesPer > bytes.Count) break;
-					ulong v = LeValue(bytes, off, bytesPer);
+					ulong v = BytesToValue(bytes, off, bytesPer, bigEndian);
 					if (v == value)
 						matches.Add(new Dictionary<string, object?> { ["address"] = rangeStart + off, ["value"] = v });
 				}
@@ -625,13 +627,20 @@ namespace BizHawkMcp
 			return JsonRpc.Pretty(new Dictionary<string, object?> { ["count"] = matches.Count, ["matches"] = matches });
 		}
 
-		private static ulong ReadLe(IMemoryApi mem, long addr, int width, string? domain) =>
-			LeValue(mem.ReadByteRange(addr, width / 8, domain), 0, width / 8);
+		private static ulong ReadValue(IMemoryApi mem, long addr, int width, string? domain, bool bigEndian) =>
+			BytesToValue(mem.ReadByteRange(addr, width / 8, domain), 0, width / 8, bigEndian);
 
-		private static ulong LeValue(IReadOnlyList<byte> bytes, int off, int bytesPer)
+		private static ulong BytesToValue(IReadOnlyList<byte> bytes, int off, int bytesPer, bool bigEndian)
 		{
 			ulong v = 0;
-			for (int i = 0; i < bytesPer; i++) v |= (ulong)bytes[off + i] << (8 * i);
+			if (bigEndian)
+			{
+				for (int i = 0; i < bytesPer; i++) v = (v << 8) | bytes[off + i];
+			}
+			else
+			{
+				for (int i = 0; i < bytesPer; i++) v |= (ulong)bytes[off + i] << (8 * i);
+			}
 			return v;
 		}
 
@@ -730,6 +739,7 @@ namespace BizHawkMcp
 
 		private string ReadMany(JsonElement? args)
 		{
+			EnsureEndianness();
 			var a = Required(args);
 			if (!a.TryGetProperty("items", out var items) || items.ValueKind != JsonValueKind.Array)
 				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "items must be an array");
