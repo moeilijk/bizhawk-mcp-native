@@ -1767,6 +1767,65 @@ namespace BizHawkMcp.Tests
 		}
 
 		[Fact]
+		public void Mem_state_save_then_load_restores_memory()
+		{
+			_apis.EnableMemStates();
+			_apis.MemoryApi.Bytes[100] = 0x11;
+			_apis.MemoryApi.Bytes[200] = 0x22;
+
+			var res = Parse(_ts.Call("bizhawk_memstate_save", TestHelpers.Js("{\"slot\":\"pre-jump\"}")));
+			Assert.Equal("pre-jump", res.GetProperty("slot").GetString());
+			Assert.True(res.GetProperty("size").GetInt32() > 0);
+
+			// trash the memory, then restore
+			_apis.MemoryApi.Bytes[100] = 0x99;
+			_apis.MemoryApi.Bytes[200] = 0x77;
+			_apis.MemoryApi.Bytes[300] = 0x55;
+			var load = Parse(_ts.Call("bizhawk_memstate_load", TestHelpers.Js("{\"slot\":\"pre-jump\"}")));
+			Assert.Equal("pre-jump", load.GetProperty("slot").GetString());
+
+			Assert.Equal((byte)0x11, _apis.MemoryApi.Bytes[100]);
+			Assert.Equal((byte)0x22, _apis.MemoryApi.Bytes[200]);
+			Assert.False(_apis.MemoryApi.Bytes.ContainsKey(300)); // post-save writes are gone
+		}
+
+		[Fact]
+		public void Mem_state_slots_are_independent()
+		{
+			_apis.EnableMemStates();
+			_apis.MemoryApi.Bytes[100] = 1;
+			_ts.Call("bizhawk_memstate_save", TestHelpers.Js("{\"slot\":\"a\"}"));
+			_apis.MemoryApi.Bytes[100] = 2;
+			_ts.Call("bizhawk_memstate_save", TestHelpers.Js("{\"slot\":\"b\"}"));
+
+			_apis.MemoryApi.Bytes[100] = 99;
+			_ts.Call("bizhawk_memstate_load", TestHelpers.Js("{\"slot\":\"a\"}"));
+			Assert.Equal((byte)1, _apis.MemoryApi.Bytes[100]);
+			_ts.Call("bizhawk_memstate_load", TestHelpers.Js("{\"slot\":\"b\"}"));
+			Assert.Equal((byte)2, _apis.MemoryApi.Bytes[100]);
+
+			var list = Parse(_ts.Call("bizhawk_memstate_list", null));
+			Assert.Equal(2, list.GetProperty("states").GetArrayLength());
+		}
+
+		[Fact]
+		public void Mem_state_load_unknown_slot_errors()
+		{
+			_apis.EnableMemStates();
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_memstate_load", TestHelpers.Js("{\"slot\":\"nope\"}")));
+			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
+		}
+
+		[Fact]
+		public void Mem_state_unsupported_core_errors_clearly()
+		{
+			// no Emulator wired → same shape as watchpoints on non-gpgx cores
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_memstate_save", TestHelpers.Js("{\"slot\":\"a\"}")));
+			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
+			Assert.Contains("IEmulator", ex.Message);
+		}
+
+		[Fact]
 		public void Overlay_text_draws_and_clears()
 		{
 			_ts.Call("bizhawk_overlay_text", TestHelpers.Js("{\"x\":1,\"y\":2,\"text\":\"hi\",\"fontsize\":12}"));

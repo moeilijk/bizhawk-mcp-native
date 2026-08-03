@@ -84,6 +84,13 @@ on explicit request — otherwise changes accumulate under `## [Unreleased]`.
   diagnostics instead of silent masking.
 
 ### Added
+- In-memory core savestates (`bizhawk_memstate_save`/`load`/`list`): session-local
+  byte arrays of the core state via the real `IStatable` service (reached by
+  reflection on `EmulationApi.Emulator`, like watchpoints) — fast save/restore
+  for search/TAS iteration, no disk, no 10-slot limit. Core state only
+  (CPU + memory); framecount/lag count are NOT restored.
+- MCP prompts: `prompts/list` + `prompts/get` (`memory_research`, `tas_frame`)
+  with a `prompts` capability advertised on `initialize`.
 - `bizhawk_watch_change`: advance frames until the value at an address changes
   from its call-time baseline (first-change-frame semantics, no target value
   needed — unlike `wait_until`).
@@ -94,6 +101,7 @@ on explicit request — otherwise changes accumulate under `## [Unreleased]`.
 - `scripts/bump-bizhawk.sh`: half-automates the BizHawk version bump — updates
   `bizhawk.build`, re-pins the source, and diffs the ApiHawk interface files
   between the old and new commits.
+- `bizhawk://read/{domain}/{range}` resource cap raised to 256 KiB (was 64 KiB).
 
 ### Changed
 - Genesis-only tools are now named with a system prefix so agents don't assume

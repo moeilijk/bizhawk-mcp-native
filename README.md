@@ -153,6 +153,9 @@ Because the server lives inside EmuHawk, every opencode session connects to the 
 | `bizhawk_load_state` | `path` | confirmation |
 | `bizhawk_save_slot` | `slot` (1–10) | confirmation |
 | `bizhawk_load_slot` | `slot` (1–10) | confirmation |
+| `bizhawk_memstate_save` | `slot` (name) | `{slot, size, states}` (JSON) — core state in RAM |
+| `bizhawk_memstate_load` | `slot` (name) | `{slot, size}` (JSON) |
+| `bizhawk_memstate_list` | — | slots + sizes (JSON) |
 | `bizhawk_shutdown` | — | stops the server |
 
 ## Protocol notes

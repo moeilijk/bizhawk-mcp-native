@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 // Stubs of the BizHawk.Emulation.Common service interfaces used by the
@@ -39,5 +40,28 @@ namespace BizHawk.Emulation.Common
 	public interface IDebuggable
 	{
 		IMemoryCallbackSystem MemoryCallbacks { get; }
+	}
+
+	// ── in-memory savestates (IStatable via Emulator.ServiceProvider) ────────
+	public interface IEmulatorService
+	{
+	}
+
+	public interface IEmulator : IEmulatorService, IDisposable
+	{
+		IEmulatorServiceProvider ServiceProvider { get; }
+	}
+
+	public interface IEmulatorServiceProvider
+	{
+		T GetService<T>() where T : IEmulatorService;
+		object? GetService(Type t);
+	}
+
+	public interface IStatable : IEmulatorService
+	{
+		bool AvoidRewind { get; }
+		void SaveStateBinary(System.IO.BinaryWriter writer);
+		void LoadStateBinary(System.IO.BinaryReader reader);
 	}
 }

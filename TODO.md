@@ -131,8 +131,9 @@ correct; enrich the `data` field instead of replacing codes, see below).
   `notifications/tools/list_changed` (the tool list is fixed per process, so a
   fresh connection after a redeploy may serve a different list — stateless
   subset, no sessions).
-- [ ] **Prompts**: e.g. a "TAS workflow" prompt or "memory research" prompt the
-  client can surface to the user.
+- [x] **Prompts**: `prompts/list` + `prompts/get` with `memory_research` and
+  `tas_frame` templates (text substitution only; `prompts` capability
+  advertised on `initialize`).
 - [ ] **Server-initiated SSE messages**: push framecount/state changes to a
   subscribed client (needs sessions + a client that keeps GET SSE open).
 - [ ] **HTTP `PUT`/`DELETE` session endpoints** for full Streamable HTTP parity.
@@ -148,10 +149,13 @@ correct; enrich the `data` field instead of replacing codes, see below).
   down to the 24-bit bus (`0xFFFFF832 == 0xFFF832`) for GEN/SMD/32X/SAT.
 - [x] **`bus_base` per domain**: `list_memory_domains` reports where each known
   domain sits in the bus space (GEN/SNES/GB maps).
-- [ ] **In-memory savestates**: `IMemorySaveStateApi` is NOT registered by the
-  ApiHawk provider, so a `[RequiredApi]` won't load. Investigate reaching the
-  core's memory-save-state machinery via reflection on the `ApiContainer`/core
-  (risky — document before doing). Would give fast save/restore for search/TAS.
+- [x] **In-memory savestates**: `IMemorySaveStateApi` is NOT registered by the
+  ApiHawk provider, so the plugin reaches the core's real **`IStatable` service
+  via reflection** (`EmulationApi.Emulator` private property →
+  `ServiceProvider.GetService<IStatable>()`, same pattern as watchpoints):
+  `bizhawk_memstate_save`/`load`/`list` keep session-local core-state byte
+  arrays (no disk, no 10-slot limit). Scope documented: CPU + memory only —
+  framecount/lag count are NOT restored. Verified live on gpgx.
 - [x] **Movie controls** (`bizhawk_movie_start`/`movie_save`/`movie_stop`):
   load-and-play a .bk2 (or start a new recording), save, stop. Feeds
   `start_fixture` with real inputs for deterministic parity fixtures.
@@ -191,9 +195,10 @@ correct; enrich the `data` field instead of replacing codes, see below).
   instead of NullReferenceException.
 - [x] **Better errors**: `bizhawk_use_memory_domain` now throws `INVALID_PARAMS`
   on an unknown domain, listing the known domains in the message.
-- [ ] **Larger reads**: `bizhawk_read_range` caps at 4096 bytes; consider a
-  chunked resource (`bizhawk://range/...`) for bigger dumps (dump_memory covers
-  whole-domain dumps as resources already).
+- [x] **Larger reads**: covered by the `bizhawk://read/{domain}/{range}` resource
+  template (raw base64 blob, cap raised to 256 KiB) — `bizhawk_read_range`
+  stays capped at 4096 for inline hex, `bizhawk_dump_memory` covers
+  whole-domain dumps as resources.
 
 ## DX / tooling
 

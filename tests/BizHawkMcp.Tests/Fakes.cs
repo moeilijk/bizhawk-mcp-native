@@ -268,6 +268,9 @@ namespace BizHawkMcp.Tests
 		// watchpoints: exposed the same way EmulationApi exposes its private
 		// DebuggableCore property (via reflection in McpToolset)
 		public IDebuggable? DebuggableCore { get; set; }
+		// in-memory savestates: same reflection pattern — EmulationApi.Emulator
+		// is a private property in the real API
+		public IEmulator? Emulator { get; set; }
 
 		public int FrameCount() => FrameCountValue;
 
@@ -518,6 +521,54 @@ namespace BizHawkMcp.Tests
 	}
 
 	/// <summary>Wires the fakes into IHostApis.</summary>
+	public sealed class FakeStatable : IStatable
+	{
+		private readonly Dictionary<long, byte> _bytes;
+
+		public FakeStatable(Dictionary<long, byte> bytes) => _bytes = bytes;
+
+		public bool AvoidRewind => false;
+
+		public void SaveStateBinary(System.IO.BinaryWriter writer)
+		{
+			writer.Write(_bytes.Count);
+			foreach (var kv in _bytes)
+			{
+				writer.Write(kv.Key);
+				writer.Write(kv.Value);
+			}
+		}
+
+		public void LoadStateBinary(System.IO.BinaryReader reader)
+		{
+			_bytes.Clear();
+			int n = reader.ReadInt32();
+			for (var i = 0; i < n; i++) _bytes[reader.ReadInt64()] = reader.ReadByte();
+		}
+	}
+
+	public sealed class FakeEmulator : IEmulator
+	{
+		public FakeEmulator(IStatable statable) => Statable = statable;
+
+		public IStatable Statable { get; }
+
+		public IEmulatorServiceProvider ServiceProvider => new FakeServiceProvider(Statable);
+
+		public void Dispose() { }
+	}
+
+	public sealed class FakeServiceProvider : IEmulatorServiceProvider
+	{
+		private readonly IStatable _statable;
+
+		public FakeServiceProvider(IStatable statable) => _statable = statable;
+
+		public T GetService<T>() where T : IEmulatorService => (T)(object)_statable;
+
+		public object? GetService(Type t) => t.IsInstanceOfType(_statable) ? _statable : null;
+	}
+
 	public sealed class FakeApis : IHostApis
 	{
 		public FakeMemoryApi MemoryApi = new();
@@ -553,6 +604,16 @@ namespace BizHawkMcp.Tests
 			var dbg = new FakeDebuggable();
 			EmulationApi.DebuggableCore = dbg;
 			return dbg;
+		}
+
+		/// <summary>Wires up IStatable support like a real core would (the
+		/// savestate snapshots FakeMemoryApi.Bytes).</summary>
+		public FakeEmulator EnableMemStates()
+		{
+			var statable = new FakeStatable(MemoryApi.Bytes);
+			var emu = new FakeEmulator(statable);
+			EmulationApi.Emulator = emu;
+			return emu;
 		}
 
 		public McpToolset Toolset() => new(this, new InlineDispatcher());

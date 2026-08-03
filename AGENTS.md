@@ -3,7 +3,7 @@
 Guidance for AI agents (and humans) working on this repository.
 
 - **Documentation index:** `docs/` — `ARCHITECTURE.md`, `MCP-PROTOCOL.md`, `DEVELOPMENT.md`, `CI-RELEASES.md`. When in doubt, read the relevant doc before editing. Improvement ideas live in `TODO.md`.
-- **Current status (2026-08-03):** 79 tools verified end-to-end against the user's BizHawk dev build (2.11.2, commit `ed78f70a`, Windows via WSL). Server advertises `tools` + `resources` capabilities (incl. `listChanged`) over `http://127.0.0.1:8767/mcp/`; 186 unit tests (`./scripts/test.sh`) pass on Linux without BizHawk — including real-HTTP end-to-end tests (HttpEndToEndTests) that boot the real `McpHttpServer` on a random port. Deployed to `F:\projects\kid\emulators\BizHawk-dev-windows\ExternalTools\`. Test loop: an agent tests against Kid Chameleon (UE) on the Genesis gpgx waterbox core.
+- **Current status (2026-08-03):** 82 tools verified end-to-end against the user's BizHawk dev build (2.11.2, commit `ed78f70a`, Windows via WSL). Server advertises `tools` + `resources` + `prompts` capabilities (incl. `listChanged`) over `http://127.0.0.1:8767/mcp/`; 191 unit tests (`./scripts/test.sh`) pass on Linux without BizHawk — including real-HTTP end-to-end tests (HttpEndToEndTests) that boot the real `McpHttpServer` on a random port. Deployed to `F:\projects\kid\emulators\BizHawk-dev-windows\ExternalTools\`. Test loop: an agent tests against Kid Chameleon (UE) on the Genesis gpgx waterbox core.
 
 ## What this is
 
@@ -64,7 +64,7 @@ Recipe with code in `docs/DEVELOPMENT.md`. In short: add a `Tool(...)` descripto
 
 ## Known limitations (skeleton state)
 
-- No in-memory savestates: `IMemorySaveStateApi` is not registered by the provider, so only disk-based `bizhawk_save_state`/`load_state` exist — plus the emulator's **quick-save slots** (`bizhawk_save_slot`/`load_slot`, 1..10, via `ISaveStateApi.SaveSlot/LoadSlot`).
+- In-memory savestates: `IMemorySaveStateApi` is not registered by the provider, so the plugin reaches the core's real **`IStatable` service via reflection** instead (`EmulationApi.Emulator` private property → `ServiceProvider.GetService<IStatable>()` — same pattern as watchpoints): `bizhawk_memstate_save`/`load`/`list` keep session-local core-state byte arrays (no disk, no 10-slot limit; CPU+memory only — framecount/lag count are NOT restored, documented in the tool). Disk-based `bizhawk_save_state`/`load_state` and the emulator's **quick-save slots** (`bizhawk_save_slot`/`load_slot`, 1..10, via `ISaveStateApi.SaveSlot/LoadSlot`) also exist.
 - Movie controls: `bizhawk_movie_start` (with `path` = load-and-play a .bk2; without = start recording for the loaded ROM), `bizhawk_movie_save`, `bizhawk_movie_stop`. `bizhawk_get_board_info` reports board name/display type/game options (game revision).
 - `bizhawk_genesis_get_vdp_view` returns the Genesis nametable bases + dims from the core (Genesis gpgx only; error otherwise).
 - Symbols persist across EmuHawk restarts via the plugin's user data store, **scoped per ROM hash + namespace** (key `mcp.symbols`, shape `{romHash: {namespace: [symbols]}}`); saved on every `symbols_set`/`symbols_clear`, reloaded automatically when the ROM changes (`get_info`). Default namespace `"default"`; agents on the same ROM partition with explicit namespaces (`"ghidra"`, `"fixture"`, …). `symbols_clear` accepts `namespace` to clear just one. Everything else (watchers, watchpoints, endianness override) is session-local.

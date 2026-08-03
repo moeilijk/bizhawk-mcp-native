@@ -123,6 +123,52 @@ namespace BizHawkMcp.Tests
 		}
 
 		[Fact]
+		public async Task Prompts_list_and_get_over_real_http()
+		{
+			int port = FindFreePort();
+			Environment.SetEnvironmentVariable("BIZHAWK_MCP_PORT", port.ToString());
+			var server = new McpHttpServer(new FakeApis(), new InlineDispatcher(), _ => { });
+			server.Start();
+			try
+			{
+				var url = server.BaseUrl;
+
+				var (status, body) = await Post(url, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"prompts/list\"}");
+				Assert.Equal(HttpStatusCode.OK, status);
+				using var list = JsonDocument.Parse(body);
+				var prompts = list.RootElement.GetProperty("result").GetProperty("prompts");
+				Assert.Equal(2, prompts.GetArrayLength());
+				Assert.Equal("memory_research", prompts[0].GetProperty("name").GetString());
+				Assert.Equal("tas_frame", prompts[1].GetProperty("name").GetString());
+
+				(status, body) = await Post(url, "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"prompts/get\",\"params\":{\"name\":\"memory_research\",\"arguments\":{\"target\":\"jump height\"}}}");
+				Assert.Equal(HttpStatusCode.OK, status);
+				using var got = JsonDocument.Parse(body);
+				var messages = got.RootElement.GetProperty("result").GetProperty("messages");
+				Assert.Equal(1, messages.GetArrayLength());
+				Assert.Equal("user", messages[0].GetProperty("role").GetString());
+				var text = messages[0].GetProperty("content").GetProperty("text").GetString();
+				Assert.Contains("jump height", text);
+				Assert.Contains("bizhawk_search_memory", text);
+
+				// initialize advertises the prompts capability
+				(status, body) = await Post(url, "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{},\"clientInfo\":{\"name\":\"t\",\"version\":\"0\"}}}");
+				using var init = JsonDocument.Parse(body);
+				Assert.True(init.RootElement.GetProperty("result").GetProperty("capabilities").TryGetProperty("prompts", out _));
+
+				// unknown prompt → INVALID_PARAMS
+				(status, body) = await Post(url, "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"prompts/get\",\"params\":{\"name\":\"nope\"}}");
+				using var bad = JsonDocument.Parse(body);
+				Assert.Equal(-32602, bad.RootElement.GetProperty("error").GetProperty("code").GetInt32());
+			}
+			finally
+			{
+				server.Stop();
+				Environment.SetEnvironmentVariable("BIZHAWK_MCP_PORT", null);
+			}
+		}
+
+		[Fact]
 		public async Task Sse_stream_carries_endpoint_then_tools_list_changed_notification()
 		{
 			int port = FindFreePort();

@@ -366,6 +366,13 @@ namespace BizHawkMcp
 			Tool("bizhawk_load_slot", "Load an emulator state from a quick-save slot (1..10).", [
 				Param("slot", "integer", "Slot number, 1..10.", 1),
 			]),
+			Tool("bizhawk_memstate_save", "Save the CORE's state to an in-memory slot (no disk, no 10-slot limit; session-local, lost on restart). Reaches the core's IStatable service via reflection on the emulator (like watchpoints) — fast save/restore for search/TAS iteration. Note: restores the core state only (CPU + memory), not EmuHawk-side state (framecount/lag count).", [
+				Param("slot", "string", "Slot name, any string (e.g. \"pre-jump\")."),
+			]),
+			Tool("bizhawk_memstate_load", "Restore a core state saved with bizhawk_memstate_save. Reaches the core's IStatable service via reflection (like watchpoints); cores without IStatable get a clear error. See bizhawk_memstate_save for the scope (core state only).", [
+				Param("slot", "string", "Slot name previously saved."),
+			]),
+			Tool("bizhawk_memstate_list", "List in-memory core state slots (names + sizes).", []),
 			Tool("bizhawk_shutdown", "Stop the MCP server (plugin stays loaded; restart via the form's button or the emulator's Lua/tools menu).", []),
 			Tool("bizhawk_overlay_text", "Draw text on the emulator's video output. Overlays ACCUMULATE until bizhawk_clear_overlay (all are re-rendered on every frame advance), so multiple hitboxes/labels can stay on screen at once.", [
 				Param("x", "integer", "X position."),
@@ -555,6 +562,9 @@ namespace BizHawkMcp
 				"bizhawk_load_state" => _ui.Invoke(() => LoadState(args)),
 				"bizhawk_save_slot" => _ui.Invoke(() => SaveSlot(args)),
 				"bizhawk_load_slot" => _ui.Invoke(() => LoadSlot(args)),
+				"bizhawk_memstate_save" => _ui.Invoke(() => MemStateSave(args)),
+				"bizhawk_memstate_load" => _ui.Invoke(() => MemStateLoad(args)),
+				"bizhawk_memstate_list" => _ui.Invoke(MemStateList),
 				"bizhawk_shutdown" => Shutdown(),
 				"bizhawk_overlay_text" => _ui.Invoke(() => OverlayText(args)),
 				"bizhawk_clear_overlay" => _ui.Invoke(() => ClearOverlay()),
@@ -2060,6 +2070,81 @@ namespace BizHawkMcp
 			return ok ? $"state loaded from slot {slot}" : $"failed to load slot {slot}";
 		}
 
+		// ── in-memory core states ─────────────────────────────────────────────
+		// IMemorySaveStateApi is NOT registered by the ApiHawk provider, so the
+		// plugin reaches the core's real IStatable service instead: reflect the
+		// private `Emulator` property on the EmulationApi instance (same pattern
+		// as watchpoints), then `ServiceProvider.GetService<IStatable>()`. That's
+		// exactly what EmuHawk's StateManager uses for its own savestates, so
+		// save/load is deterministic for the core. Scope: CORE state only (CPU +
+		// memory) — EmuHawk-side state (framecount, lag count) is NOT restored.
+		// Slots are session-local byte arrays, no disk, no 10-slot limit.
+		private readonly Dictionary<string, byte[]> _memStates = new();
+
+		private IStatable ResolveStatable()
+		{
+			var emuApi = _tool.Emulation!;
+			var emuProp = emuApi.GetType().GetProperty("Emulator", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+			if (emuProp == null || emuProp.GetValue(emuApi) is not IEmulator emu || emu.ServiceProvider == null)
+				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "in-memory states unsupported: cannot reach the core's IEmulator via the emulator API");
+			var statable = emu.ServiceProvider.GetService<IStatable>();
+			if (statable == null)
+				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "in-memory states unsupported: this core does not expose the IStatable service");
+			return statable;
+		}
+
+		private byte[] CaptureMemState()
+		{
+			using var ms = new System.IO.MemoryStream();
+			using var bw = new System.IO.BinaryWriter(ms);
+			ResolveStatable().SaveStateBinary(bw);
+			bw.Flush();
+			return ms.ToArray();
+		}
+
+		private void RestoreMemState(byte[] state)
+		{
+			using var ms = new System.IO.MemoryStream(state, false);
+			using var br = new System.IO.BinaryReader(ms);
+			ResolveStatable().LoadStateBinary(br);
+		}
+
+		private string MemStateSave(JsonElement? args)
+		{
+			var a = Required(args);
+			string slot = RequireString(a, "slot");
+			byte[] state = CaptureMemState();
+			_memStates[slot] = state;
+			return JsonRpc.Pretty(new Dictionary<string, object?>
+			{
+				["slot"] = slot,
+				["size"] = state.Length,
+				["states"] = _memStates.Count,
+			});
+		}
+
+		private string MemStateLoad(JsonElement? args)
+		{
+			var a = Required(args);
+			string slot = RequireString(a, "slot");
+			if (!_memStates.TryGetValue(slot, out var state))
+				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"no in-memory state in slot \"{slot}\" (saved: {string.Join(", ", _memStates.Keys)})");
+			RestoreMemState(state);
+			return JsonRpc.Pretty(new Dictionary<string, object?>
+			{
+				["slot"] = slot,
+				["size"] = state.Length,
+			});
+		}
+
+		private string MemStateList()
+		{
+			var states = new List<object?>();
+			foreach (var kv in _memStates)
+				states.Add(new Dictionary<string, object?> { ["slot"] = kv.Key, ["size"] = kv.Value.Length });
+			return JsonRpc.Pretty(new Dictionary<string, object?> { ["states"] = states });
+		}
+
 		private string OverlayText(JsonElement? args)
 		{
 			var a = Required(args);
@@ -3014,7 +3099,7 @@ namespace BizHawkMcp
 			};
 		}
 
-		private const long MaxTemplateBytes = 64 * 1024;
+		private const long MaxTemplateBytes = 256 * 1024;
 
 		private Dictionary<string, object?> ReadResourceTemplate(string uri)
 		{
