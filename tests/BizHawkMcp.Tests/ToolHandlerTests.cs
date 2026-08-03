@@ -377,10 +377,51 @@ namespace BizHawkMcp.Tests
 		}
 
 		[Fact]
-		public void Read_many_rejects_bad_item()
+		public void Read_many_reports_bad_item_without_killing_the_batch()
 		{
-			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_read_many", TestHelpers.Js("{\"items\":[{\"address\":10,\"width\":7}]}")));
-			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
+			var res = Parse(_ts.Call("bizhawk_read_many", TestHelpers.Js("{\"items\":[{\"address\":10,\"width\":7},{\"address\":20,\"width\":8}]}")));
+			Assert.Equal(1, res.GetProperty("read").GetInt32());
+			Assert.Equal(1, res.GetProperty("failed").GetInt32());
+			var reads = res.GetProperty("reads");
+			Assert.Equal(2, reads.GetArrayLength());
+			Assert.Equal(0, reads[0].GetProperty("index").GetInt32());
+			Assert.Contains("width", reads[0].GetProperty("error").GetString());
+			Assert.Equal((ulong)0, reads[1].GetProperty("value").GetUInt64());
+			Assert.Equal(1, reads[1].GetProperty("index").GetInt32());
+		}
+
+		[Fact]
+		public void Read_many_unknown_symbol_fails_only_that_item()
+		{
+			// B2 regression: one unknown symbol used to abort the whole batch
+			// (INVALID_PARAMS) and lose the valid items.
+			_apis.MemoryApi.Bytes[10] = 0x11;
+			var res = Parse(_ts.Call("bizhawk_read_many", TestHelpers.Js("{\"items\":[{\"address\":10,\"width\":8},{\"name\":\"playerSprPtr\",\"width\":16},{\"address\":30,\"width\":8}]}")));
+			Assert.Equal(2, res.GetProperty("read").GetInt32());
+			Assert.Equal(1, res.GetProperty("failed").GetInt32());
+			var reads = res.GetProperty("reads");
+			Assert.Equal("unknown symbol: playerSprPtr", reads[1].GetProperty("error").GetString());
+			Assert.Equal((ulong)0x11, reads[0].GetProperty("value").GetUInt64());
+			Assert.Equal(JsonValueKind.Null, reads[1].GetProperty("address").ValueKind);
+		}
+
+		[Fact]
+		public void Read_many_echoes_requested_address_before_bus_masking()
+		{
+			// B4 regression: request 0x1002024 (not on the 24-bit bus) →
+			// response must show both the original and the effective address.
+			var res = Parse(_ts.Call("bizhawk_read_many", TestHelpers.Js("{\"items\":[{\"address\":16785444,\"width\":16,\"domain\":\"M68K BUS\"}]}")));
+			var item = res.GetProperty("reads")[0];
+			Assert.Equal(16785444L, item.GetProperty("requested").GetInt64());
+			Assert.Equal(8228L, item.GetProperty("address").GetInt64());
+		}
+
+		[Fact]
+		public void Read_memory_echoes_requested_address_before_bus_masking()
+		{
+			var res = Parse(_ts.Call("bizhawk_read_memory", TestHelpers.Js("{\"address\":16785444,\"width\":16,\"domain\":\"M68K BUS\"}")));
+			Assert.Equal(16785444L, res.GetProperty("requested").GetInt64());
+			Assert.Equal(8228L, res.GetProperty("address").GetInt64());
 		}
 
 		[Fact]
@@ -476,9 +517,49 @@ namespace BizHawkMcp.Tests
 		}
 
 		[Fact]
-		public void Write_many_rejects_value_out_of_width()
+		public void Write_many_rejects_value_out_of_width_per_item()
 		{
-			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_write_many", TestHelpers.Js("{\"items\":[{\"address\":100,\"width\":8,\"value\":300}]}")));
+			// F1: a bad item must fail only itself — valid items still write.
+			var res = Parse(_ts.Call("bizhawk_write_many", TestHelpers.Js("{\"items\":[{\"address\":100,\"width\":8,\"value\":300},{\"address\":101,\"width\":8,\"value\":7}]}")));
+			Assert.Equal(1, res.GetProperty("wrote").GetInt32());
+			Assert.Equal(1, res.GetProperty("failed").GetInt32());
+			var failure = res.GetProperty("failures")[0];
+			Assert.Equal(0, failure.GetProperty("index").GetInt32());
+			Assert.Equal(100L, failure.GetProperty("address").GetInt64());
+			Assert.Contains("does not fit width", failure.GetProperty("reason").GetString());
+			Assert.Equal((byte)7, _apis.MemoryApi.Bytes[101]); // valid item still wrote
+		}
+
+		[Fact]
+		public void Write_many_out_of_range_address_fails_only_that_item()
+		{
+			var res = Parse(_ts.Call("bizhawk_write_many", TestHelpers.Js("{\"items\":[{\"address\":70000,\"width\":8,\"value\":1},{\"address\":50,\"width\":8,\"value\":2}]}")));
+			Assert.Equal(1, res.GetProperty("wrote").GetInt32());
+			Assert.Equal(1, res.GetProperty("failed").GetInt32());
+			Assert.Contains("outside domain", res.GetProperty("failures")[0].GetProperty("reason").GetString());
+			Assert.Equal((byte)2, _apis.MemoryApi.Bytes[50]);
+		}
+
+		[Fact]
+		public void Write_range_fill_mode_writes_repeated_byte()
+		{
+			// B1: fill+length clears large regions with a tiny payload
+			// (the values-array path aborts in some MCP clients ~1-2 KB).
+			var res = Parse(_ts.Call("bizhawk_write_range", TestHelpers.Js("{\"address\":100,\"fill\":0,\"length\":1440}")));
+			Assert.Equal(1440, res.GetProperty("wrote").GetInt32());
+			Assert.Equal(100L, res.GetProperty("address").GetInt64());
+			Assert.Equal(0L, res.GetProperty("fill").GetInt64());
+			Assert.Equal((byte)0, _apis.MemoryApi.Bytes[100]);
+			Assert.Equal((byte)0, _apis.MemoryApi.Bytes[1539]);
+			Assert.True(_apis.MemoryApi.Bytes.TryGetValue(1539, out _));
+		}
+
+		[Fact]
+		public void Write_range_fill_rejects_bad_fill_value()
+		{
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_write_range", TestHelpers.Js("{\"address\":100,\"fill\":256,\"length\":10}")));
+			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
+			ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_write_range", TestHelpers.Js("{\"address\":100,\"fill\":0}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 		}
 
@@ -571,7 +652,7 @@ namespace BizHawkMcp.Tests
 			mem.WriteByte(0xC000, 0x00, "VRAM"); mem.WriteByte(0xC001, 0x00, "VRAM");
 			mem.WriteByte(0xC002, 0x00, "VRAM"); mem.WriteByte(0xC003, 0x01, "VRAM");
 
-			var res = Parse(_ts.Call("bizhawk_read_plane", TestHelpers.Js("{\"plane\":\"A\",\"columns\":2,\"rows\":1}")));
+			var res = Parse(_ts.Call("bizhawk_genesis_read_plane", TestHelpers.Js("{\"plane\":\"A\",\"columns\":2,\"rows\":1}")));
 			Assert.Equal((long)0xC000, res.GetProperty("base").GetInt64());
 			Assert.Equal(16, res.GetProperty("width").GetInt32());
 			Assert.Equal(8, res.GetProperty("height").GetInt32());
@@ -611,7 +692,7 @@ namespace BizHawkMcp.Tests
 			mem.WriteByte(0xC000, (byte)(attr >> 8), "VRAM");
 			mem.WriteByte(0xC001, (byte)attr, "VRAM");
 
-			var res = Parse(_ts.Call("bizhawk_read_plane", TestHelpers.Js("{\"plane\":\"A\",\"columns\":1,\"rows\":1}")));
+			var res = Parse(_ts.Call("bizhawk_genesis_read_plane", TestHelpers.Js("{\"plane\":\"A\",\"columns\":1,\"rows\":1}")));
 			var path = res.GetProperty("path").GetString();
 			Assert.True(System.IO.File.Exists(path));
 			System.IO.File.Delete(path);
@@ -621,7 +702,7 @@ namespace BizHawkMcp.Tests
 		public void Read_plane_rejects_out_of_vram()
 		{
 			// 0xF100 (61696) + 64*32*2 nametable exceeds 64KB VRAM
-			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_read_plane", TestHelpers.Js("{\"plane\":\"A\",\"base\":61696,\"columns\":64,\"rows\":32}")));
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_genesis_read_plane", TestHelpers.Js("{\"plane\":\"A\",\"base\":61696,\"columns\":64,\"rows\":32}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 		}
 
@@ -631,7 +712,7 @@ namespace BizHawkMcp.Tests
 			var dbg = _apis.EnableWatchpoints();
 			dbg.PlaneABase = 0x0000;
 			dbg.PlaneBBase = 0xE000;
-			var res = Parse(_ts.Call("bizhawk_get_vdp_view", null));
+			var res = Parse(_ts.Call("bizhawk_genesis_get_vdp_view", null));
 			Assert.Equal((long)0x0000, res.GetProperty("planeA").GetProperty("base").GetInt64());
 			Assert.Equal((long)0xE000, res.GetProperty("planeB").GetProperty("base").GetInt64());
 			Assert.Equal(64, res.GetProperty("planeA").GetProperty("width").GetInt32());
@@ -640,7 +721,7 @@ namespace BizHawkMcp.Tests
 		[Fact]
 		public void Get_vdp_view_errors_without_core()
 		{
-			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_get_vdp_view", null));
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_genesis_get_vdp_view", null));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 		}
 
@@ -655,7 +736,7 @@ namespace BizHawkMcp.Tests
 			for (var i = 0; i < 32; i++) mem.WriteByte(i, 0x11, "VRAM");
 			mem.WriteByte(0x0000, 0x00, "VRAM"); mem.WriteByte(0x0001, 0x00, "VRAM");
 
-			var res = Parse(_ts.Call("bizhawk_read_plane", TestHelpers.Js("{\"plane\":\"A\",\"columns\":1,\"rows\":1}")));
+			var res = Parse(_ts.Call("bizhawk_genesis_read_plane", TestHelpers.Js("{\"plane\":\"A\",\"columns\":1,\"rows\":1}")));
 			// no explicit base → the core's plane A base (0x0000) is used
 			Assert.Equal((long)0x0000, res.GetProperty("base").GetInt64());
 			var path = res.GetProperty("path").GetString();
@@ -673,7 +754,7 @@ namespace BizHawkMcp.Tests
 			mem.WriteByte(0xC000 + 40 * 2, 0x00, "VRAM");
 			mem.WriteByte(0xC000 + 40 * 2 + 1, 0x00, "VRAM");
 
-			var res = Parse(_ts.Call("bizhawk_read_plane", TestHelpers.Js("{\"plane\":\"B\",\"columns\":1,\"rows\":1,\"offset_x\":40}")));
+			var res = Parse(_ts.Call("bizhawk_genesis_read_plane", TestHelpers.Js("{\"plane\":\"B\",\"columns\":1,\"rows\":1,\"offset_x\":40}")));
 			Assert.Equal((long)0xE000, res.GetProperty("base").GetInt64());
 			Assert.Equal(8, res.GetProperty("width").GetInt32());
 			var path = res.GetProperty("path").GetString();
@@ -890,6 +971,61 @@ namespace BizHawkMcp.Tests
 			Assert.True(_apis.JoypadApi.LastSet!["A"]);
 			Assert.True(_apis.JoypadApi.LastSet!["Right"]);
 			System.IO.File.Delete(path);
+		}
+
+		[Fact]
+		public void Start_fixture_hold_mode_keeps_buttons_after_timeline_end()
+		{
+			// B3 default: a timeline ending in {Right: true} keeps Right held.
+			_apis.EmuClientApi.Paused = true;
+			string path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "bizhawk-mcp-test-fixture3.csv");
+			_apis.JoypadApi.Calls.Clear();
+			_ts.Call("bizhawk_start_fixture", TestHelpers.Js($"{{\"frames\":3,\"samples\":[{{\"address\":0,\"width\":8}}],\"inputs\":[{{\"frame\":0,\"buttons\":{{\"Right\":true}}}}],\"path\":\"{path}\"}}"));
+			Assert.Single(_apis.JoypadApi.Calls); // only frame 0 sets — Right stays held on 1,2
+			Assert.True(_apis.JoypadApi.Calls[0].buttons["Right"]);
+			System.IO.File.Delete(path);
+		}
+
+		[Fact]
+		public void Start_fixture_explicit_mode_releases_buttons_on_absent_frames()
+		{
+			// B3 fix: "explicit" = absent timeline frames mean no buttons
+			// (per-frame like Lua joypad.set), so Right must be released on
+			// frames 1 and 2.
+			_apis.EmuClientApi.Paused = true;
+			string path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "bizhawk-mcp-test-fixture4.csv");
+			_apis.JoypadApi.Calls.Clear();
+			_ts.Call("bizhawk_start_fixture", TestHelpers.Js($"{{\"frames\":3,\"samples\":[{{\"address\":0,\"width\":8}}],\"inputs\":[{{\"frame\":0,\"buttons\":{{\"Right\":true}}}}],\"input_mode\":\"explicit\",\"path\":\"{path}\"}}"));
+			Assert.Equal(3, _apis.JoypadApi.Calls.Count);
+			Assert.True(_apis.JoypadApi.Calls[0].buttons["Right"]);
+			Assert.Empty(_apis.JoypadApi.Calls[1].buttons);
+			Assert.Null(_apis.JoypadApi.Calls[1].controller); // release scope = all controllers
+			Assert.Empty(_apis.JoypadApi.Calls[2].buttons);
+			System.IO.File.Delete(path);
+		}
+
+		[Fact]
+		public void Start_fixture_empty_buttons_releases_in_hold_mode()
+		{
+			// B3 fix: {"frame": N, "buttons": {}} releases the controller's
+			// buttons mid-timeline even in hold mode (JoypadApi.Set un-sets
+			// every button not present in the dict).
+			_apis.EmuClientApi.Paused = true;
+			string path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "bizhawk-mcp-test-fixture5.csv");
+			_apis.JoypadApi.Calls.Clear();
+			_ts.Call("bizhawk_start_fixture", TestHelpers.Js($"{{\"frames\":3,\"samples\":[{{\"address\":0,\"width\":8}}],\"inputs\":[{{\"frame\":0,\"buttons\":{{\"Right\":true}}}},{{\"frame\":1,\"buttons\":{{}}}}],\"path\":\"{path}\"}}"));
+			Assert.Equal(2, _apis.JoypadApi.Calls.Count);
+			Assert.True(_apis.JoypadApi.Calls[0].buttons["Right"]);
+			Assert.Empty(_apis.JoypadApi.Calls[1].buttons);
+			Assert.Equal(1, _apis.JoypadApi.Calls[1].controller); // releases P1 only
+			System.IO.File.Delete(path);
+		}
+
+		[Fact]
+		public void Start_fixture_rejects_bad_input_mode()
+		{
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_start_fixture", TestHelpers.Js("{\"frames\":1,\"samples\":[{\"address\":0}],\"input_mode\":\"sticky\"}")));
+			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 		}
 
 		[Fact]

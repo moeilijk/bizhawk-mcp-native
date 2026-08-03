@@ -21,11 +21,11 @@ on explicit request — otherwise changes accumulate under `## [Unreleased]`.
   samples written straight to CSV on the host disk.
 - Struct reads (`bizhawk_read_struct`): relative-offset fields from a base
   address or symbol, per-field endianness.
-- Plane decode (`bizhawk_read_plane`): Genesis background nametable (plane A/B)
+- Plane decode (`bizhawk_genesis_read_plane`): Genesis background nametable (plane A/B)
   + 4bpp tiles + CRAM → PNG (self-contained encoder, exposed as a resource).
   Plane base auto-detected from the core's VDP view; `offset_x`/`offset_y`
   crop to a camera window.
-- VDP view (`bizhawk_get_vdp_view`): Genesis nametable bases + dimensions from
+- VDP view (`bizhawk_genesis_get_vdp_view`): Genesis nametable bases + dimensions from
   the core (via reflection on `UpdateVDPViewContext`, like watchpoints).
 - `bizhawk://read/{domain}/{start}:{end}` resource template for raw memory reads.
 - Symbols persist across restarts, scoped per ROM hash + namespace
@@ -63,6 +63,31 @@ on explicit request — otherwise changes accumulate under `## [Unreleased]`.
   overlay/OSD layer into the PNG (EmuHawk's `ScreenshotCaptureOsd`).
 - `bizhawk_use_memory_domain` now returns `INVALID_PARAMS` on an unknown domain
   with the list of known domains in the message (was a bare status string).
+- `bizhawk_start_fixture` no longer holds buttons past the end of the input
+  timeline: new `input_mode` (`"hold"` default — buttons persist until the next
+  timeline entry; `"explicit"` — absent timeline frames mean no buttons), and
+  `{"frame": N, "buttons": {}}` releases that controller's buttons mid-timeline
+  in both modes. Fixes walk_stop/jump_tap/walk_turn fixtures.
+- `bizhawk_read_many` no longer fails the whole batch on one bad item (unknown
+  symbol, out-of-range address): per-item errors as `{index, requested, error}`,
+  plus `read`/`failed` counts.
+- `bizhawk_write_many` reports per-item validation failures
+  (`{wrote, failed, failures: [{index, address, reason}]}`) instead of aborting
+  the batch — a typo'd address fails only itself.
+- `bizhawk_write_range` gained `fill` + `length` mode (`{wrote, address, fill}`):
+  writes one repeated byte with a tiny payload — the transport-safe way to clear
+  large regions (the 1440-value `values` array aborts in some MCP clients at
+  ~1-2 KB before the server ever sees it).
+- Read tools echo the raw `requested` address alongside the effective (bus-masked)
+  `address` — `read_many` items and `read_memory`/`read_signed`/`read_float`
+  responses — so off-bus arithmetic mistakes (e.g. `0x1002024`) are visible
+  diagnostics instead of silent masking.
+
+### Changed
+- Genesis-only tools are now named with a system prefix so agents don't assume
+  they work on every core: `bizhawk_read_plane` → `bizhawk_genesis_read_plane`,
+  `bizhawk_get_vdp_view` → `bizhawk_genesis_get_vdp_view`. Generic tools keep
+  neutral descriptions (68K bus masking is called out as GEN/SMD/32X/SAT-only).
 
 ## [v0.1.0] - 2026-08-02
 

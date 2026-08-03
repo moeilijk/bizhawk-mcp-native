@@ -3,7 +3,7 @@
 Guidance for AI agents (and humans) working on this repository.
 
 - **Documentation index:** `docs/` — `ARCHITECTURE.md`, `MCP-PROTOCOL.md`, `DEVELOPMENT.md`, `CI-RELEASES.md`. When in doubt, read the relevant doc before editing. Improvement ideas live in `TODO.md`.
-- **Current status (2026-08-02):** 78 tools verified end-to-end against the user's BizHawk dev build (2.11.2, commit `ed78f70a`, Windows via WSL). Server advertises `tools` + `resources` capabilities over `http://127.0.0.1:8767/mcp/`; 171 unit tests (`./scripts/test.sh`) pass on Linux without BizHawk — including real-HTTP end-to-end tests (HttpEndToEndTests) that boot the real `McpHttpServer` on a random port. Deployed to `F:\projects\kid\emulators\BizHawk-dev-windows\ExternalTools\`. Test loop: an agent tests against Kid Chameleon (UE) on the Genesis gpgx waterbox core.
+- **Current status (2026-08-03):** 78 tools verified end-to-end against the user's BizHawk dev build (2.11.2, commit `ed78f70a`, Windows via WSL). Server advertises `tools` + `resources` capabilities over `http://127.0.0.1:8767/mcp/`; 181 unit tests (`./scripts/test.sh`) pass on Linux without BizHawk — including real-HTTP end-to-end tests (HttpEndToEndTests) that boot the real `McpHttpServer` on a random port. Deployed to `F:\projects\kid\emulators\BizHawk-dev-windows\ExternalTools\`. Test loop: an agent tests against Kid Chameleon (UE) on the Genesis gpgx waterbox core.
 
 ## What this is
 
@@ -20,6 +20,8 @@ A native [MCP](https://modelcontextprotocol.io) server for BizHawk/EmuHawk imple
 3. **All emulator API calls must go through `UiDispatcher`** (frame stepping, screenshots and joypad in particular break from background threads). New tools: write the handler in `McpToolset` using the `_ui.Invoke(...)` pattern.
 4. **`System.Text.Json` version must match BizHawk's `dll/` folder** (currently 9.0.0) to avoid runtime assembly conflicts in the host process.
 5. **ApiHawk property names come from the pinned BizHawk commit** (`bizhawk.build`). E.g. `IGameInfo` exposes `Name`/`Hash`/`System` (not `RomName`/`RomHash`), `IEmulationApi.GetGameInfo()` returns it, `IMemoryApi` has `ReadByte/ReadU16/ReadU32` + `WriteU8/U16/U32` + signed/float + `HashRegion` + `GetMemoryDomainList`, `IEmuClientApi` has `DoFrameAdvance`/`Screenshot`/`IsPaused`/`Pause`/`Unpause`/`TogglePause`/`SpeedMode`, `IJoypadApi` has `Set(IReadOnlyDictionary<string,bool>, int?)`/`Get(int?)`. Note `IGuiApi.DrawText` has **no `fontsize`** (that's `DrawString`), and `IMovieApi.GetInputAsMnemonic` takes **only `frame`**. Verify against `src/BizHawk.Client.Common/Api/Interfaces/` of the pinned commit before touching tools.
+6. **ALWAYS convert numbers (decimal↔hex, widths, masks, offsets) with a command or script** — e.g. `python3 -c "print(hex(16785444))"` or a one-liner in the shell — **never by hand**. Hand arithmetic has caused real bugs in this repo (a wrong `0xFF2506` vs `0x272F06` sample address during B3 reproduction, and a wrong mask example in a tool description: `0x1000424` was claimed to mask to `0x2024`, it masks to `0x424`). Every hex address in a description, test, or message must be produced/verified by a script before being written down.
+7. **Core-specific tools must say so in their NAME** (`bizhawk_genesis_*` for Genesis-gpgx-only tools like `genesis_read_plane`/`genesis_get_vdp_view`); generic tools (memory read/write, watchpoints, palette, symbols…) must keep core-neutral descriptions — the 68K 24-bit bus masking only exists on GEN/SMD/32X/SAT bus domains, so it must be described as such, never as universal behavior.
 
 ## Building
 
@@ -64,7 +66,7 @@ Recipe with code in `docs/DEVELOPMENT.md`. In short: add a `Tool(...)` descripto
 
 - No in-memory savestates: `IMemorySaveStateApi` is not registered by the provider, so only disk-based `bizhawk_save_state`/`load_state` exist — plus the emulator's **quick-save slots** (`bizhawk_save_slot`/`load_slot`, 1..10, via `ISaveStateApi.SaveSlot/LoadSlot`).
 - Movie controls: `bizhawk_movie_start` (with `path` = load-and-play a .bk2; without = start recording for the loaded ROM), `bizhawk_movie_save`, `bizhawk_movie_stop`. `bizhawk_get_board_info` reports board name/display type/game options (game revision).
-- `bizhawk_get_vdp_view` returns the Genesis nametable bases + dims from the core (Genesis gpgx only; error otherwise).
+- `bizhawk_genesis_get_vdp_view` returns the Genesis nametable bases + dims from the core (Genesis gpgx only; error otherwise).
 - Symbols persist across EmuHawk restarts via the plugin's user data store, **scoped per ROM hash + namespace** (key `mcp.symbols`, shape `{romHash: {namespace: [symbols]}}`); saved on every `symbols_set`/`symbols_clear`, reloaded automatically when the ROM changes (`get_info`). Default namespace `"default"`; agents on the same ROM partition with explicit namespaces (`"ghidra"`, `"fixture"`, …). `symbols_clear` accepts `namespace` to clear just one. Everything else (watchers, watchpoints, endianness override) is session-local.
 - `bizhawk_start_fixture` is the orchestrated fixture capture: input timeline + per-frame samples + CSV on the host disk. It frame-advances (pausing/unpausing like `frame_advance`) and samples after each frame; max 600 frames. `bizhawk_read_struct` reads relative-offset fields from a base/symbol in one pass.
 - **`write_range` bulk path:** ApiHawk's `WriteByteRange` loops `PokeByte` per byte — on gpgx that's one waterbox interop call per byte (slow for hundreds of bytes). `WriteRange` first tries `TryBulkWrite`, which reaches the domain's raw `Data` pointer (via reflection on `MemoryApi.DomainList[name]`, like watchpoints) and does ONE `Marshal.Copy` inside a single `Enter`/`Exit` — up to ~400x fewer crossings — falling back to `WriteByteRange` for domains without a pointer.
@@ -111,10 +113,10 @@ before debugging anything on the Genesis core.
   `"endianness"` actually used, so clients never misread a value.
 - **Palette formats:** Genesis CRAM = 16-bit `0x0RRR0GGG0BBB` (R at bits 1-3,
   G 5-7, B 9-11), big-endian bytes; SNES CGRAM = 16-bit BGR555 (R at bits 0-4),
-  little-endian bytes. `bizhawk_read_palette` handles both. **`bizhawk_read_plane`**
+  little-endian bytes. `bizhawk_read_palette` handles both. **`bizhawk_genesis_read_plane`**
   decodes a Genesis background nametable (plane A/B) + 8×8 4bpp tiles + CRAM →
   PNG. The plane base is **auto-detected from the core's VDP view** when `base`
-  isn't given (`get_vdp_view` exposes NTA/NTB via reflection on
+  isn't given (`genesis_get_vdp_view` exposes NTA/NTB via reflection on
   `UpdateVDPViewContext()`, same pattern as watchpoints; Kid Chameleon uses
   plane A at 0x0000, NOT the typical 0xC000 — fallback constants 0xC000/0xE000
   only apply when the core doesn't expose the view). `offset_x`/`offset_y`

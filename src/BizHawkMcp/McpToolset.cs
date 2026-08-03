@@ -243,22 +243,25 @@ namespace BizHawkMcp
 				Param("domain", "string", "Optional domain."),
 				Param("endianness", "string", "\"auto\" (domain default), \"big\" or \"little\".", "auto"),
 			]),
-			Tool("bizhawk_read_many", "Read several addresses in one call (up to 256). Returns JSON: [{address, width, value, domain, endianness}]. Optional per-item \"endianness\" as bizhawk_read_memory (default \"auto\" = each item's domain). Set \"consistent\": true to pause during the batch so all reads come from the same frame.", [
+			Tool("bizhawk_read_many", "Read several addresses in one call (up to 256). Returns {reads: [{index, requested, address, width, value, domain, endianness}], read, failed}. Items that fail (unknown symbol, out-of-range address) are reported per-item as {index, requested, error} without killing the batch. \"requested\" echoes the raw address before 24-bit bus masking, which only happens on 68K-family bus domains (GEN/SMD/32X/SAT — e.g. 0x1002024 → requested 0x1002024, address 0x2024); other cores/domains reject out-of-range addresses. Optional per-item \"endianness\" as bizhawk_read_memory (default \"auto\" = each item's domain). Set \"consistent\": true to pause during the batch so all reads come from the same frame.", [
 				Param("items", "array", "Array of {\"address\": int | \"name\": string, \"width\"?: 8|16|32, \"domain\"?: string, \"endianness\"?: \"big\"|\"little\"|\"auto\"}."),
 				Param("consistent", "boolean", "Pause emulation for the duration of the batch so reads are frame-consistent.", false),
 			]),
-			Tool("bizhawk_write_range", "Write a contiguous byte range from a values array (up to 4096 bytes).", [
+			Tool("bizhawk_write_range", "Write a contiguous byte range from a values array (up to 4096 bytes). \"fill\" + \"length\" mode writes the same byte across the range with a tiny payload (use it for large clears — some MCP clients drop requests above ~1-2 KB, so prefer fill or chunk values into <=1024-byte calls). Returns {\"wrote\", \"address\", \"fill\"} in fill mode.", [
 				Param("address", "integer", "Start offset in the domain, 0-based."),
 				Param("values", "array", "Byte values (0..255) to write in order."),
+				Param("fill", "integer", "Optional: write this byte value across the whole range (use with \"length\"; values must be absent).", null),
+				Param("length", "integer", "Optional: bytes to write when using \"fill\", 1..4096.", null),
 				Param("domain", "string", "Optional domain."),
 			]),
-			Tool("bizhawk_write_many", "Write several values in one call (up to 256; non-contiguous). Each item accepts \"address\" or symbol \"name\", width, value and optional \"endianness\" as bizhawk_read_memory (default \"auto\" = each item's domain).", [
+			Tool("bizhawk_write_many", "Write several values in one call (up to 256; non-contiguous). Each item accepts \"address\" or symbol \"name\", width, value and optional \"endianness\" as bizhawk_read_memory (default \"auto\" = each item's domain). Bad items (unknown symbol, out-of-range address, value too wide) fail only themselves: returns {wrote, failed, failures: [{index, address, reason}]} and valid items still write.", [
 				Param("items", "array", "Array of {\"address\": int | \"name\": string, \"width\"?: 8|16|32, \"value\": int, \"domain\"?: string, \"endianness\"?: \"big\"|\"little\"|\"auto\"}."),
 			]),
 			Tool("bizhawk_start_fixture", "Scripted fixture capture: advance N frames (optionally after a \"delay\" to skip title screens) with an input timeline, sampling a set of addresses/symbols each frame, and write the result as CSV to a host-side path (default: temp dir). Replaces the manual capture_fixture.lua flow.", [
 				Param("frames", "integer", "Frames to run and sample, 1..600."),
 				Param("samples", "array", "Array of {\"address\": int | \"name\": string, \"width\"?: 8|16|32, \"domain\"?: string} to sample each frame."),
-				Param("inputs", "array", "Optional input timeline: [{\"frame\": int, \"buttons\": {button: bool}, \"controller\"?: int}]. Applied for the NEXT frame."),
+				Param("inputs", "array", "Optional input timeline: [{\"frame\": int, \"buttons\": {button: bool}, \"controller\"?: int}]. Applied for the NEXT frame. An empty buttons object at a frame releases that controller's buttons (both modes)."),
+				Param("input_mode", "string", "\"hold\" (default): buttons persist until the next timeline entry, so a timeline ending in {Right: true} keeps Right held; \"explicit\": absent timeline frames mean no buttons (each frame gets exactly the timeline's buttons, like per-frame Lua joypad.set).", "hold"),
 				Param("delay", "integer", "Frames to advance before sampling starts (skip title screens), 0..600.", 0),
 				Param("path", "string", "Optional absolute CSV path writable by EmuHawk (default: temp dir)."),
 			]),
@@ -292,7 +295,7 @@ namespace BizHawkMcp
 				Param("count", "integer", "Number of colors to read, 1..256.", 64),
 				Param("domain", "string", "Optional palette domain (defaults to CRAM on GEN, CGRAM on SNES)."),
 			]),
-			Tool("bizhawk_read_plane", "Decode a Genesis background nametable (plane A/B) from VRAM into a PNG (also exposed as a bizhawk:// resource). Plane base auto-detected from the core's VDP view (Kid Chameleon uses plane A at 0x0000, not the typical 0xC000); override with \"base\". \"columns\"/\"rows\" select the region, \"offset_x\"/\"offset_y\" (tiles) crop to a camera window, \"scale\" zooms. Uses the CRAM palette.", [
+			Tool("bizhawk_genesis_read_plane", "Decode a Genesis background nametable (plane A/B) from VRAM into a PNG (also exposed as a bizhawk:// resource). Genesis gpgx core only; other cores error. Plane base auto-detected from the core's VDP view (Kid Chameleon uses plane A at 0x0000, not the typical 0xC000); override with \"base\". \"columns\"/\"rows\" select the region, \"offset_x\"/\"offset_y\" (tiles) crop to a camera window, \"scale\" zooms. Uses the CRAM palette.", [
 				Param("plane", "string", "\"A\" or \"B\".", "A"),
 				Param("base", "integer", "VRAM offset of the nametable (default: auto-detect from the core)."),
 				Param("columns", "integer", "Tile columns to render, 1..128.", 64),
@@ -302,7 +305,7 @@ namespace BizHawkMcp
 				Param("scale", "integer", "Pixel zoom factor, 1..8.", 1),
 				Param("path", "string", "Optional absolute PNG path writable by EmuHawk (default: temp dir)."),
 			]),
-			Tool("bizhawk_get_vdp_view", "Read the Genesis VDP nametable bases from the core (plane A/B addresses + dimensions in tiles, as the game configures them). Genesis gpgx core only; other cores error. Use it to find where the planes live before read_plane.", []),
+			Tool("bizhawk_genesis_get_vdp_view", "Read the Genesis VDP nametable bases from the core (plane A/B addresses + dimensions in tiles, as the game configures them). Genesis gpgx core only; other cores error. Use it to find where the planes live before genesis_read_plane.", []),
 			Tool("bizhawk_press_buttons", "Set joypad state for the NEXT frame.", [
 				Param("buttons", "object", "Map of button name -> pressed bool, e.g. {\"A\": true, \"Right\": true}."),
 				Param("controller", "integer", "Optional controller index (1-based).", 1),
@@ -518,8 +521,8 @@ namespace BizHawkMcp
 				"bizhawk_symbols_list" => _ui.Invoke(SymbolsList),
 				"bizhawk_symbols_clear" => _ui.Invoke(() => SymbolsClear(args)),
 				"bizhawk_read_palette" => _ui.Invoke(() => ReadPalette(args)),
-				"bizhawk_read_plane" => _ui.Invoke(() => ReadPlane(args)),
-				"bizhawk_get_vdp_view" => _ui.Invoke(GetVdpView),
+				"bizhawk_genesis_read_plane" => _ui.Invoke(() => ReadPlane(args)),
+				"bizhawk_genesis_get_vdp_view" => _ui.Invoke(GetVdpView),
 				"bizhawk_press_buttons" => _ui.Invoke(() => PressButtons(args)),
 				"bizhawk_frame_advance" => _ui.Invoke(() => FrameAdvance(args)),
 				"bizhawk_pause" => _ui.Invoke(() => PauseTool()),
@@ -609,6 +612,9 @@ namespace BizHawkMcp
 		private string ReadMemory(JsonElement? args)
 		{
 			var a = Required(args);
+			long? requested = null;
+			if (a.TryGetProperty("address", out var ra) && ra.ValueKind == JsonValueKind.Number)
+				requested = ra.GetInt64();
 			var (address, width, domain) = ResolveTarget(a);
 			bool bigEndian = ResolveBigEndian(a, domain);
 			ulong value = width switch
@@ -620,6 +626,8 @@ namespace BizHawkMcp
 			return JsonRpc.Pretty(new Dictionary<string, object?>
 			{
 				["value"] = value,
+				["requested"] = requested,
+				["address"] = address,
 				["endianness"] = EndianName(bigEndian),
 			});
 		}
@@ -952,11 +960,11 @@ namespace BizHawkMcp
 		private string ReadSigned(JsonElement? args)
 		{
 			var a = Required(args);
-			long address = RequireLong(a, "address");
+			long requested = RequireLong(a, "address");
 			int width = RequireInt(a, "width", 8);
 			string? domain = OptionalString(a, "domain");
 			bool bigEndian = ResolveBigEndian(a, domain);
-			address = ValidateAddress(address, width, domain);
+			long address = ValidateAddress(requested, width, domain);
 			long value = width switch
 			{
 				8 => (sbyte)_tool.Memory!.ReadByte(address, domain),
@@ -968,6 +976,7 @@ namespace BizHawkMcp
 			return JsonRpc.Pretty(new Dictionary<string, object?>
 			{
 				["value"] = value,
+				["requested"] = requested,
 				["endianness"] = EndianName(bigEndian),
 			});
 		}
@@ -1008,13 +1017,14 @@ namespace BizHawkMcp
 		private string ReadFloat(JsonElement? args)
 		{
 			var a = Required(args);
-			long address = RequireLong(a, "address");
+			long requested = RequireLong(a, "address");
 			string? domain = OptionalString(a, "domain");
 			bool bigEndian = ResolveBigEndian(a, domain);
-			address = ValidateAddress(address, 32, domain);
+			long address = ValidateAddress(requested, 32, domain);
 			return JsonRpc.Pretty(new Dictionary<string, object?>
 			{
 				["value"] = ReadFloatRaw(address, domain, bigEndian),
+				["requested"] = requested,
 				["endianness"] = EndianName(bigEndian),
 			});
 		}
@@ -1049,29 +1059,66 @@ namespace BizHawkMcp
 			if (consistent && !wasPaused) _tool.EmuClient!.Pause();
 			try
 			{
+				// Per-item errors: one bad item (unknown symbol, out-of-range
+				// address) must not kill the batch — report it and keep going.
+				// "requested" echoes the raw address before 68K bus masking so
+				// clients can spot their own arithmetic mistakes.
 				var results = new List<object?>();
+				int read = 0, failed = 0;
+				var index = 0;
 				foreach (var item in items.EnumerateArray())
 				{
 					if (item.ValueKind != JsonValueKind.Object)
-						throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "each item must be an object");
-					var (address, width, domain) = ResolveTarget(item);
-					bool bigEndian = ResolveBigEndian(item, domain);
-					ulong value = width switch
 					{
-						8 => _tool.Memory!.ReadByte(address, domain),
-						16 or 32 => ReadValue(address, width, domain, bigEndian),
-						_ => throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "width must be 8, 16 or 32"),
-					};
-					results.Add(new Dictionary<string, object?>
+						failed++;
+						results.Add(new Dictionary<string, object?> { ["index"] = index, ["requested"] = null, ["error"] = "each item must be an object" });
+						index++;
+						continue;
+					}
+					long? requested = null;
+					if (item.TryGetProperty("address", out var ra) && ra.ValueKind == JsonValueKind.Number)
+						requested = ra.GetInt64();
+					try
 					{
-						["address"] = address,
-						["width"] = width,
-						["value"] = value,
-						["domain"] = domain,
-						["endianness"] = EndianName(bigEndian),
-					});
+						var (address, width, domain) = ResolveTarget(item);
+						bool bigEndian = ResolveBigEndian(item, domain);
+						ulong value = width switch
+						{
+							8 => _tool.Memory!.ReadByte(address, domain),
+							16 or 32 => ReadValue(address, width, domain, bigEndian),
+							_ => throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "width must be 8, 16 or 32"),
+						};
+						results.Add(new Dictionary<string, object?>
+						{
+							["index"] = index,
+							["requested"] = requested,
+							["address"] = address,
+							["width"] = width,
+							["value"] = value,
+							["domain"] = domain,
+							["endianness"] = EndianName(bigEndian),
+						});
+						read++;
+					}
+					catch (JsonRpc.Error ex)
+					{
+						failed++;
+						results.Add(new Dictionary<string, object?>
+						{
+							["index"] = index,
+							["requested"] = requested,
+							["address"] = null,
+							["error"] = ex.Message,
+						});
+					}
+					index++;
 				}
-				return JsonRpc.Pretty(new Dictionary<string, object?> { ["reads"] = results });
+				return JsonRpc.Pretty(new Dictionary<string, object?>
+				{
+					["reads"] = results,
+					["read"] = read,
+					["failed"] = failed,
+				});
 			}
 			finally
 			{
@@ -1083,24 +1130,53 @@ namespace BizHawkMcp
 		{
 			var a = Required(args);
 			long address = RequireLong(a, "address");
-			if (!a.TryGetProperty("values", out var values) || values.ValueKind != JsonValueKind.Array)
-				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "values must be an array");
-			int len = values.GetArrayLength();
-			if (len is < 1 or > 4096) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "values must contain 1..4096 bytes");
 			string? domain = OptionalString(a, "domain");
-			address = ValidateAddress(address, 8, domain);
-			var bytes = new byte[len];
-			var i = 0;
-			foreach (var el in values.EnumerateArray())
+
+			// fill mode: one byte repeated "length" times — a tiny payload for
+			// large clears (e.g. zeroing 1440 bytes of level layout). The values
+			// array mode aborts in some MCP clients around 1-2 KB of payload
+			// (the request never reaches the server — TODO B1), so this is the
+			// transport-safe way to write big contiguous regions.
+			byte[] bytes;
+			long? fill = null;
+			if (a.TryGetProperty("fill", out var fillEl) && fillEl.ValueKind == JsonValueKind.Number)
 			{
-				if (el.ValueKind != JsonValueKind.Number) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "values must be numbers");
-				long v = el.GetInt64();
-				if (v is < 0 or > 0xFF) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"value {v} does not fit a byte");
-				bytes[i++] = (byte)v;
+				long fillValue = fillEl.GetInt64();
+				if (fillValue is < 0 or > 0xFF) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"fill {fillValue} does not fit a byte");
+				int length = RequireInt(a, "length", 0);
+				if (length is < 1 or > 4096) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "length must be 1..4096");
+				bytes = new byte[length];
+				for (var i = 0; i < length; i++) bytes[i] = (byte)fillValue;
+				fill = fillValue;
 			}
+			else
+			{
+				if (!a.TryGetProperty("values", out var values) || values.ValueKind != JsonValueKind.Array)
+					throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "values must be an array (or use fill + length)");
+				int len = values.GetArrayLength();
+				if (len is < 1 or > 4096) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "values must contain 1..4096 bytes");
+				bytes = new byte[len];
+				var i = 0;
+				foreach (var el in values.EnumerateArray())
+				{
+					if (el.ValueKind != JsonValueKind.Number) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "values must be numbers");
+					long v = el.GetInt64();
+					if (v is < 0 or > 0xFF) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"value {v} does not fit a byte");
+					bytes[i++] = (byte)v;
+				}
+			}
+
+			address = ValidateAddress(address, 8, domain);
 			if (!TryBulkWrite(domain, address, bytes))
 				_tool.Memory!.WriteByteRange(address, bytes, domain);
-			return $"wrote {len} byte(s) at {address}";
+			if (fill != null)
+				return JsonRpc.Pretty(new Dictionary<string, object?>
+				{
+					["wrote"] = bytes.Length,
+					["address"] = address,
+					["fill"] = fill.Value,
+				});
+			return $"wrote {bytes.Length} byte(s) at {address}";
 		}
 
 		// Writes a whole range with ONE waterbox crossing when the domain exposes
@@ -1177,30 +1253,56 @@ namespace BizHawkMcp
 			if (items.GetArrayLength() is < 1 or > 256)
 				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "items must contain 1..256 entries");
 
-			var written = 0;
+			// Per-item validation: a bad item (unknown symbol, out-of-range
+			// address, value too wide) fails only itself; valid items still
+			// write. Failures carry the requested address + reason so clients
+			// can find the typo'd item instead of replaying the batch (TODO F1).
+			var failures = new List<object?>();
+			int written = 0;
+			var index = 0;
 			foreach (var item in items.EnumerateArray())
 			{
 				if (item.ValueKind != JsonValueKind.Object)
-					throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "each item must be an object");
-				var (address, width, domain) = ResolveTarget(item);
-				bool bigEndian = ResolveBigEndian(item, domain);
-				ulong value = RequireULong(item, "value");
-				ulong max = width switch
 				{
-					8 => 0xFFUL,
-					16 => 0xFFFFUL,
-					_ => 0xFFFFFFFFUL,
-				};
-				if (value > max) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"value {value} does not fit width {width}");
-				switch (width)
-				{
-					case 8: _tool.Memory!.WriteU8(address, (uint)value, domain); break;
-					case 16: WriteValue(address, 16, domain, value, bigEndian); break;
-					case 32: WriteValue(address, 32, domain, value, bigEndian); break;
+					failures.Add(new Dictionary<string, object?> { ["index"] = index, ["address"] = null, ["reason"] = "each item must be an object" });
+					index++;
+					continue;
 				}
-				written++;
+				long? requested = null;
+				if (item.TryGetProperty("address", out var ra) && ra.ValueKind == JsonValueKind.Number)
+					requested = ra.GetInt64();
+				try
+				{
+					var (address, width, domain) = ResolveTarget(item);
+					bool bigEndian = ResolveBigEndian(item, domain);
+					ulong value = RequireULong(item, "value");
+					ulong max = width switch
+					{
+						8 => 0xFFUL,
+						16 => 0xFFFFUL,
+						_ => 0xFFFFFFFFUL,
+					};
+					if (value > max) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"value {value} does not fit width {width}");
+					switch (width)
+					{
+						case 8: _tool.Memory!.WriteU8(address, (uint)value, domain); break;
+						case 16: WriteValue(address, 16, domain, value, bigEndian); break;
+						case 32: WriteValue(address, 32, domain, value, bigEndian); break;
+					}
+					written++;
+				}
+				catch (JsonRpc.Error ex)
+				{
+					failures.Add(new Dictionary<string, object?> { ["index"] = index, ["address"] = requested, ["reason"] = ex.Message });
+				}
+				index++;
 			}
-			return $"wrote {written} value(s)";
+			return JsonRpc.Pretty(new Dictionary<string, object?>
+			{
+				["wrote"] = written,
+				["failed"] = failures.Count,
+				["failures"] = failures,
+			});
 		}
 
 		// ── fixture capture ─────────────────────────────────────────────────────
@@ -1250,6 +1352,16 @@ namespace BizHawkMcp
 					timeline[at] = (map, controller);
 				}
 			}
+			// hold (default): buttons persist until the next timeline entry, so a
+			// timeline ending in {Right: true} keeps Right held for all remaining
+			// frames. explicit: absent timeline frames release ALL buttons (each
+			// frame gets exactly the timeline's buttons). In both modes an empty
+			// buttons object at a frame releases that controller (JoypadApi.Set
+			// un-sets every button not present in the dict).
+			string inputMode = OptionalString(a, "input_mode") ?? "hold";
+			if (inputMode != "hold" && inputMode != "explicit")
+				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "input_mode must be \"hold\" or \"explicit\"");
+			bool explicitMode = inputMode == "explicit";
 
 			string? path = OptionalString(a, "path");
 			if (string.IsNullOrEmpty(path))
@@ -1277,6 +1389,7 @@ namespace BizHawkMcp
 				for (var f = 0; f < frames; f++)
 				{
 					if (timeline.TryGetValue(f, out var ev)) _tool.Joypad!.Set(ev.buttons, ev.controller);
+					else if (explicitMode) _tool.Joypad!.Set(new Dictionary<string, bool>(), null); // absent frame = no buttons
 					AdvanceFrame();
 
 					// sample after the frame, while paused-at-frame (single step)

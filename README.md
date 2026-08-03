@@ -105,7 +105,7 @@ Because the server lives inside EmuHawk, every opencode session connects to the 
 | `bizhawk_symbols_list` | — | registered symbols + namespaces (JSON) |
 | `bizhawk_symbols_clear` | `namespace?` | `cleared N symbol(s)` |
 | `bizhawk_read_palette` | `count?`, `domain?` | hex RGB colors (JSON; GEN/SNES) |
-| `bizhawk_read_plane` | `plane?` (A/B), `base?`, `columns?`, `rows?`, `scale?`, `path?` | decoded nametable → PNG (Genesis; resource URI) |
+| `bizhawk_genesis_read_plane` | `plane?` (A/B), `base?`, `columns?`, `rows?`, `scale?`, `path?` | decoded nametable → PNG (Genesis gpgx; resource URI) |
 | `bizhawk_hash_region` | `address`, `length`, `domain?` | SHA1 of region |
 | `bizhawk_read_range` | `address`, `length` (1–4096), `domain?` | hex dump |
 | `bizhawk_use_memory_domain` | `domain` | confirmation |
@@ -216,7 +216,7 @@ AGENTS.md                      # orientation + hard constraints for AI agents
 See [`TODO.md`](TODO.md) for the full, maintained list. Current highlights:
 
 - [ ] Sessions (`mcp-session-id`) / SSE server-initiated messages (not required by opencode today)
-- [ ] VRAM plane decode → PNG (`read_plane`: nametable + tiles + palette)
+- [ ] VRAM plane decode → PNG (`genesis_read_plane`: nametable + tiles + palette)
 - [ ] `fixture_capture(scenario.json)` — declarative input+read-per-frame → CSV
 - [ ] End-to-end HTTP test (spins up the real `HttpListener` on a random port)
 - [ ] `run_lua` (fragile, deferred — deep reflection into EmuHawk's Lua runtime)

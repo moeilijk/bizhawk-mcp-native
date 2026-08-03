@@ -68,14 +68,14 @@ Legend: `[x]` done · `[~]` partially done / covered by another tool · `[ ]` op
   Covered by `bizhawk_wait_until` (condition break) + `ram_snapshot`/`ram_diff`
   (change detection) — only worth a dedicated tool if agents need "first change
   frame" semantics in one call.
-- [x] **VRAM plane decode** (`bizhawk_read_plane`): nametable (plane A/B, base
+- [x] **VRAM plane decode** (`bizhawk_genesis_read_plane`): nametable (plane A/B, base
   auto-detected from the core's VDP view — Kid Chameleon uses plane A at 0x0000,
   fallback 0xC000/0xE000) + tiles (8×8, 4bpp packed nibbles) + CRAM palette →
   PNG via a self-contained encoder (DeflateStream, no System.Drawing — runs on
   net48 and Linux). `offset_x`/`offset_y` crop to a camera window.
   (Also fixed `read_palette`: Genesis CRAM bits are 0x0RRR0GGG0BBB — R at
   bits 1-3, B at 9-11 — the old decode had R/B in the wrong positions.)
-- [x] **VDP view** (`bizhawk_get_vdp_view`): reads the Genesis nametable bases +
+- [x] **VDP view** (`bizhawk_genesis_get_vdp_view`): reads the Genesis nametable bases +
   dims from the core via reflection on `UpdateVDPViewContext()` (same pattern as
   watchpoints). Note: the gpgx API does NOT expose the individual VDP registers.
 - [~] **`pointer_scan`**: find all RAM words/pointers pointing at address X.
@@ -85,6 +85,41 @@ Legend: `[x]` done · `[~]` partially done / covered by another tool · `[ ]` op
 - [x] **`state_diff`**: implemented as `bizhawk_ram_snapshot`/`ram_diff` — snapshot
   a domain in memory, then list changed runs (old/new hex). Diffing `.State`
   files directly won't map to RAM (core-compressed binary).
+
+## Agent feedback — production bugs (2026-08-02)
+
+Source: `F:\projects\kid\definitive-kid-research\game-attempts\current\docs\mcp-bizhawk-agent-report.md`
+(parity-fixture agent, Kid Chameleon remake). Priorities are theirs (P0 =
+blocks fixtures). The pure feature requests from that report (F2 symbol
+export/import, F4 fixture metadata, F5 labels, F3 custom error envelope) are
+deliberately NOT listed here — F3 is a misunderstanding (JSON-RPC codes are
+correct; enrich the `data` field instead of replacing codes, see below).
+
+- [x] **B3 (P0) `start_fixture` holds buttons past the end of the input
+  timeline** — fixed: `input_mode` `"hold"` (default, backwards compatible) vs
+  `"explicit"` (absent frames = no buttons, per-frame like Lua `joypad.set`),
+  and `{"frame": N, "buttons": {}}` releases that controller's buttons
+  mid-timeline in both modes (`JoypadApi.Set` un-sets every button not in the
+  dict). Verified live: vx at 0xFF2506 stayed flat after the timeline ended in
+  explicit mode. Repro that used to hold Right on frames 1-3:
+  `start_fixture {frames: 4, inputs: [{frame: 0, buttons: {Right: true}}],
+  samples: [{address: 0xFF2506, width: 32}]}`.
+- [x] **B2 (P0) `read_many` fails the whole batch on one bad item** — fixed:
+  per-item errors `{index, requested, error}` + `read`/`failed` counts; valid
+  items still read. No name→address fallback (typos stay visible).
+- [x] **B1 (P0) `write_range` aborts on 1440 values (~1/3 of the documented
+  4096)** — investigated: 1440 values works fine over raw HTTP (curl), so the
+  abort is the client dropping requests above ~1-2 KB; the server never sees
+  it. Real fix shipped: `{"fill": 0, "length": 1440}` fill mode →
+  `{wrote: 1440, address, fill}` (tiny payload) + documented conservative
+  limit (chunk `values` ≤ 1024 bytes or use fill).
+- [x] **F1 (P1) `write_many` per-item validation feedback** — fixed: bad items
+  (unknown symbol, out-of-range, value too wide) fail only themselves →
+  `{wrote: N, failed: M, failures: [{index, address, reason}]}`; valid items
+  still write.
+- [x] **B4 (P2) `read_many` echoes the masked read address, not the requested
+  one** — fixed: every read item echoes `requested` (the raw address) alongside
+  the effective `address`; same for `read_memory`/`read_signed`/`read_float`.
 
 ## Protocol / MCP features
 
@@ -184,3 +219,9 @@ Legend: `[x]` done · `[~]` partially done / covered by another tool · `[ ]` op
 - [ ] **Latency**: measure per-call overhead (JSON parse, UI-thread marshaling)
   for `read_memory`-heavy loops; consider a `bizhawk_read_bulk` that returns
   base64 to cut JSON size.
+- [x] **Core-specific tool naming**: Genesis-only tools now carry a `genesis_`
+  prefix (`bizhawk_genesis_read_plane`, `bizhawk_genesis_get_vdp_view`) so
+  agents don't assume they work on every core; generic tools (memory, watchpoints,
+  palette, symbols) keep core-neutral descriptions and name the 68K 24-bit bus
+  masking as GEN/SMD/32X/SAT-only behavior. (2026-08-03; watchpoints stay generic
+  — the feature is per-core support, not per-core concept.)

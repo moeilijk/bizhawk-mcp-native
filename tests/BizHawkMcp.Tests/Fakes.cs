@@ -386,6 +386,7 @@ namespace BizHawkMcp.Tests
 		public IReadOnlyDictionary<string, object> Current = new Dictionary<string, object> { ["A"] = true, ["Up"] = false };
 		public IReadOnlyDictionary<string, bool>? LastSet;
 		public int? LastController;
+		public readonly List<(IReadOnlyDictionary<string, bool> buttons, int? controller)> Calls = new();
 
 		public IReadOnlyDictionary<string, object> Get(int? controller = null) => Current;
 
@@ -393,6 +394,7 @@ namespace BizHawkMcp.Tests
 		{
 			LastSet = buttons;
 			LastController = controller;
+			Calls.Add((buttons, controller));
 		}
 
 		public void Set(string button, bool? state = null, int? controller = null) { }
