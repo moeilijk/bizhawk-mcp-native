@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using BizHawk.Client.Common;
+using BizHawk.Emulation.Common;
 using BizHawkMcp;
 
 namespace BizHawkMcp.Tests
@@ -198,6 +199,9 @@ namespace BizHawkMcp.Tests
 		public IReadOnlyDictionary<string, ulong> Registers = new Dictionary<string, ulong> { ["M68K PC"] = 0xFFFBCA, ["M68K A0"] = 0x1234, ["M68K SR"] = 0x2000, ["M68K SP"] = 0xFFFFFDFA };
 		public string? RegisterToSet;
 		public int RegisterValue;
+		// watchpoints: exposed the same way EmulationApi exposes its private
+		// DebuggableCore property (via reflection in McpToolset)
+		public IDebuggable? DebuggableCore { get; set; }
 
 		public int FrameCount() => FrameCountValue;
 
@@ -222,6 +226,42 @@ namespace BizHawkMcp.Tests
 		public void SetLagCount(int count) => LagCountValue = count;
 
 		public IGameInfo? GetGameInfo() => new FakeGameInfo { Name = "Test ROM", Hash = "abcd", System = "GEN" };
+	}
+
+	/// <summary>Fake IDebuggable whose MemoryCallbacks can be fired manually from a test.</summary>
+	public sealed class FakeDebuggable : IDebuggable
+	{
+		public FakeMemoryCallbacks Callbacks { get; } = new();
+
+		public IMemoryCallbackSystem MemoryCallbacks => Callbacks;
+	}
+
+	public sealed class FakeMemoryCallbacks : IMemoryCallbackSystem
+	{
+		public readonly List<IMemoryCallback> Registered = new();
+		public bool ExecuteCallbacksAvailableValue = true;
+		public string[] Scopes = new[] { "M68K BUS" };
+
+		public bool ExecuteCallbacksAvailable => ExecuteCallbacksAvailableValue;
+		public bool HasReads => Registered.Exists(c => c.Type == MemoryCallbackType.Read);
+		public bool HasWrites => Registered.Exists(c => c.Type == MemoryCallbackType.Write);
+		public bool HasExecutes => Registered.Exists(c => c.Type == MemoryCallbackType.Execute);
+		public string[] AvailableScopes => Scopes;
+
+		public void Add(IMemoryCallback callback) => Registered.Add(callback);
+
+		public void Remove(BizHawk.Emulation.Common.MemoryCallbackDelegate action)
+			=> Registered.RemoveAll(c => c.Callback == action);
+
+		public System.Collections.Generic.IEnumerator<IMemoryCallback> GetEnumerator() => Registered.GetEnumerator();
+
+		System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+
+		/// <summary>Simulates the core firing a memory access at the given address.</summary>
+		public void Fire(uint address, uint value = 0, uint flags = 0)
+		{
+			foreach (var cb in Registered) cb.Callback(address, value, flags);
+		}
 	}
 
 	public sealed class FakeGameInfo : IGameInfo
@@ -360,6 +400,14 @@ namespace BizHawkMcp.Tests
 		public void Log(string line) => Logged.Add(line);
 
 		public void StopServer() => StopServerCalls++;
+
+		/// <summary>Wires up watchpoint support like the gpgx core would.</summary>
+		public FakeDebuggable EnableWatchpoints()
+		{
+			var dbg = new FakeDebuggable();
+			EmulationApi.DebuggableCore = dbg;
+			return dbg;
+		}
 
 		public McpToolset Toolset() => new(this, new InlineDispatcher());
 	}

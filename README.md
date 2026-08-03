@@ -135,6 +135,10 @@ Because the server lives inside EmuHawk, every opencode session connects to the 
 | `bizhawk_watch_list` | — | watchers + current values (JSON) |
 | `bizhawk_watch_read` | — | values + `changed` flags (JSON) |
 | `bizhawk_wait_until` | `address`, `op` (eq/ne/lt/gt/le/ge), `value`, `width?`, `domain?`, `timeout_frames?` | matched? + frames + value (JSON) |
+| `bizhawk_watchpoint_add` | `name`, `type` (read/write/execute), `address?`, `domain?` | registered (Genesis gpgx only) |
+| `bizhawk_watchpoint_remove` | `name` | removed/not found |
+| `bizhawk_watchpoint_list` | — | registered watchpoints (JSON) |
+| `bizhawk_watchpoint_wait` | `timeout_frames?` | hit: name/type/address/value (JSON) |
 | `bizhawk_trace` | `count`, `step?` | per-frame PC + disassembly samples (JSON) |
 | `bizhawk_screenshot` | `path?` | `{path, resource}` (JSON) — effective path + resource URI |
 | `bizhawk_save_state` | `path` | confirmation |

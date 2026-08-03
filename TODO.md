@@ -27,12 +27,13 @@ Legend: `[x]` done · `[~]` partially done / covered by another tool · `[ ]` op
   file (also exposed as a `bizhawk://` resource) for Ghidra `import_binary`.
 - [x] **Geometric overlay** (`bizhawk_overlay_rect`/`overlay_line`): hitboxes and
   collision boxes on the video output via `IGuiApi.DrawRectangle/DrawLine`.
-- [ ] **Watchpoints (read/write/exec) + step**: the big one. The gpgx64 core
-  already wires `MemoryCallbacks` (exec/read/write) but nothing activates them;
-  reaching them needs reflection into the concrete `EmulationApi` →
-  `DebuggableCore.MemoryCallbacks` (IMemoryEventsApi is NOT registered). Risk:
-  fragile across BizHawk bumps. **Per-instruction step is impossible** — gpgx's
-  `CanStep` returns `false`; only frame stepping exists. Prototype separately.
+- [x] **Watchpoints (read/write/exec)** (`bizhawk_watchpoint_add/remove/list/wait`):
+  real `IDebuggable.MemoryCallbacks` reached via reflection on
+  `EmulationApi.DebuggableCore`. **Genesis gpgx waterbox core only** (the only
+  core exposing memory callbacks); other cores get a clear `INVALID_PARAMS`.
+  Callbacks fire on the core thread and only set volatile flags; the wait loop
+  frame-advances on the UI thread. **Per-instruction step is impossible** —
+  gpgx's `CanStep` returns `false`; only frame stepping exists.
 - [ ] **VRAM plane decode** (`bizhawk_read_plane`): nametable (64×32) + tiles
   (8×8, 4bpp planar) + palette → PNG. Most hardware-specific work; no new APIs
   needed (VRAM/CRAM domains exist).

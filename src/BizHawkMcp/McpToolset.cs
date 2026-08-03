@@ -1,9 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Reflection;
 using System.Text.Json;
 using System.Threading;
 
 using BizHawk.Client.Common;
+using BizHawk.Emulation.Common;
 
 using BizHawkMcp.Mcp;
 
@@ -223,6 +226,19 @@ namespace BizHawkMcp
 				Param("domain", "string", "Optional domain."),
 				Param("timeout_frames", "integer", "Max frames to advance, 1..600.", 600),
 			]),
+			Tool("bizhawk_watchpoint_add", "Register a real memory watchpoint (read/write/execute) that fires the moment the core touches the address. GENESIS gpgx core ONLY: requires IDebuggable memory callbacks; other cores return an error. Execute watchpoints need an explicit address. See bizhawk_watchpoint_wait to block until one fires.", [
+				Param("name", "string", "Watchpoint name (unique)."),
+				Param("type", "string", "read | write | execute.", "write"),
+				Param("address", "integer", "Bus address to watch (required for execute; omit for read/write to watch all)."),
+				Param("domain", "string", "Optional scope, e.g. \"M68K BUS\" (defaults to the core's first available scope)."),
+			]),
+			Tool("bizhawk_watchpoint_remove", "Remove a registered memory watchpoint.", [
+				Param("name", "string", "Watchpoint name."),
+			]),
+			Tool("bizhawk_watchpoint_list", "List registered memory watchpoints (JSON).", []),
+			Tool("bizhawk_watchpoint_wait", "Advance frames until a registered watchpoint fires (or timeout). Pauses when done. Returns the hit: watchpoint name, type, address and value.", [
+				Param("timeout_frames", "integer", "Max frames to advance, 1..600.", 600),
+			]),
 			Tool("bizhawk_trace", "Advance N frames and sample the CPU each step: frame, PC, and disassembly at PC (JSON).", [
 				Param("count", "integer", "Frames to trace, 1..600.", 60),
 				Param("step", "integer", "Sample every step frames.", 1),
@@ -295,6 +311,10 @@ namespace BizHawkMcp
 				"bizhawk_watch_list" => _ui.Invoke(() => WatchList()),
 				"bizhawk_watch_read" => _ui.Invoke(() => WatchRead()),
 				"bizhawk_wait_until" => _ui.Invoke(() => WaitUntil(args)),
+				"bizhawk_watchpoint_add" => _ui.Invoke(() => WatchpointAdd(args)),
+				"bizhawk_watchpoint_remove" => _ui.Invoke(() => WatchpointRemove(args)),
+				"bizhawk_watchpoint_list" => _ui.Invoke(WatchpointList),
+				"bizhawk_watchpoint_wait" => _ui.Invoke(() => WatchpointWait(args)),
 				"bizhawk_trace" => _ui.Invoke(() => Trace(args)),
 				_ => throw new JsonRpc.Error(JsonRpc.Error.METHOD_NOT_FOUND, $"unknown tool: {name}"),
 				};
@@ -1312,6 +1332,167 @@ namespace BizHawkMcp
 				16 => _tool.Memory!.ReadU16(w.Address, w.Domain),
 				_ => _tool.Memory!.ReadU32(w.Address, w.Domain),
 			};
+		}
+
+		// ── watchpoints (real memory callbacks, gpgx/Genesis only) ────────────
+		// Reaches into the core's IDebuggable.MemoryCallbacks via reflection on
+		// EmulationApi.DebuggableCore. Only cores exposing memory callbacks
+		// (the Genesis gpgx waterbox core does) support this; everything else
+		// gets a clear INVALID_PARAMS error. The callback fires on the core's
+		// thread, so it only sets volatile flags — the actual reads happen in
+		// WatchpointWait on the UI thread.
+
+		private sealed class Wp
+		{
+			public string Name = "";
+			public MemoryCallbackType Type;
+			public uint? Address;
+			public string Scope = "";
+			public IMemoryCallback? Callback;
+		}
+
+		private readonly List<Wp> _watchpoints = new();
+
+		private volatile bool _wpFired;
+		private volatile uint _wpAddr;
+		private volatile uint _wpValue;
+		private volatile string _wpName = "";
+
+		private IMemoryCallbackSystem? TryGetMemoryCallbacks()
+		{
+			var emu = _tool.Emulation;
+			if (emu == null) return null;
+			var prop = emu.GetType().GetProperty("DebuggableCore", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+			var dbg = prop?.GetValue(emu) as IDebuggable;
+			return dbg?.MemoryCallbacks;
+		}
+
+		private string WatchpointAdd(JsonElement? args)
+		{
+			var a = Required(args);
+			string name = RequireString(a, "name");
+			if (_watchpoints.Exists(w => w.Name == name)) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"watchpoint already exists: {name}");
+			string typeStr = a.TryGetProperty("type", out var t) && t.ValueKind == JsonValueKind.String ? t.GetString()! : "write";
+			var type = typeStr switch
+			{
+				"read" => MemoryCallbackType.Read,
+				"write" => MemoryCallbackType.Write,
+				"execute" => MemoryCallbackType.Execute,
+				_ => throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "type must be read, write or execute"),
+			};
+			uint? address = a.TryGetProperty("address", out var ad) && ad.ValueKind == JsonValueKind.Number ? (uint)ad.GetInt64() : null;
+			string? scope = OptionalString(a, "domain");
+			if (type == MemoryCallbackType.Execute && address == null)
+				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "execute watchpoints require an address");
+
+			var mcs = TryGetMemoryCallbacks();
+			if (mcs == null)
+				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "watchpoints unsupported: this core does not expose memory callbacks (only the Genesis gpgx core does)");
+			if (type == MemoryCallbackType.Execute && !mcs.ExecuteCallbacksAvailable)
+				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "execute callbacks not available on this core");
+
+			if (scope == null)
+			{
+				scope = mcs.AvailableScopes.Length > 0 ? mcs.AvailableScopes[0] : null;
+				if (scope == null) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "core exposes no callback scopes");
+			}
+			if (!mcs.AvailableScopes.Contains(scope))
+				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"scope \"{scope}\" not in available callback scopes ({string.Join(", ", mcs.AvailableScopes)})");
+
+			var cb = new MemoryCallbackImpl
+			{
+				Name = name,
+				Type = type,
+				Address = address,
+				Scope = scope,
+				Callback = (addr, value, flags) =>
+				{
+					_wpFired = true;
+					_wpAddr = addr;
+					_wpValue = value;
+					_wpName = name;
+					return null; // don't override the access
+				},
+			};
+			mcs.Add(cb);
+			_watchpoints.Add(new Wp { Name = name, Type = type, Address = address, Scope = scope, Callback = cb });
+			return $"watchpoint added: {name} ({typeStr}{(address != null ? $" @ 0x{address:X}" : " (any)")} in {scope})";
+		}
+
+		private string WatchpointRemove(JsonElement? args)
+		{
+			var a = Required(args);
+			string name = RequireString(a, "name");
+			var wp = _watchpoints.Find(w => w.Name == name);
+			if (wp == null) return $"watchpoint not found: {name}";
+			TryGetMemoryCallbacks()?.Remove(wp.Callback!.Callback);
+			_watchpoints.Remove(wp);
+			return $"watchpoint removed: {name}";
+		}
+
+		private string WatchpointList()
+		{
+			var list = new List<object?>();
+			foreach (var w in _watchpoints)
+			{
+				list.Add(new Dictionary<string, object?>
+				{
+					["name"] = w.Name,
+					["type"] = w.Type.ToString().ToLowerInvariant(),
+					["address"] = w.Address,
+					["scope"] = w.Scope,
+				});
+			}
+			return JsonRpc.Pretty(new Dictionary<string, object?> { ["watchpoints"] = list });
+		}
+
+		private string WatchpointWait(JsonElement? args)
+		{
+			int timeout = 600;
+			if (args is { } a && a.ValueKind == JsonValueKind.Object) timeout = RequireInt(a, "timeout_frames", 600);
+			if (timeout is < 1 or > 600) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "timeout_frames must be 1..600");
+			if (_watchpoints.Count == 0) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "no watchpoints registered; add one with bizhawk_watchpoint_add first");
+
+			_wpFired = false;
+			bool wasPaused = _tool.EmuClient!.IsPaused();
+			if (wasPaused) _tool.EmuClient!.Unpause();
+
+			int frames = 0;
+			try
+			{
+				for (; frames < timeout; frames++)
+				{
+					_tool.EmuClient!.DoFrameAdvance();
+					System.Windows.Forms.Application.DoEvents();
+					if (_wpFired) break;
+				}
+			}
+			finally
+			{
+				if (wasPaused) _tool.EmuClient!.Pause();
+			}
+
+			bool matched = _wpFired;
+			return JsonRpc.Pretty(new Dictionary<string, object?>
+			{
+				["matched"] = matched,
+				["frames"] = matched ? frames + 1 : frames,
+				["watchpoint"] = _wpName,
+				["type"] = matched ? _watchpoints.Find(w => w.Name == _wpName)?.Type.ToString().ToLowerInvariant() : null,
+				["address"] = _wpAddr,
+				["value"] = _wpValue,
+				["framecount"] = _tool.Emulation!.FrameCount(),
+			});
+		}
+
+		private sealed class MemoryCallbackImpl : IMemoryCallback
+		{
+			public MemoryCallbackType Type { get; init; }
+			public string Name { get; init; } = "";
+			public MemoryCallbackDelegate Callback { get; init; } = (_, _, _) => null;
+			public uint? Address { get; init; }
+			public uint? AddressMask => null;
+			public string Scope { get; init; } = "";
 		}
 
 		private string WaitUntil(JsonElement? args)

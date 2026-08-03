@@ -1,4 +1,5 @@
 using System.Text.Json;
+using BizHawk.Emulation.Common;
 using BizHawkMcp;
 using BizHawkMcp.Mcp;
 using Xunit;
@@ -568,6 +569,121 @@ namespace BizHawkMcp.Tests
 		{
 			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_trace", TestHelpers.Js("{\"count\":601}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
+		}
+	}
+
+	public class WatchpointToolTests
+	{
+		private readonly FakeApis _apis = new();
+		private readonly McpToolset _ts;
+
+		public WatchpointToolTests() => _ts = _apis.Toolset();
+
+		private static JsonElement Parse(string json) => JsonDocument.Parse(json).RootElement;
+
+		[Fact]
+		public void Watchpoint_add_registers_in_core()
+		{
+			var dbg = _apis.EnableWatchpoints();
+			_ts.Call("bizhawk_watchpoint_add", TestHelpers.Js("{\"name\":\"wp1\",\"type\":\"write\",\"address\":16776136}"));
+			Assert.Single(dbg.Callbacks.Registered);
+			Assert.Equal(MemoryCallbackType.Write, dbg.Callbacks.Registered[0].Type);
+			Assert.Equal((uint)16776136, dbg.Callbacks.Registered[0].Address);
+		}
+
+		[Fact]
+		public void Watchpoint_add_without_core_support_errors()
+		{
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_watchpoint_add", TestHelpers.Js("{\"name\":\"wp1\",\"type\":\"write\"}")));
+			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
+			Assert.Contains("unsupported", ex.Message);
+		}
+
+		[Fact]
+		public void Watchpoint_execute_requires_address()
+		{
+			_apis.EnableWatchpoints();
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_watchpoint_add", TestHelpers.Js("{\"name\":\"wp1\",\"type\":\"execute\"}")));
+			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
+		}
+
+		[Fact]
+		public void Watchpoint_execute_unavailable_errors()
+		{
+			var dbg = _apis.EnableWatchpoints();
+			dbg.Callbacks.ExecuteCallbacksAvailableValue = false;
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_watchpoint_add", TestHelpers.Js("{\"name\":\"wp1\",\"type\":\"execute\",\"address\":16776136}")));
+			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
+		}
+
+		[Fact]
+		public void Watchpoint_bad_scope_errors()
+		{
+			_apis.EnableWatchpoints();
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_watchpoint_add", TestHelpers.Js("{\"name\":\"wp1\",\"type\":\"write\",\"domain\":\"NOPE\"}")));
+			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
+		}
+
+		[Fact]
+		public void Watchpoint_wait_detects_fire()
+		{
+			var dbg = _apis.EnableWatchpoints();
+			_apis.EmuClientApi.Paused = true;
+			_ts.Call("bizhawk_watchpoint_add", TestHelpers.Js("{\"name\":\"wp1\",\"type\":\"write\",\"address\":16776136}"));
+			// fire the callback on the 3rd frame advance
+			var frame = 0;
+			_apis.EmuClientApi.OnFrameAdvance = () =>
+			{
+				if (++frame == 3) dbg.Callbacks.Fire(16776136, 0x77);
+			};
+
+			var res = Parse(_ts.Call("bizhawk_watchpoint_wait", TestHelpers.Js("{\"timeout_frames\":10}")));
+			Assert.True(res.GetProperty("matched").GetBoolean());
+			Assert.Equal("wp1", res.GetProperty("watchpoint").GetString());
+			Assert.Equal("write", res.GetProperty("type").GetString());
+			Assert.Equal((ulong)16776136, res.GetProperty("address").GetUInt64());
+			Assert.Equal((ulong)0x77, res.GetProperty("value").GetUInt64());
+			Assert.Equal(3, res.GetProperty("frames").GetInt32());
+			Assert.True(_apis.EmuClientApi.Paused); // pause restored
+		}
+
+		[Fact]
+		public void Watchpoint_wait_times_out()
+		{
+			_apis.EnableWatchpoints();
+			_ts.Call("bizhawk_watchpoint_add", TestHelpers.Js("{\"name\":\"wp1\",\"type\":\"read\"}"));
+			var res = Parse(_ts.Call("bizhawk_watchpoint_wait", TestHelpers.Js("{\"timeout_frames\":5}")));
+			Assert.False(res.GetProperty("matched").GetBoolean());
+			Assert.Equal(5, res.GetProperty("frames").GetInt32());
+		}
+
+		[Fact]
+		public void Watchpoint_wait_without_any_registered_errors()
+		{
+			_apis.EnableWatchpoints();
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_watchpoint_wait", null));
+			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
+		}
+
+		[Fact]
+		public void Watchpoint_remove_unregisters()
+		{
+			var dbg = _apis.EnableWatchpoints();
+			_ts.Call("bizhawk_watchpoint_add", TestHelpers.Js("{\"name\":\"wp1\",\"type\":\"write\",\"address\":100}"));
+			var res = _ts.Call("bizhawk_watchpoint_remove", TestHelpers.Js("{\"name\":\"wp1\"}"));
+			Assert.Contains("removed", res);
+			Assert.Empty(dbg.Callbacks.Registered);
+		}
+
+		[Fact]
+		public void Watchpoint_list_reports()
+		{
+			_apis.EnableWatchpoints();
+			_ts.Call("bizhawk_watchpoint_add", TestHelpers.Js("{\"name\":\"wp1\",\"type\":\"execute\",\"address\":2370}"));
+			var res = Parse(_ts.Call("bizhawk_watchpoint_list", null));
+			Assert.Equal("wp1", res.GetProperty("watchpoints")[0].GetProperty("name").GetString());
+			Assert.Equal("execute", res.GetProperty("watchpoints")[0].GetProperty("type").GetString());
+			Assert.Equal((ulong)2370, res.GetProperty("watchpoints")[0].GetProperty("address").GetUInt64());
 		}
 	}
 
