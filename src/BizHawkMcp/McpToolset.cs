@@ -338,6 +338,12 @@ namespace BizHawkMcp
 			Tool("bizhawk_load_state", "Load an emulator state from a file.", [
 				Param("path", "string", "Absolute .State path."),
 			]),
+			Tool("bizhawk_save_slot", "Save an emulator state to a quick-save slot (1..10).", [
+				Param("slot", "integer", "Slot number, 1..10.", 1),
+			]),
+			Tool("bizhawk_load_slot", "Load an emulator state from a quick-save slot (1..10).", [
+				Param("slot", "integer", "Slot number, 1..10.", 1),
+			]),
 			Tool("bizhawk_shutdown", "Stop the MCP server (plugin stays loaded; restart via the form's button or the emulator's Lua/tools menu).", []),
 			Tool("bizhawk_overlay_text", "Draw text on the emulator's video output. Overlays ACCUMULATE until bizhawk_clear_overlay (all are re-rendered on every frame advance), so multiple hitboxes/labels can stay on screen at once.", [
 				Param("x", "integer", "X position."),
@@ -501,6 +507,8 @@ namespace BizHawkMcp
 				"bizhawk_screenshot" => _ui.Invoke(() => Screenshot(args)),
 				"bizhawk_save_state" => _ui.Invoke(() => SaveState(args)),
 				"bizhawk_load_state" => _ui.Invoke(() => LoadState(args)),
+				"bizhawk_save_slot" => _ui.Invoke(() => SaveSlot(args)),
+				"bizhawk_load_slot" => _ui.Invoke(() => LoadSlot(args)),
 				"bizhawk_shutdown" => Shutdown(),
 				"bizhawk_overlay_text" => _ui.Invoke(() => OverlayText(args)),
 				"bizhawk_clear_overlay" => _ui.Invoke(() => ClearOverlay()),
@@ -1736,6 +1744,24 @@ namespace BizHawkMcp
 			string path = RequireString(a, "path");
 			bool ok = _tool.SaveState!.Load(path);
 			return ok ? $"state loaded: {path}" : $"failed to load state: {path}";
+		}
+
+		private string SaveSlot(JsonElement? args)
+		{
+			var a = Required(args);
+			int slot = RequireInt(a, "slot", 1);
+			if (slot is < 1 or > 10) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "slot must be 1..10");
+			_tool.SaveState!.SaveSlot(slot);
+			return $"state saved to slot {slot}";
+		}
+
+		private string LoadSlot(JsonElement? args)
+		{
+			var a = Required(args);
+			int slot = RequireInt(a, "slot", 1);
+			if (slot is < 1 or > 10) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "slot must be 1..10");
+			bool ok = _tool.SaveState!.LoadSlot(slot);
+			return ok ? $"state loaded from slot {slot}" : $"failed to load slot {slot}";
 		}
 
 		private string OverlayText(JsonElement? args)

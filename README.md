@@ -146,6 +146,8 @@ Because the server lives inside EmuHawk, every opencode session connects to the 
 | `bizhawk_screenshot` | `path?` | `{path, resource}` (JSON) — effective path + resource URI |
 | `bizhawk_save_state` | `path` | confirmation |
 | `bizhawk_load_state` | `path` | confirmation |
+| `bizhawk_save_slot` | `slot` (1–10) | confirmation |
+| `bizhawk_load_slot` | `slot` (1–10) | confirmation |
 | `bizhawk_shutdown` | — | stops the server |
 
 ## Protocol notes

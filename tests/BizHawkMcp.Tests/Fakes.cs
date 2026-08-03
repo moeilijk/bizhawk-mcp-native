@@ -340,10 +340,16 @@ namespace BizHawkMcp.Tests
 		public string? SavedTo;
 		public string? LoadedFrom;
 		public bool LoadResult = true;
+		public int? SavedSlot;
+		public int? LoadedSlot;
 
 		public void Save(string path) => SavedTo = path;
 
 		public bool Load(string path) { LoadedFrom = path; return LoadResult; }
+
+		public void SaveSlot(int slotNum) => SavedSlot = slotNum;
+
+		public bool LoadSlot(int slotNum) { LoadedSlot = slotNum; return LoadResult; }
 	}
 
 	public sealed class FakeGuiApi : IGuiApi

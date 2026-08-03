@@ -87,6 +87,8 @@ namespace BizHawk.Client.Common
 	{
 		void Save(string path);
 		bool Load(string path);
+		void SaveSlot(int slotNum);
+		bool LoadSlot(int slotNum);
 	}
 
 	public enum DisplaySurfaceID { Client = 1, EmuCore = 0 }

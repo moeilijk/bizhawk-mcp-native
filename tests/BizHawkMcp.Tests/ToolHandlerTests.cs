@@ -1463,6 +1463,25 @@ namespace BizHawkMcp.Tests
 		}
 
 		[Fact]
+		public void Save_load_slot_forward()
+		{
+			_ts.Call("bizhawk_save_slot", TestHelpers.Js("{\"slot\":3}"));
+			Assert.Equal(3, _apis.SaveStateApi.SavedSlot);
+			var res = _ts.Call("bizhawk_load_slot", TestHelpers.Js("{\"slot\":3}"));
+			Assert.Equal(3, _apis.SaveStateApi.LoadedSlot);
+			Assert.Contains("loaded", res);
+		}
+
+		[Fact]
+		public void Save_slot_rejects_out_of_range()
+		{
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_save_slot", TestHelpers.Js("{\"slot\":0}")));
+			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
+			ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_load_slot", TestHelpers.Js("{\"slot\":11}")));
+			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
+		}
+
+		[Fact]
 		public void Overlay_text_draws_and_clears()
 		{
 			_ts.Call("bizhawk_overlay_text", TestHelpers.Js("{\"x\":1,\"y\":2,\"text\":\"hi\",\"fontsize\":12}"));
