@@ -184,7 +184,7 @@ namespace BizHawkMcp.Tests
 			var r = _server.Dispatch("{\"jsonrpc\":\"2.0\",\"id\":8,\"method\":\"resources/templates/list\"}");
 			using var doc = ParseResult(r);
 			var templates = doc.RootElement.GetProperty("result").GetProperty("resourceTemplates");
-			Assert.Equal(1, templates.GetArrayLength());
+			Assert.Equal(2, templates.GetArrayLength());
 			Assert.Equal("bizhawk://read/{domain}/{range}", templates[0].GetProperty("uriTemplate").GetString());
 		}
 

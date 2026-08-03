@@ -681,10 +681,30 @@ namespace BizHawkMcp.Tests
 
 		public McpToolset Toolset() => new(this, new InlineDispatcher(), () => Cheats, () => Lua);
 
-		/// <summary>Wires up a fake Lua runtime like the Lua Console would.</summary>
+		/// <summary>Wires up a fake Lua runtime like the Lua Console would,
+		/// with a couple of doc entries for lua_docs tests.</summary>
 		public FakeLuaLibraries EnableLua()
 		{
 			Lua = new FakeLuaLibraries();
+			Lua.Docs.Add(new LibraryFunction
+			{
+				Library = "memory",
+				LibraryDescription = "Main memory related library, powered by the memory domain system",
+				Name = "read_u8",
+				Description = "read unsigned byte",
+				Example = "local v = memory.read_u8(0xFF2506)",
+				ParameterList = "(long addr, [string domain = nil])",
+				ReturnType = "uint",
+			});
+			Lua.Docs.Add(new LibraryFunction
+			{
+				Library = "gui",
+				LibraryDescription = "This library provides drawing functions",
+				Name = "addmessage",
+				Description = "Adds a message to the OSD",
+				ParameterList = "(string message, [int duration = nil])",
+				ReturnType = "void",
+			});
 			return Lua;
 		}
 	}

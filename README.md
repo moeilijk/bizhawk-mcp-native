@@ -158,6 +158,7 @@ Overlays **accumulate** until `bizhawk_clear_overlay` — they are re-rendered o
 | `bizhawk_lua_unload` | `path` | `{removed}` (JSON) |
 | `bizhawk_lua_enable` / `lua_disable` | `path` | `{path, enabled}` (JSON) |
 | `bizhawk_lua_list` | — | scripts + states (JSON) |
+| `bizhawk_lua_docs` | `library?` | Lua API docs as JSON (signatures + examples) |
 
 Freezes drive the emulator's **real cheat engine** (`MainForm.CheatList` — shared with the hex editor's Freeze and the Cheats window): the value is re-written EVERY frame by EmuHawk's main loop, even while emulation runs freely. Lock timers, lives, health for repeated tests. Entries persist on exit; `freeze: true` on any write tool registers on the fly.
 

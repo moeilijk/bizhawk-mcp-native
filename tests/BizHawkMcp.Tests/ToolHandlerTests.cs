@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 using BizHawk.Emulation.Common;
@@ -1679,7 +1680,8 @@ namespace BizHawkMcp.Tests
 
 			var listed = _ts.ListResources();
 			var listDoc = JsonDocument.Parse(JsonSerializer.Serialize(listed));
-			Assert.Equal(1, listDoc.RootElement.GetProperty("resources").GetArrayLength());
+			// 1 artifact + the static lua-docs resource
+			Assert.Equal(2, listDoc.RootElement.GetProperty("resources").GetArrayLength());
 			Assert.Equal("image/png", listDoc.RootElement.GetProperty("resources")[0].GetProperty("mimeType").GetString());
 
 			var readDoc = JsonDocument.Parse(JsonSerializer.Serialize(_ts.ReadResource(uri)));
@@ -1751,7 +1753,7 @@ namespace BizHawkMcp.Tests
 			var listed = _ts.ListResourceTemplates();
 			var doc = JsonDocument.Parse(JsonSerializer.Serialize(listed));
 			var templates = doc.RootElement.GetProperty("resourceTemplates");
-			Assert.Equal(1, templates.GetArrayLength());
+			Assert.Equal(2, templates.GetArrayLength());
 			Assert.Equal("bizhawk://read/{domain}/{range}", templates[0].GetProperty("uriTemplate").GetString());
 		}
 	}
@@ -2149,6 +2151,59 @@ namespace BizHawkMcp.Tests
 			Assert.False(res.GetProperty("scripts")[0].GetProperty("paused").GetBoolean());
 			System.IO.File.Delete(p1);
 			System.IO.File.Delete(p2);
+		}
+
+		[Fact]
+		public void Lua_docs_dumps_all_libraries_with_signatures()
+		{
+			_apis.EnableLua();
+			var res = Parse(_ts.Call("bizhawk_lua_docs", null));
+			Assert.Equal(2, res.GetProperty("count").GetInt32());
+			Assert.Equal(2, res.GetProperty("libraries").GetArrayLength());
+			// alphabetical: gui < memory
+			var gui = res.GetProperty("libraries")[0];
+			Assert.Equal("gui", gui.GetProperty("library").GetString());
+			var memory = res.GetProperty("libraries")[1];
+			Assert.Equal("memory", memory.GetProperty("library").GetString());
+			var fn = memory.GetProperty("functions")[0];
+			Assert.Equal("read_u8", fn.GetProperty("name").GetString());
+			Assert.Equal("uint memory.read_u8(long addr, [string domain = nil])", fn.GetProperty("signature").GetString());
+			Assert.Equal("read unsigned byte", fn.GetProperty("description").GetString());
+			Assert.Equal("local v = memory.read_u8(0xFF2506)", fn.GetProperty("example").GetString());
+			Assert.False(fn.GetProperty("deprecated").GetBoolean());
+		}
+
+		[Fact]
+		public void Lua_docs_filters_by_library()
+		{
+			_apis.EnableLua();
+			var res = Parse(_ts.Call("bizhawk_lua_docs", TestHelpers.Js("{\"library\":\"gui\"}")));
+			Assert.Equal(1, res.GetProperty("count").GetInt32());
+			Assert.Equal("gui", res.GetProperty("libraries")[0].GetProperty("library").GetString());
+			Assert.Equal("addmessage", res.GetProperty("libraries")[0].GetProperty("functions")[0].GetProperty("name").GetString());
+		}
+
+		[Fact]
+		public void Lua_docs_unknown_library_errors()
+		{
+			_apis.EnableLua();
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_lua_docs", TestHelpers.Js("{\"library\":\"nope\"}")));
+			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
+			Assert.Contains("memory", ex.Message);
+		}
+
+		[Fact]
+		public void Lua_docs_resource_reads_as_json_blob()
+		{
+			_apis.EnableLua();
+			var res = _ts.ReadResource("bizhawk://lua-docs/memory");
+			var blob = res["contents"] as List<object?> ?? new List<object?>();
+			var first = (Dictionary<string, object?>)blob[0]!;
+			Assert.Equal("application/json", first["mimeType"]);
+			var json = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String((string)first["blob"]!));
+			using var doc = JsonDocument.Parse(json);
+			Assert.Equal(1, doc.RootElement.GetProperty("libraries").GetArrayLength());
+			Assert.Equal("memory", doc.RootElement.GetProperty("libraries")[0].GetProperty("library").GetString());
 		}
 
 		[Fact]

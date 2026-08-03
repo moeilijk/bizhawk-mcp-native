@@ -97,6 +97,11 @@ on explicit request — otherwise changes accumulate under `## [Unreleased]`.
   diagnostics instead of silent masking.
 
 ### Added
+- `bizhawk_lua_docs` + `bizhawk://lua-docs` / `bizhawk://lua-docs/{library}`:
+  agent-friendly JSON of the Lua API docs, served live from the running
+  emulator — the same `[LuaMethod]` → `LuaLibraries.Docs` chain that generates
+  the tasvideos.org LuaFunctions page, with signatures AND examples (which the
+  wiki omits).
 - Lua scripting (`bizhawk_lua_exec`/`load`/`unload`/`enable`/`disable`/`list`):
   drives EmuHawk's real Lua runtime. The host (`LuaLibraries` in
   BizHawk.Client.Common) is reached via `IToolApi.GetTool("LuaConsole")` +

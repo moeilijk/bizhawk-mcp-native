@@ -420,6 +420,9 @@ namespace BizHawkMcp
 				Param("path", "string", "Absolute .lua path."),
 			]),
 			Tool("bizhawk_lua_list", "List the emulator's loaded Lua scripts: path, enabled, paused.", []),
+			Tool("bizhawk_lua_docs", "Agent-friendly JSON of the emulator's Lua API documentation — the same chain that generates the tasvideos.org LuaFunctions page ([LuaMethod] attributes via LuaLibraries.Docs), served live from the running build, with examples the wiki omits. Each function: {name, signature (e.g. \"uint memory.read_u8(long addr, [string domain = nil])\"), description, example, deprecated}. Optional \"library\" filters to one (memory, gui, emu, ...).", [
+				Param("library", "string", "Optional: only this library (e.g. \"memory\")."),
+			]),
 			Tool("bizhawk_shutdown", "Stop the MCP server (plugin stays loaded; restart via the form's button or the emulator's Lua/tools menu).", []),
 			Tool("bizhawk_overlay_text", "Draw text on the emulator's video output. Overlays ACCUMULATE until bizhawk_clear_overlay (all are re-rendered on every frame advance), so multiple hitboxes/labels can stay on screen at once.", [
 				Param("x", "integer", "X position."),
@@ -623,6 +626,7 @@ namespace BizHawkMcp
 				"bizhawk_lua_enable" => _ui.Invoke(() => LuaEnable(args)),
 				"bizhawk_lua_disable" => _ui.Invoke(() => LuaDisable(args)),
 				"bizhawk_lua_list" => _ui.Invoke(LuaList),
+				"bizhawk_lua_docs" => _ui.Invoke(() => LuaDocs(args)),
 				"bizhawk_shutdown" => Shutdown(),
 				"bizhawk_overlay_text" => _ui.Invoke(() => OverlayText(args)),
 				"bizhawk_clear_overlay" => _ui.Invoke(() => ClearOverlay()),
@@ -2650,6 +2654,57 @@ namespace BizHawkMcp
 			return JsonRpc.Pretty(new Dictionary<string, object?> { ["scripts"] = list, ["count"] = list.Count });
 		}
 
+		// Agent-friendly dump of the Lua API docs: the same chain that generates
+		// the tasvideos.org LuaFunctions page ([LuaMethod] attributes →
+		// LuaLibraries.Docs), serialized as JSON with signatures and examples.
+		// Served live from the running emulator, so it matches the installed
+		// build exactly (and includes Example, which the wiki page omits).
+		private string LuaDocsJson(string? library)
+		{
+			var lua = ResolveLua();
+			var groups = lua.Docs
+				.Where(f => library == null || f.Library.Equals(library, StringComparison.OrdinalIgnoreCase))
+				.GroupBy(f => f.Library)
+				.OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase);
+			var result = new List<object?>();
+			int count = 0;
+			foreach (var g in groups)
+			{
+				var functions = g.OrderBy(f => f.Name).Select(f =>
+				{
+					count++;
+					return (object?)new Dictionary<string, object?>
+					{
+						["name"] = f.Name,
+						["signature"] = $"{f.ReturnType} {f.Library}.{f.Name}{f.ParameterList}",
+						["description"] = f.Description,
+						["example"] = f.Example,
+						["deprecated"] = f.IsDeprecated,
+					};
+				}).ToList();
+				result.Add(new Dictionary<string, object?>
+				{
+					["library"] = g.Key,
+					["description"] = g.First().LibraryDescription,
+					["functions"] = functions,
+				});
+			}
+			if (library != null && result.Count == 0)
+				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"unknown Lua library: {library} (available: {string.Join(", ", lua.Docs.Select(d => d.Library).Distinct().OrderBy(n => n))})");
+			return JsonRpc.Pretty(new Dictionary<string, object?>
+			{
+				["count"] = count,
+				["libraries"] = result,
+			});
+		}
+
+		private string LuaDocs(JsonElement? args)
+		{
+			string? library = null;
+			if (args is { } a && a.ValueKind == JsonValueKind.Object) library = OptionalString(a, "library");
+			return LuaDocsJson(library);
+		}
+
 		private string OverlayText(JsonElement? args)
 		{
 			var a = Required(args);
@@ -3572,11 +3627,36 @@ namespace BizHawkMcp
 					["size"] = size,
 				});
 			}
+			resources.Add(new Dictionary<string, object?>
+			{
+				["uri"] = "bizhawk://lua-docs",
+				["name"] = "Lua API documentation (agent-friendly JSON)",
+				["mimeType"] = "application/json",
+			});
 			return new Dictionary<string, object?> { ["resources"] = resources };
 		}
 
 		public Dictionary<string, object?> ReadResource(string uri)
 		{
+			// bizhawk://lua-docs and bizhawk://lua-docs/{library} — live dump of
+			// the Lua API docs as JSON (the tasvideos LuaFunctions source chain)
+			if (uri.StartsWith("bizhawk://lua-docs", StringComparison.Ordinal))
+			{
+				string? library = null;
+				if (uri.Length > "bizhawk://lua-docs".Length)
+				{
+					library = Uri.UnescapeDataString(uri.Substring("bizhawk://lua-docs/".Length));
+				}
+				string json = _ui.Invoke(() => LuaDocsJson(library));
+				return new Dictionary<string, object?>
+				{
+					["contents"] = new List<object?>
+					{
+						new Dictionary<string, object?> { ["uri"] = uri, ["mimeType"] = "application/json", ["blob"] = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(json)) },
+					},
+				};
+			}
+
 			// bizhawk://read/{domain}/{start}:{end} — live read of a memory region
 			// (bytes raw, no endianness interpretation). Domain is URL-decoded.
 			if (uri.StartsWith("bizhawk://read/", StringComparison.Ordinal))
@@ -3665,6 +3745,12 @@ namespace BizHawkMcp
 						["uriTemplate"] = "bizhawk://read/{domain}/{range}",
 						["name"] = "Read memory region (binary)",
 						["description"] = "Raw bytes from a memory domain, offsets given as a hex range. Example: bizhawk://read/68K%20RAM/ffbc8:ffbd0. No endianness applied.",
+					},
+					new Dictionary<string, object?>
+					{
+						["uriTemplate"] = "bizhawk://lua-docs/{library}",
+						["name"] = "Lua API documentation for one library (agent-friendly JSON)",
+						["description"] = "Functions of one Lua library with signatures + examples, e.g. bizhawk://lua-docs/memory.",
 					},
 				},
 			};

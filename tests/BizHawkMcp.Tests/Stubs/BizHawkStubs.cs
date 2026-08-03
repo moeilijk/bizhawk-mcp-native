@@ -330,6 +330,7 @@ namespace BizHawk.Client.Common
 	public class LuaLibraries
 	{
 		public List<LuaFile> ScriptList { get; } = new();
+		public LuaDocumentation Docs { get; } = new();
 
 		public virtual object[] ExecuteString(string command) => throw new NotImplementedException();
 
@@ -338,4 +339,21 @@ namespace BizHawk.Client.Common
 		public virtual NLua.LuaThread SpawnBlankCoroutineAndSandbox(string directory) => new();
 
 		public virtual void Close() { }
+	}
+
+	public class LibraryFunction
+	{
+		public string Library = "";
+		public string LibraryDescription = "";
+		public string Name = "";
+		public string Description = "";
+		public string? Example;
+		public string ParameterList = "()";
+		public string ReturnType = "void";
+		public bool IsDeprecated;
+		public bool SuggestInREPL = true;
+	}
+
+	public class LuaDocumentation : List<LibraryFunction>
+	{
 	}
