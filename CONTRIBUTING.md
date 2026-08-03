@@ -64,7 +64,7 @@ PRs that get merged share these traits:
 ## A note on how this project is built
 
 Most of this codebase was written by AI agents ("vibe coding", if you like) —
-the author directs, reviews, and verifies everything against the real
+the author directs, reviews, and verifies everything they can against the real
 emulator, and treats the final delivery as the standard: clean builds, zero
 warnings, tests, docs, and live verification. Don't be surprised to find
 agent-flavored prose or the occasional odd comment; do hold the code to the
