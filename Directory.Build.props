@@ -14,7 +14,8 @@
       1. -p:BizHawkInstallDir=<path> on the command line (deploy scripts)
       2. BIZHAWK_INSTALL from the environment (.env — see .env.example)
       3. legacy auto-detection for this repo's original dev machine
-      otherwise: a clear MSBuild error.
+      otherwise: the product csproj errors clearly (the test project does not
+      need BizHawk — it stubs the API).
 
     Pin the BizHawk version you compile against to a specific commit:
     see ./bizhawk.build and ./scripts/fetch-source.sh
@@ -25,10 +26,5 @@
     <BizHawkInstallDir Condition="'$(BizHawkInstallDir)' == '' and Exists('/mnt/f/projects/kid/emulators/BizHawk-dev-windows/EmuHawk.exe')">/mnt/f/projects/kid/emulators/BizHawk-dev-windows</BizHawkInstallDir>
     <BizHawkInstallDir Condition="'$(BizHawkInstallDir)' == '' and Exists('F:\projects\kid\emulators\BizHawk-dev-windows\EmuHawk.exe')">F:\projects\kid\emulators\BizHawk-dev-windows</BizHawkInstallDir>
   </PropertyGroup>
-
-  <Target Name="RequireBizHawkInstall" BeforeTargets="ResolveReferences">
-    <Error Condition="'$(BizHawkInstallDir)' == ''"
-           Text="BizHawk install dir not found. Set BIZHAWK_INSTALL in .env (copy .env.example, see README 'Setup'), pass -p:BizHawkInstallDir=&lt;path&gt;, or create a symlink/install at one of the auto-detected paths." />
-  </Target>
 
 </Project>

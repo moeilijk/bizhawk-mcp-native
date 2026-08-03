@@ -69,4 +69,12 @@
     <Copy SourceFiles="@(_ToolOutput)" DestinationFolder="$(BizHawkInstallDir)/ExternalTools" ContinueOnError="true" />
   </Target>
 
+  <!-- This project compiles against an installed BizHawk output tree; fail with
+       instructions instead of a cryptic reference error. (Only the product
+       project needs it — the tests stub the API and skip this.) -->
+  <Target Name="RequireBizHawkInstall" BeforeTargets="ResolveReferences">
+    <Error Condition="'$(BizHawkInstallDir)' == ''"
+           Text="BizHawk install dir not found. Set BIZHAWK_INSTALL in .env (copy .env.example, see README 'Setup'), pass -p:BizHawkInstallDir=&lt;path&gt;, or create a symlink/install at one of the auto-detected paths." />
+  </Target>
+
 </Project>
