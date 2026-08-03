@@ -7,9 +7,6 @@
 # Keep in sync with .github/workflows/build-and-release.yml.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-
-if ! command -v dotnet >/dev/null 2>&1 && [ -x "$HOME/.dotnet/dotnet" ]; then
-  export PATH="$HOME/.dotnet:$PATH"
-fi
+source "$(dirname "$0")/load-env.sh"
 
 dotnet test tests/BizHawkMcp.Tests/BizHawkMcp.Tests.csproj "$@"

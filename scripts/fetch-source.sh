@@ -4,6 +4,7 @@
 # need the source — it references the DLLs of an installed dev/release build.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+source "$(dirname "$0")/load-env.sh"
 
 COMMIT="$(cat bizhawk.build)"
 echo "Pinning BizHawk source at $COMMIT"

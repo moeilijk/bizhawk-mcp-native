@@ -10,6 +10,7 @@
 #   Pass the same commit twice (or no arg) to just diff against the checkout.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+source "$(dirname "$0")/load-env.sh"
 
 OLD="$(cat bizhawk.build)"
 NEW="${1:?usage: ./scripts/bump-bizhawk.sh <new-commit-sha> [old-commit-sha]}"

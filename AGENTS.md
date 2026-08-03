@@ -32,7 +32,7 @@ A native [MCP](https://modelcontextprotocol.io) server for BizHawk/EmuHawk imple
 dotnet build src/BizHawkMcp/BizHawkMcp.csproj -c Release   # build only
 ```
 
-- Install dir auto-detection lives in `Directory.Build.props`; override with `-p:BizHawkInstallDir=/path` or the `BIZHAWK_INSTALL` env var used by `deploy.sh`.
+- Install dir resolution lives in `Directory.Build.props` (order: `-p:BizHawkInstallDir` → env `BIZHAWK_INSTALL` → legacy auto-detected paths → clear error). The shell scripts source the project's `.env` via `scripts/load-env.sh` (copy `.env.example` → `.env`; `.env` is gitignored); `deploy.ps1` parses it too. `BIZHAWK_MCP_HOST`/`BIZHAWK_MCP_PORT` are read at runtime by the plugin.
 - `net48` builds on Linux thanks to `Microsoft.NETFramework.ReferenceAssemblies` (already in the csproj). No Windows runner needed.
 - The test project links the product's `.cs` files and stubs the ApiHawk interfaces (`tests/BizHawkMcp.Tests/Stubs/`) — **keep the stubs in sync** when a tool uses new API surface, and add a test when adding a tool (see `docs/DEVELOPMENT.md`).
 - CI equivalent: `.github/workflows/build-and-release.yml` (matrix stable/dev, `-p:BizHawkInstallDir="$(pwd)/bizhawk"`, `dotnet test` step).

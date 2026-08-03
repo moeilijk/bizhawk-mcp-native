@@ -6,8 +6,8 @@ Warning: This is **mostly** built with LLM agents, so it is not a polished produ
 
 ## Status
 
-- **87 tools** verified end-to-end against the user's BizHawk dev build (2.11.2, commit `ed78f70a`, running on Windows via WSL).
-- **207 unit tests** (`./scripts/test.sh`) pass on Linux without BizHawk — including `HttpEndToEndTests`, which boot the real `McpHttpServer` on a random port and hit it with actual HTTP requests.
+- **94 tools** verified end-to-end against the user's BizHawk dev build (2.11.2, commit `ed78f70a`, running on Windows via WSL).
+- **220 unit tests** (`./scripts/test.sh`) pass on Linux without BizHawk — including `HttpEndToEndTests`, which boot the real `McpHttpServer` on a random port and hit it with actual HTTP requests.
 - Test loop: agents drive Kid Chameleon (UE) on the Genesis gpgx waterbox core.
 - Server advertises `tools` + `resources` + `prompts` capabilities (incl. `listChanged`) at `http://127.0.0.1:8767/mcp/`.
 
@@ -43,7 +43,7 @@ opencode / any MCP client
 - **Reflection for the gaps.** ApiHawk does not cover everything, so a few tools reach deeper emulator internals by reflection: real watchpoints (`IDebuggable.MemoryCallbacks`, Genesis gpgx only), in-memory core savestates (`IStatable`), the VDP view, and the cheat engine (`MainForm.CheatList` — the same list the hex editor's Freeze uses).
 - **Honest, measured cost model.** Per-call latency is ~17ms **fixed** (HTTP + JSON + UI-thread marshaling), independent of payload. Tools are designed around it: batch aggressively (`read_many`/`write_many`), contiguous regions → `read_bulk` (raw base64, one call, up to 64 KiB), whole domains → `dump_memory` or the `bizhawk://read/{domain}/{range}` resource.
 
-## Tools (87)
+## Tools (94)
 
 Every tool is registered with a JSON schema, so clients get typed params and descriptions. Result convention: a single text blob (`content[0].text`) — JSON when the description says so, plain strings otherwise.
 
@@ -216,17 +216,32 @@ Core-specific tools are named with a system prefix on purpose; generic tools kee
 ### Requirements
 
 - A BizHawk install with the **same layout as the official zips** (release or dev): `EmuHawk.exe` at the root, assemblies in `dll/`. The dev build used here is pinned to commit [`ed78f70a`](bizhawk.build) (2.11.2).
-- .NET SDK 8+ to build (builds fine on Windows **and** Linux/WSL; the target framework is `net48`, so the DLL loads on both the .NET 8 Windows runtime and Mono on Linux).
+- .NET SDK 8+ to build. Supported build hosts:
+  - **Windows** native (`net48` loads on the .NET 8 EmuHawk runtime).
+  - **WSL/Linux building for a Windows install** (the repo's original setup — EmuHawk runs on Windows, you build from WSL via `/mnt/...`).
+  - **Linux** building for a Linux BizHawk (Mono EmuHawk).
+  The CI builds all of them (see [CI & releases](#ci--releases-github-actions)).
+
+### Setup (first time)
+
+1. `cp .env.example .env`
+2. Edit `.env` and set `BIZHAWK_INSTALL` to your BizHawk install directory, in the form that matches where you BUILD:
+   ```dotenv
+   # Windows native:        BIZHAWK_INSTALL=F:\path\to\BizHawk-dev-windows
+   # WSL → Windows install: BIZHAWK_INSTALL=/mnt/f/path/to/BizHawk-dev-windows
+   # Linux (Mono):          BIZHAWK_INSTALL=/opt/BizHawk-linux
+   ```
+   The scripts (`deploy.sh`/`test.sh`/...) and the build (`Directory.Build.props`) read it automatically. `.env` is gitignored; `.env.example` documents every option (also `BIZHAWK_MCP_HOST`/`PORT` for the runtime listener and `DOTNET_ROOT` when the SDK isn't on PATH).
 
 ### Build & deploy
 
 ```bash
-./scripts/deploy.sh                 # WSL/Linux — auto-detects the install dir
+./scripts/deploy.sh                 # WSL/Linux — reads BIZHAWK_INSTALL from .env
 # or
-powershell -File scripts/deploy.ps1 # Windows
+powershell -File scripts/deploy.ps1 # Windows — reads .env too
 ```
 
-`BIZHAWK_INSTALL=/path/to/BizHawk ./scripts/deploy.sh` overrides the install dir (see `Directory.Build.props` for the auto-detected paths). The Release build copies `BizHawkMcp.dll` + its NuGet deps into `<install>/ExternalTools/`, which EmuHawk's `ExternalToolManager` watches with a `FileSystemWatcher` — no restart needed. Run the tests with `./scripts/test.sh` (net8.0 + xunit, no BizHawk needed).
+The Release build copies `BizHawkMcp.dll` + its NuGet deps into `<install>/ExternalTools/`, which EmuHawk's `ExternalToolManager` watches with a `FileSystemWatcher` — no restart needed. Run the tests with `./scripts/test.sh` (net8.0 + xunit, no BizHawk needed). Override the install dir for a single run with `BIZHAWK_INSTALL=/path ./scripts/deploy.sh` or `-p:BizHawkInstallDir=<path>` for `dotnet build`.
 
 ### Loading in EmuHawk
 
@@ -236,10 +251,14 @@ powershell -File scripts/deploy.ps1 # Windows
 
 ### Configuration
 
+All of these can live in `.env` (see [Setup](#setup-first-time)) or the process environment.
+
 | Env var | Default | Meaning |
 |---|---|---|
-| `BIZHAWK_MCP_HOST` | `127.0.0.1` | Bind address for the HTTP listener |
-| `BIZHAWK_MCP_PORT` | `8767` | Port |
+| `BIZHAWK_INSTALL` | auto-detected (legacy paths) | BizHawk "output tree" used at build/deploy time (MSBuild reads it) |
+| `BIZHAWK_MCP_HOST` | `127.0.0.1` | Bind address for the HTTP listener (read at runtime by the plugin) |
+| `BIZHAWK_MCP_PORT` | `8767` | Port (read at runtime by the plugin) |
+| `DOTNET_ROOT` | `~/.dotnet` auto-detect | Where the .NET SDK lives when `dotnet` isn't on PATH (WSL) |
 
 ### opencode
 
@@ -265,7 +284,7 @@ Implemented subset of MCP **Streamable HTTP** (protocol version `2025-06-18`):
 - `POST /mcp` — stateless JSON-RPC 2.0 (no sessions); notifications return `202`.
 - `GET /mcp` with `Accept: text/event-stream` — SSE stream with an `endpoint` event + keepalive comments; the first stream of each server lifetime carries a `notifications/tools/list_changed` message (a redeployed DLL may serve a different tool list).
 - Methods: `initialize`, `ping`, `tools/list`, `tools/call`, `resources/list`, `resources/read`, `prompts/list`, `prompts/get` (`memory_research`, `tas_frame`).
-- **Resources** serve binary artifacts back to the client: `bizhawk_screenshot` and `bizhawk_genesis_read_plane` save PNGs on the host (default dir `<temp>/bizhawk-mcp/`) and return a `bizhawk://` URI; `resources/read` returns the bytes as base64 `blob` with the correct mimeType. The `bizhawk://read/{domain}/{start}:{end}` resource template serves raw memory ranges (up to 256 KiB).
+- **Resources** serve binary artifacts back to the client: `bizhawk_screenshot` and `bizhawk_genesis_read_plane` save PNGs on the host (default dir `<temp>/bizhawk-mcp/`) and return a `bizhawk://` URI; `resources/read` returns the bytes as base64 `blob` with the correct mimeType. Resource templates: `bizhawk://read/{domain}/{start}:{end}` (raw memory ranges, up to 256 KiB) and `bizhawk://lua-docs/{library}` (the Lua API reference as JSON — also available as the static `bizhawk://lua-docs` and the `bizhawk_lua_docs` tool).
 - Not implemented (yet): sessions (`mcp-session-id`), server-initiated SSE messages, resource subscriptions.
 
 Smoke test with curl:
@@ -294,15 +313,17 @@ curl -s -X POST http://127.0.0.1:8767/mcp/ -H 'Content-Type: application/json' \
 
 `.github/workflows/build-and-release.yml`:
 
-- Matrix over **stable** (latest BizHawk release tag from the GitHub API) and **dev** (latest dev build via nightly.link) — downloads the official Windows zip, extracts `dll/`, builds the tool against it, and uploads `BizHawkMcp-<flavor>-<bizhawk-tag>.zip` (tool DLL + deps only, no BizHawk assemblies).
+- Matrix: **flavor** (`stable` = latest BizHawk release tag from the GitHub API, `dev` = latest dev build via nightly.link) × **platform** (`win`, `linux`) — downloads the official zip/tarball, extracts `dll/`, builds the tool against it, and uploads `BizHawkMcp-<flavor>-<platform>-<bizhawk-label>.zip` (tool DLL + deps only, no BizHawk assemblies).
 - Trigger: `workflow_dispatch` (manual) or pushing a `v*` tag — on tag push the zips are attached to a GitHub release (notes from `CHANGELOG.md`).
-- The whole build runs on `ubuntu-latest`; no Windows runners needed.
+- Everything runs on `ubuntu-latest`; the Linux flavor validates the Mono target.
 
 ## Project layout
 
 ```
+.env.example                   # documented configuration template (copy to .env)
+.env                           # your local config (gitignored): BIZHAWK_INSTALL etc.
 bizhawk.build                  # pinned BizHawk commit the tool compiles against
-Directory.Build.props          # BizHawkInstallDir auto-detection
+Directory.Build.props          # BizHawkInstallDir resolution (env → legacy → error)
 opencode.mcp.example.json      # opencode remote-MCP config
 src/BizHawkMcp/
   BizHawkMcp.csproj            # net48, refs the installed dll/ assemblies
@@ -312,7 +333,8 @@ src/BizHawkMcp/
   Mcp/JsonRpc.cs               # JSON-RPC 2.0 / MCP helpers
   Mcp/McpHttpServer.cs         # HttpListener-based Streamable HTTP server
 scripts/
-  deploy.sh / deploy.ps1       # build + copy into <install>/ExternalTools
+  load-env.sh                  # sources .env + locates the .NET SDK (sourced by the others)
+  deploy.sh / deploy.ps1       # build + copy into <install>/ExternalTools (read .env)
   test.sh                      # unit tests (net8.0 + xunit, no BizHawk needed)
   fetch-source.sh              # optional source checkout at the pinned commit
   bump-bizhawk.sh              # half-automated BizHawk version bump
@@ -325,6 +347,13 @@ docs/
 TODO.md                        # improvement ideas (protocol, tools, robustness)
 AGENTS.md                      # orientation + hard constraints for AI agents
 ```
+
+## Troubleshooting
+
+- **`BizHawk install dir not found`** at build time — `BIZHAWK_INSTALL` isn't set and no auto-detected path exists. Copy `.env.example` to `.env`, set `BIZHAWK_INSTALL` (see [Setup](#setup-first-time)), or pass `-p:BizHawkInstallDir=<path>`.
+- **Deploy fails with `MSB3021`** — EmuHawk locks loaded DLLs while the tool form is open. Close the **BizHawk MCP Server** form (or EmuHawk), then deploy again.
+- **`dotnet: command not found`** in WSL — install the SDK via `dotnet-install.sh` (default `~/.dotnet`, auto-detected) or set `DOTNET_ROOT` in `.env`.
+- **Port already in use** — set `BIZHAWK_MCP_PORT` (and `BIZHAWK_MCP_HOST`) in `.env`, and make sure the EmuHawk process that hosts the plugin gets them (export before launching EmuHawk).
 
 ## Roadmap
 
