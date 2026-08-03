@@ -40,6 +40,10 @@ Legend: `[x]` done · `[~]` partially done / covered by another tool · `[ ]` op
   fired on real gpgx; the fake `Fire` called every callback unconditionally so
   tests missed it. Now `AddressMask => 0xFFFFFFFF` and the fake replicates the
   address filter.)
+- [x] **Watchpoint context dump** (`bizhawk_watchpoint_wait` `context_bytes: N`):
+  on a hit, also returns full registers, the PC + disassembled instruction,
+  and N raw bytes around the hit address (context.start/bytes/hit_offset).
+  Turns "who writes mainFunction?" into a one-call answer.
 - [ ] **Polling watchpoint** (`bizhawk_watch_change`): frame-stepping variant that
   watches an address and returns the frame + value the moment it changes, using
   the existing `wait_until`/`ram_diff` infra — works on ANY core (no callbacks

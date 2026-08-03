@@ -246,8 +246,9 @@ namespace BizHawkMcp
 				Param("name", "string", "Watchpoint name."),
 			]),
 			Tool("bizhawk_watchpoint_list", "List registered memory watchpoints (JSON).", []),
-			Tool("bizhawk_watchpoint_wait", "Advance frames until a registered watchpoint fires (or timeout). Pauses when done. Returns the hit: watchpoint name, type, address and value.", [
+			Tool("bizhawk_watchpoint_wait", "Advance frames until a registered watchpoint fires (or timeout). Pauses when done. On a hit with \"context_bytes\": N > 0, also returns full registers, the PC + disassembled instruction, and N raw bytes around the hit address (context.start/bytes/hit_offset). Returns the hit: watchpoint name, type, address and value.", [
 				Param("timeout_frames", "integer", "Max frames to advance, 1..600.", 600),
+				Param("context_bytes", "integer", "Bytes of RAM to include around the hit address (0..512; 0 = no context).", 0),
 			]),
 			Tool("bizhawk_trace", "Advance N frames and sample the CPU each step: frame, PC, and disassembly at PC (JSON).", [
 				Param("count", "integer", "Frames to trace, 1..600.", 60),
@@ -1510,8 +1511,14 @@ namespace BizHawkMcp
 		private string WatchpointWait(JsonElement? args)
 		{
 			int timeout = 600;
-			if (args is { } a && a.ValueKind == JsonValueKind.Object) timeout = RequireInt(a, "timeout_frames", 600);
+			int contextBytes = 0;
+			if (args is { } a && a.ValueKind == JsonValueKind.Object)
+			{
+				timeout = RequireInt(a, "timeout_frames", 600);
+				contextBytes = RequireInt(a, "context_bytes", 0);
+			}
 			if (timeout is < 1 or > 600) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "timeout_frames must be 1..600");
+			if (contextBytes is < 0 or > 512) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "context_bytes must be 0..512");
 			if (_watchpoints.Count == 0) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "no watchpoints registered; add one with bizhawk_watchpoint_add first");
 
 			_wpFired = false;
@@ -1534,7 +1541,7 @@ namespace BizHawkMcp
 			}
 
 			bool matched = _wpFired;
-			return JsonRpc.Pretty(new Dictionary<string, object?>
+			var result = new Dictionary<string, object?>
 			{
 				["matched"] = matched,
 				["frames"] = matched ? frames + 1 : frames,
@@ -1543,7 +1550,46 @@ namespace BizHawkMcp
 				["address"] = _wpAddr,
 				["value"] = _wpValue,
 				["framecount"] = _tool.Emulation!.FrameCount(),
-			});
+			};
+
+			if (matched && contextBytes > 0)
+			{
+				result["context_bytes"] = contextBytes;
+				result["registers"] = _tool.Emulation!.GetRegisters();
+				var regs = _tool.Emulation!.GetRegisters();
+				uint pc = (uint)FindRegister(regs, "PC");
+				try
+				{
+					var (disasm, _) = _tool.Emulation!.Disassemble(pc);
+					result["pc"] = pc;
+					result["instruction"] = disasm;
+				}
+				catch
+				{
+					// disasm at an odd address can fail; don't fail the whole wait
+					result["pc"] = pc;
+					result["instruction"] = null;
+				}
+
+				// dump bytes around the hit address on the watchpoint's scope
+				var wp = _watchpoints.Find(w => w.Name == _wpName);
+				if (wp != null)
+				{
+					long start = (long)Math.Max(0, (long)_wpAddr - contextBytes / 2);
+					int half = contextBytes / 2;
+					var raw = _tool.Memory!.ReadByteRange(start, Math.Min(contextBytes, 512), wp.Scope);
+					var sb = new System.Text.StringBuilder();
+					for (var i = 0; i < raw.Count; i++) sb.Append(raw[i].ToString("X2")).Append(' ');
+					result["context"] = new Dictionary<string, object?>
+					{
+						["start"] = start,
+						["bytes"] = sb.ToString().TrimEnd(),
+						["hit_offset"] = (long)_wpAddr - start,
+					};
+				}
+			}
+
+			return JsonRpc.Pretty(result);
 		}
 
 		private sealed class MemoryCallbackImpl : IMemoryCallback

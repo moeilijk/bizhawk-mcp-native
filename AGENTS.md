@@ -3,7 +3,7 @@
 Guidance for AI agents (and humans) working on this repository.
 
 - **Documentation index:** `docs/` — `ARCHITECTURE.md`, `MCP-PROTOCOL.md`, `DEVELOPMENT.md`, `CI-RELEASES.md`. When in doubt, read the relevant doc before editing. Improvement ideas live in `TODO.md`.
-- **Current status (2026-08-02):** 60 tools verified end-to-end against the user's BizHawk dev build (2.11.2, commit `ed78f70a`, Windows via WSL). Server advertises `tools` + `resources` capabilities over `http://127.0.0.1:8767/mcp/`; 129 unit tests (`./scripts/test.sh`) pass on Linux without BizHawk. Deployed to `F:\projects\kid\emulators\BizHawk-dev-windows\ExternalTools\`. Test loop: an agent tests against Kid Chameleon (UE) on the Genesis gpgx waterbox core.
+- **Current status (2026-08-02):** 60 tools verified end-to-end against the user's BizHawk dev build (2.11.2, commit `ed78f70a`, Windows via WSL). Server advertises `tools` + `resources` capabilities over `http://127.0.0.1:8767/mcp/`; 132 unit tests (`./scripts/test.sh`) pass on Linux without BizHawk. Deployed to `F:\projects\kid\emulators\BizHawk-dev-windows\ExternalTools\`. Test loop: an agent tests against Kid Chameleon (UE) on the Genesis gpgx waterbox core.
 
 ## What this is
 
@@ -64,7 +64,7 @@ Recipe with code in `docs/DEVELOPMENT.md`. In short: add a `Tool(...)` descripto
 
 - No in-memory savestates: `IMemorySaveStateApi` is not registered by the provider, so only disk-based `bizhawk_save_state`/`load_state` exist.
 - Watchers/breakpoints are **polling-based** (`bizhawk_watch_*`, `bizhawk_wait_until`) OR **real watchpoints** (`bizhawk_watchpoint_*`) — the latter use `IDebuggable.MemoryCallbacks` reached via reflection on `EmulationApi.DebuggableCore` (private `[OptionalService]`). **Only the Genesis gpgx waterbox core exposes memory callbacks**; every other core returns a clear `INVALID_PARAMS` error. No per-instruction stepping exists (`CanStep` is false on gpgx) — `bizhawk_trace` samples PC per frame.
-- Watchpoint callbacks fire on the **core's thread**; they only set volatile flags, and `bizhawk_watchpoint_wait` does the frame-advancing on the UI thread. Do NOT call any emulator API from inside a callback.
+- Watchpoint callbacks fire on the **core's thread**; they only set volatile flags, and `bizhawk_watchpoint_wait` does the frame-advancing on the UI thread. Do NOT call any emulator API from inside a callback. `watchpoint_wait` with `context_bytes: N` (>0) dumps registers + PC/disasm + N raw bytes around the hit on success. Also note `MemoryCallbackImpl.AddressMask` must stay `0xFFFFFFFF` (not null) or address-specific watchpoints silently never fire.
 - Streamable HTTP subset: no sessions, no server-initiated messages, `GET` SSE is endpoint + keepalive only.
 - `bizhawk_frame_advance` pumps `Application.DoEvents` between frames so the UI stays responsive; long counts (max 600) are intentionally capped.
 - `bizhawk_screenshot`/`save_state`/`load_state` paths are host-side (Windows paths when EmuHawk runs on Windows). `bizhawk_screenshot` returns the effective path plus a `bizhawk://` resource URI; `resources/read` serves the PNG as base64.

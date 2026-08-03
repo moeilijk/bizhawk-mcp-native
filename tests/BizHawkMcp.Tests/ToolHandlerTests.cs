@@ -855,6 +855,55 @@ namespace BizHawkMcp.Tests
 		}
 
 		[Fact]
+		public void Watchpoint_wait_context_dump_on_hit()
+		{
+			var dbg = _apis.EnableWatchpoints();
+			_apis.EmuClientApi.Paused = true;
+			_apis.MemoryApi.Bytes[0x24D0] = 0xAA;
+			_apis.MemoryApi.Bytes[0x24D1] = 0xBB;
+			_apis.MemoryApi.Bytes[0x24D2] = 0xCC;
+			_apis.MemoryApi.Bytes[0x24D3] = 0xDD;
+			_ts.Call("bizhawk_watchpoint_add", TestHelpers.Js("{\"name\":\"wp1\",\"type\":\"write\",\"address\":16776200}"));
+			// hit address 16776200 (= 0x1000208); scope M68K BUS (16 MiB)
+			var frame = 0;
+			_apis.EmuClientApi.OnFrameAdvance = () =>
+			{
+				if (++frame == 2) dbg.Callbacks.Fire(16776200, 0x42);
+			};
+
+			var res = Parse(_ts.Call("bizhawk_watchpoint_wait", TestHelpers.Js("{\"timeout_frames\":10,\"context_bytes\":64}")));
+			Assert.True(res.GetProperty("matched").GetBoolean());
+			// registers captured on the hit
+			Assert.Equal((ulong)0xFFFBCA, res.GetProperty("registers").GetProperty("M68K PC").GetUInt64());
+			// PC + disassembly of the current instruction
+			Assert.Equal((ulong)0xFFFBCA, res.GetProperty("pc").GetUInt64());
+			Assert.Equal("MOVE.L D0,D1", res.GetProperty("instruction").GetString());
+			// raw bytes around the hit
+			var ctx = res.GetProperty("context");
+			Assert.Equal(64, ctx.GetProperty("bytes").GetString()!.Split(' ').Length);
+			Assert.True(ctx.TryGetProperty("start", out _));
+			Assert.True(ctx.TryGetProperty("hit_offset", out _));
+		}
+
+		[Fact]
+		public void Watchpoint_wait_context_off_by_default()
+		{
+			var dbg = _apis.EnableWatchpoints();
+			_apis.EmuClientApi.Paused = true;
+			_ts.Call("bizhawk_watchpoint_add", TestHelpers.Js("{\"name\":\"wp1\",\"type\":\"write\"}"));
+			var frame = 0;
+			_apis.EmuClientApi.OnFrameAdvance = () =>
+			{
+				if (++frame == 1) dbg.Callbacks.Fire(100, 0x01);
+			};
+
+			var res = Parse(_ts.Call("bizhawk_watchpoint_wait", TestHelpers.Js("{\"timeout_frames\":10}")));
+			Assert.True(res.GetProperty("matched").GetBoolean());
+			Assert.False(res.TryGetProperty("registers", out _));
+			Assert.False(res.TryGetProperty("context", out _));
+		}
+
+		[Fact]
 		public void Watchpoint_wait_times_out()
 		{
 			_apis.EnableWatchpoints();
