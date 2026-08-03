@@ -31,6 +31,62 @@ namespace BizHawkMcp
 		{
 			_tool = tool;
 			_ui = ui;
+			LoadPersistedSymbols();
+		}
+
+		// Symbols persist across EmuHawk restarts via the plugin's user data
+		// store (key "mcp.symbols", JSON array). Saved on every mutation.
+		private const string SymbolsUserKey = "mcp.symbols";
+
+		private void LoadPersistedSymbols()
+		{
+			try
+			{
+				var raw = _tool.UserData?.Get(SymbolsUserKey) as string;
+				if (string.IsNullOrEmpty(raw)) return;
+				using var doc = JsonDocument.Parse(raw);
+				JsonElement arr = doc.RootElement.ValueKind == JsonValueKind.Array
+					? doc.RootElement
+					: doc.RootElement.TryGetProperty("symbols", out var inner) && inner.ValueKind == JsonValueKind.Array ? inner : default;
+				if (arr.ValueKind != JsonValueKind.Array) return;
+				foreach (var s in arr.EnumerateArray())
+				{
+					string? name = s.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String ? n.GetString() : null;
+					if (name == null) continue;
+					long address = s.TryGetProperty("address", out var ad) && ad.ValueKind == JsonValueKind.Number ? ad.GetInt64() : 0;
+					int width = s.TryGetProperty("width", out var w) && w.ValueKind == JsonValueKind.Number ? w.GetInt32() : 8;
+					string? domain = s.TryGetProperty("domain", out var d) && d.ValueKind == JsonValueKind.String ? d.GetString() : null;
+					_symbols[name] = new Symbol { Address = address, Width = width, Domain = domain };
+				}
+			}
+			catch
+			{
+				// corrupt/old payload: start empty rather than crash the tool
+			}
+		}
+
+		private void SaveSymbols()
+		{
+			try
+			{
+				var arr = new List<object?>();
+				foreach (var kv in _symbols)
+				{
+					var s = kv.Value;
+					arr.Add(new Dictionary<string, object?>
+					{
+						["name"] = kv.Key,
+						["address"] = s.Address,
+						["width"] = s.Width,
+						["domain"] = s.Domain,
+					});
+				}
+				_tool.UserData?.Set(SymbolsUserKey, JsonRpc.Pretty(new Dictionary<string, object?> { ["symbols"] = arr }));
+			}
+			catch
+			{
+				// persisting is best-effort; the in-memory table still works
+			}
 		}
 
 		public IReadOnlyList<Dictionary<string, object?>> ToolSchemas { get; } =
@@ -114,6 +170,19 @@ namespace BizHawkMcp
 			]),
 			Tool("bizhawk_write_many", "Write several values in one call (up to 256; non-contiguous). Each item accepts \"address\" or symbol \"name\", width, value and optional \"endianness\" as bizhawk_read_memory (default \"auto\" = each item's domain).", [
 				Param("items", "array", "Array of {\"address\": int | \"name\": string, \"width\"?: 8|16|32, \"value\": int, \"domain\"?: string, \"endianness\"?: \"big\"|\"little\"|\"auto\"}."),
+			]),
+			Tool("bizhawk_start_fixture", "Scripted fixture capture: advance N frames (optionally after a \"delay\" to skip title screens) with an input timeline, sampling a set of addresses/symbols each frame, and write the result as CSV to a host-side path (default: temp dir). Replaces the manual capture_fixture.lua flow.", [
+				Param("frames", "integer", "Frames to run and sample, 1..600."),
+				Param("samples", "array", "Array of {\"address\": int | \"name\": string, \"width\"?: 8|16|32, \"domain\"?: string} to sample each frame."),
+				Param("inputs", "array", "Optional input timeline: [{\"frame\": int, \"buttons\": {button: bool}, \"controller\"?: int}]. Applied for the NEXT frame."),
+				Param("delay", "integer", "Frames to advance before sampling starts (skip title screens), 0..600.", 0),
+				Param("path", "string", "Optional absolute CSV path writable by EmuHawk (default: temp dir)."),
+			]),
+			Tool("bizhawk_read_struct", "Read relative-offset fields from a base address or symbol in one frame-consistent pass. Returns {base, domain, fields: [{name, offset, address, value, endianness}]}. Replaces hand-rolled sprObjectOffsets arithmetic.", [
+				Param("address", "integer", "Base offset in the domain, or use a symbol \"name\" instead."),
+				Param("name", "string", "Symbol name registered via bizhawk_symbols_set (overrides address/domain)."),
+				Param("fields", "array", "Array of {\"name\": string, \"offset\": int, \"width\"?: 8|16|32, \"endianness\"?: \"big\"|\"little\"|\"auto\"}."),
+				Param("domain", "string", "Optional domain override (defaults to the base's domain or current)."),
 			]),
 			Tool("bizhawk_dump_memory", "Dump an entire memory domain to a host-side file (also exposed as a bizhawk:// resource). Omit \"path\" to save into the host temp dir (bizhawk-mcp).", [
 				Param("domain", "string", "Domain name to dump (defaults to current)."),
@@ -284,6 +353,8 @@ namespace BizHawkMcp
 				"bizhawk_read_many" => _ui.Invoke(() => ReadMany(args)),
 				"bizhawk_write_range" => _ui.Invoke(() => WriteRange(args)),
 				"bizhawk_write_many" => _ui.Invoke(() => WriteMany(args)),
+				"bizhawk_start_fixture" => _ui.Invoke(() => StartFixture(args)),
+				"bizhawk_read_struct" => _ui.Invoke(() => ReadStruct(args)),
 				"bizhawk_dump_memory" => _ui.Invoke(() => DumpMemory(args)),
 				"bizhawk_ram_snapshot" => _ui.Invoke(() => RamSnapshot(args)),
 				"bizhawk_ram_diff" => _ui.Invoke(() => RamDiff(args)),
@@ -878,6 +949,164 @@ namespace BizHawkMcp
 			return $"wrote {written} value(s)";
 		}
 
+		// ── fixture capture ─────────────────────────────────────────────────────
+		// Orchestrates a scripted capture: advance N frames with an input
+		// timeline, sampling a set of addresses/symbols each frame (frame-atomic,
+		// like read_many consistent:true), and write the result as CSV. This is
+		// the direct replacement for the manual capture_fixture.lua flow — the
+		// CSV lands on the host disk in one call.
+
+		private string StartFixture(JsonElement? args)
+		{
+			var a = Required(args);
+			int frames = RequireInt(a, "frames", 0);
+			if (frames is < 1 or > 600) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "frames must be 1..600");
+			int delay = RequireInt(a, "delay", 0);
+			if (delay is < 0 or > 600) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "delay must be 0..600");
+			if (!a.TryGetProperty("samples", out var samples) || samples.ValueKind != JsonValueKind.Array)
+				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "samples must be an array of {\"name\"|\"address\", width?, domain?}");
+			if (samples.GetArrayLength() is < 1 or > 256)
+				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "samples must contain 1..256 entries");
+
+			// resolve every sample once: name (symbol) or address + width + domain
+			var resolved = new List<(string label, long address, int width, string? domain, bool bigEndian)>();
+			foreach (var s in samples.EnumerateArray())
+			{
+				if (s.ValueKind != JsonValueKind.Object) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "each sample must be an object");
+				var (address, width, domain) = ResolveTarget(s);
+				bool bigEndian = ResolveBigEndian(s, domain);
+				string label = OptionalString(s, "name") ?? $"{domain ?? "?"}@{address:X}";
+				resolved.Add((label, address, width, domain, bigEndian));
+			}
+
+			// input timeline: frame → buttons/controller
+			var timeline = new Dictionary<int, (IReadOnlyDictionary<string, bool> buttons, int? controller)>();
+			if (a.TryGetProperty("inputs", out var inputs) && inputs.ValueKind == JsonValueKind.Array)
+			{
+				foreach (var i in inputs.EnumerateArray())
+				{
+					if (i.ValueKind != JsonValueKind.Object) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "each input must be an object");
+					int at = RequireInt(i, "frame", 0);
+					if (at is < 0 or > 600) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "input frame must be 0..600");
+					if (!i.TryGetProperty("buttons", out var btns) || btns.ValueKind != JsonValueKind.Object)
+						throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "input.buttons must be an object {button: bool}");
+					int? controller = i.TryGetProperty("controller", out var c) && c.ValueKind == JsonValueKind.Number ? c.GetInt32() : 1;
+					var map = new Dictionary<string, bool>();
+					foreach (var prop in btns.EnumerateObject()) map[prop.Name] = prop.Value.GetBoolean();
+					timeline[at] = (map, controller);
+				}
+			}
+
+			string? path = OptionalString(a, "path");
+			if (string.IsNullOrEmpty(path))
+			{
+				var dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "bizhawk-mcp");
+				System.IO.Directory.CreateDirectory(dir);
+				path = System.IO.Path.Combine(dir, $"fixture-{DateTime.Now:yyyyMMdd-HHmmss}.csv");
+			}
+
+			bool wasPaused = _tool.EmuClient!.IsPaused();
+			if (wasPaused) _tool.EmuClient!.Unpause();
+			try
+			{
+				// optional leading delay (skip title screens, reach gameplay)
+				for (var i = 0; i < delay; i++)
+				{
+					_tool.EmuClient!.DoFrameAdvance();
+					System.Windows.Forms.Application.DoEvents();
+				}
+
+				var lines = new System.Text.StringBuilder();
+				lines.Append("frame");
+				foreach (var (label, _, _, _, _) in resolved) lines.Append(',').Append(label);
+				lines.AppendLine();
+
+				for (var f = 0; f < frames; f++)
+				{
+					if (timeline.TryGetValue(f, out var ev)) _tool.Joypad!.Set(ev.buttons, ev.controller);
+					_tool.EmuClient!.DoFrameAdvance();
+					System.Windows.Forms.Application.DoEvents();
+
+					// sample after the frame, while paused-at-frame (single step)
+					lines.Append(f);
+					foreach (var (_, address, width, domain, bigEndian) in resolved)
+					{
+						ulong v = width switch
+						{
+							8 => _tool.Memory!.ReadByte(address, domain),
+							16 or 32 => ReadValue(address, width, domain, bigEndian),
+							_ => 0,
+						};
+						lines.Append(',').Append(v);
+					}
+					lines.AppendLine();
+				}
+
+				System.IO.File.WriteAllText(path, lines.ToString());
+				return JsonRpc.Pretty(new Dictionary<string, object?>
+				{
+					["path"] = path,
+					["frames"] = frames,
+					["samples"] = resolved.Count,
+					["row_count"] = frames,
+				});
+			}
+			finally
+			{
+				if (wasPaused) _tool.EmuClient!.Pause();
+			}
+		}
+
+		// ── struct reads ───────────────────────────────────────────────────────
+		// Read a set of relative-offset fields from a base address (or symbol),
+		// all in one frame-consistent pass. Replaces hand-rolled sprObjectOffsets
+		// arithmetic: define the struct once, read it per frame.
+
+		private string ReadStruct(JsonElement? args)
+		{
+			var a = Required(args);
+			var (baseAddr, _, baseDomain) = ResolveTarget(a); // accepts "address" or "name"
+			if (!a.TryGetProperty("fields", out var fields) || fields.ValueKind != JsonValueKind.Array)
+				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "fields must be an array of {\"name\", \"offset\", width?, endianness?}");
+			if (fields.GetArrayLength() is < 1 or > 256)
+				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "fields must contain 1..256 entries");
+
+			string? domain = OptionalString(a, "domain") ?? baseDomain;
+			var outFields = new List<object?>();
+			foreach (var f in fields.EnumerateArray())
+			{
+				if (f.ValueKind != JsonValueKind.Object) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "each field must be an object");
+				string fieldName = RequireString(f, "name");
+				int offset = RequireInt(f, "offset", 0);
+				int width = RequireInt(f, "width", 8);
+				if (width is not (8 or 16 or 32)) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"field {fieldName}: width must be 8, 16 or 32");
+				// per-field endianness (defaults to the domain, like the rest)
+				bool bigEndian = ResolveBigEndian(f, domain);
+				long address = ValidateAddress(baseAddr + offset, width, domain);
+				ulong value = width switch
+				{
+					8 => _tool.Memory!.ReadByte(address, domain),
+					16 or 32 => ReadValue(address, width, domain, bigEndian),
+					_ => 0,
+				};
+				outFields.Add(new Dictionary<string, object?>
+				{
+					["name"] = fieldName,
+					["offset"] = offset,
+					["address"] = address,
+					["value"] = value,
+					["endianness"] = EndianName(bigEndian),
+				});
+			}
+
+			return JsonRpc.Pretty(new Dictionary<string, object?>
+			{
+				["base"] = baseAddr,
+				["domain"] = domain,
+				["fields"] = outFields,
+			});
+		}
+
 		private static int To8Bit(int v, int mask) => (v * 255) / mask;
 
 		private static string Hex(byte[] bytes)
@@ -1269,7 +1498,8 @@ namespace BizHawkMcp
 				_symbols[name] = new Symbol { Address = address, Width = width, Domain = domain };
 				added++;
 			}
-			return $"registered {added} symbol(s)";
+			SaveSymbols();
+			return $"registered {added} symbol(s) (persisted)";
 		}
 
 		private string SymbolsList()
@@ -1293,7 +1523,8 @@ namespace BizHawkMcp
 		{
 			int n = _symbols.Count;
 			_symbols.Clear();
-			return $"cleared {n} symbol(s)";
+			SaveSymbols();
+			return $"cleared {n} symbol(s) (persisted)";
 		}
 
 		// Resolves a read/write request: either an explicit address (with

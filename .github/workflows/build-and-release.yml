@@ -10,11 +10,12 @@ env:
 
 jobs:
   build:
-    name: build (${{ matrix.flavor }})
+    name: build (${{ matrix.flavor }}/${{ matrix.platform }})
     strategy:
       fail-fast: false
       matrix:
         flavor: [stable, dev]
+        platform: [win, linux]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -25,29 +26,65 @@ jobs:
 
       - name: Resolve BizHawk build to compile against
         id: resolve
+        env:
+          FLAVOR: ${{ matrix.flavor }}
+          PLATFORM: ${{ matrix.platform }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          case "${{ matrix.flavor }}" in
-            stable)
-              JSON="$(curl -fsSL https://api.github.com/repos/TASEmulators/BizHawk/releases/latest)"
-              TAG="$(echo "$JSON" | grep -oP '"tag_name": "\K[^"]+')"
-              URL="$(echo "$JSON" | grep -oP '"browser_download_url": "\K[^"]+win-x64[^"]*\.zip')"
-              ;;
-            dev)
-              TAG="dev"
-              URL="https://nightly.link/TASEmulators/BizHawk/workflows/ci/master/BizHawk-dev-windows.zip"
-              ;;
-          esac
-          echo "bizhawk_tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "bizhawk_url=$URL" >> "$GITHUB_OUTPUT"
+          python3 - <<'EOF'
+          import json, os, subprocess
+
+          def get(url):
+              return json.loads(subprocess.run(
+                  ["curl", "-fsSL", "-H", f"Authorization: token {os.environ['GH_TOKEN']}", url],
+                  capture_output=True, text=True).stdout)
+
+          flavor = os.environ["FLAVOR"]
+          platform = os.environ["PLATFORM"]
+          if flavor == "stable":
+              rel = get("https://api.github.com/repos/TASEmulators/BizHawk/releases/latest")
+              tag = rel["tag_name"]
+              commit = get(f"https://api.github.com/repos/TASEmulators/BizHawk/git/ref/tags/{tag}")["object"]["sha"]
+              suffix = f"{platform}-x64"
+              url = next(a["browser_download_url"] for a in rel["assets"] if suffix in a["name"])
+              label = tag
+          else:
+              runs = get("https://api.github.com/repos/TASEmulators/BizHawk/actions/runs?branch=master&workflow_id=ci.yml&status=completed&conclusion=success&per_page=1")
+              tag, commit = "dev", runs["workflow_runs"][0]["head_sha"]
+              slug = "windows" if platform == "win" else "linux"
+              url = f"https://nightly.link/TASEmulators/BizHawk/workflows/ci/master/BizHawk-dev-{slug}.zip"
+              label = commit[:7]
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"bizhawk_tag={tag}\n")
+              f.write(f"bizhawk_commit={commit}\n")
+              f.write(f"bizhawk_label={label}\n")
+              f.write(f"bizhawk_url={url}\n")
+          EOF
 
       - name: Download and extract BizHawk
+        env:
+          DL_URL: ${{ steps.resolve.outputs.bizhawk_url }}
         run: |
           mkdir -p bizhawk
-          curl -fsSL -o bizhawk.zip "${{ steps.resolve.outputs.bizhawk_url }}"
+          curl -fsSL -o bizhawk-dl "$DL_URL"
           python3 - <<'EOF'
-          import zipfile
-          with zipfile.ZipFile("bizhawk.zip") as z:
-              z.extractall("bizhawk")
+          import os, shutil, zipfile, tarfile
+          os.makedirs("bizhawk", exist_ok=True)
+          if os.environ["DL_URL"].endswith(".zip"):
+              with zipfile.ZipFile("bizhawk-dl") as z:
+                  z.extractall("bizhawk")
+          else:
+              with tarfile.open("bizhawk-dl") as t:
+                  t.extractall("bizhawk")
+          if not os.path.exists("bizhawk/EmuHawk.exe"):
+              subs = [d for d in os.listdir("bizhawk")
+                      if os.path.isdir(os.path.join("bizhawk", d))]
+              if len(subs) == 1:
+                  inner = os.path.join("bizhawk", subs[0])
+                  for name in os.listdir(inner):
+                      shutil.move(os.path.join(inner, name), os.path.join("bizhawk", name))
+                  os.rmdir(inner)
           EOF
           test -f bizhawk/dll/BizHawk.Client.Common.dll
           test -f bizhawk/EmuHawk.exe
@@ -62,7 +99,6 @@ jobs:
 
       - name: Package
         run: |
-          VERSION="${{ steps.resolve.outputs.bizhawk_tag }}"
           STAGE="staging"
           mkdir -p "$STAGE"
           cp src/BizHawkMcp/bin/Release/BizHawkMcp.dll "$STAGE/"
@@ -74,12 +110,34 @@ jobs:
           cp src/BizHawkMcp/bin/Release/System.Runtime.CompilerServices.Unsafe.dll "$STAGE/" || true
           cp src/BizHawkMcp/bin/Release/System.Threading.Tasks.Extensions.dll "$STAGE/" || true
           cp src/BizHawkMcp/bin/Release/Microsoft.Bcl.AsyncInterfaces.dll "$STAGE/" || true
-          zip -r "BizHawkMcp-${{ matrix.flavor }}-$VERSION.zip" "$STAGE"
+          TOOL_VERSION="${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || github.sha }}"
+          cat > "$STAGE/build-info.json" <<EOF
+          {
+            "tool": {
+              "name": "BizHawkMcp",
+              "version": "${TOOL_VERSION}",
+              "source_sha": "${{ github.sha }}"
+            },
+            "flavor": "${{ matrix.flavor }}",
+            "platform": "${{ matrix.platform }}",
+            "bizhawk": {
+              "tag": "${{ steps.resolve.outputs.bizhawk_tag }}",
+              "commit": "${{ steps.resolve.outputs.bizhawk_commit }}"
+            },
+            "built_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "workflow": {
+              "run_id": "${{ github.run_id }}",
+              "run_number": "${{ github.run_number }}",
+              "repository": "${{ github.repository }}"
+            }
+          }
+          EOF
+          (cd "$STAGE" && zip -r "../BizHawkMcp-${{ matrix.flavor }}-${{ matrix.platform }}-${{ steps.resolve.outputs.bizhawk_label }}.zip" .)
 
       - uses: actions/upload-artifact@v4
         with:
-          name: BizHawkMcp-${{ matrix.flavor }}
-          path: BizHawkMcp-${{ matrix.flavor }}-*.zip
+          name: BizHawkMcp-${{ matrix.flavor }}-${{ matrix.platform }}
+          path: BizHawkMcp-${{ matrix.flavor }}-${{ matrix.platform }}-*.zip
 
   release:
     name: publish release

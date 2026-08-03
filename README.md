@@ -95,6 +95,8 @@ Because the server lives inside EmuHawk, every opencode session connects to the 
 | `bizhawk_read_many` | `items` (addr/name + width/domain), `consistent?` | values (JSON, frame-consistent when `consistent`) |
 | `bizhawk_write_range` | `address`, `values` (bytes), `domain?` | `wrote N byte(s)` |
 | `bizhawk_write_many` | `items` (addr/name + width + value) | `wrote N value(s)` |
+| `bizhawk_start_fixture` | `frames`, `samples`, `inputs?`, `delay?`, `path?` | fixture CSV on host disk + `{path, frames, samples}` |
+| `bizhawk_read_struct` | `address`/`name`, `fields` (name/offset/width), `domain?` | fields with address/value/endianness (JSON) |
 | `bizhawk_dump_memory` | `domain?`, `path?` | `{path, size, resource}` (JSON) |
 | `bizhawk_ram_snapshot` | `domain?`, `label?` | snapshot captured |
 | `bizhawk_ram_diff` | `domain?`, `max_results?` | changed runs with old/new hex (JSON) |
@@ -138,7 +140,7 @@ Because the server lives inside EmuHawk, every opencode session connects to the 
 | `bizhawk_watchpoint_add` | `name`, `type` (read/write/execute), `address?`, `domain?` | registered (Genesis gpgx only) |
 | `bizhawk_watchpoint_remove` | `name` | removed/not found |
 | `bizhawk_watchpoint_list` | — | registered watchpoints (JSON) |
-| `bizhawk_watchpoint_wait` | `timeout_frames?` | hit: name/type/address/value (JSON) |
+| `bizhawk_watchpoint_wait` | `timeout_frames?`, `context_bytes?` | hit: name/type/address/value (JSON; +registers/PC/disasm/bytes with context_bytes) |
 | `bizhawk_trace` | `count`, `step?` | per-frame PC + disassembly samples (JSON) |
 | `bizhawk_screenshot` | `path?` | `{path, resource}` (JSON) — effective path + resource URI |
 | `bizhawk_save_state` | `path` | confirmation |

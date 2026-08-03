@@ -44,6 +44,15 @@ Legend: `[x]` done · `[~]` partially done / covered by another tool · `[ ]` op
   on a hit, also returns full registers, the PC + disassembled instruction,
   and N raw bytes around the hit address (context.start/bytes/hit_offset).
   Turns "who writes mainFunction?" into a one-call answer.
+- [x] **Fixture capture** (`bizhawk_start_fixture`): advance N frames with an
+  input timeline (frame → buttons), sampling a set of addresses/symbols each
+  frame, writing CSV straight to the host disk. Replaces the manual
+  `capture_fixture.lua` + copy-from-captures flow.
+- [x] **Struct reads** (`bizhawk_read_struct`): relative-offset fields from a
+  base address or symbol, frame-consistent, with per-field endianness. Turns
+  sprObjectOffsets into a reusable definition.
+- [x] **Persistent symbols**: `symbols_set`/`clear` now persist across EmuHawk
+  restarts via the user data store (key `mcp.symbols`).
 - [ ] **Polling watchpoint** (`bizhawk_watch_change`): frame-stepping variant that
   watches an address and returns the frame + value the moment it changes, using
   the existing `wait_until`/`ram_diff` infra — works on ANY core (no callbacks

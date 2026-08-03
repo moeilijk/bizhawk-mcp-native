@@ -569,6 +569,30 @@ namespace BizHawkMcp.Tests
 		}
 
 		[Fact]
+		public void Symbols_persist_across_toolset_restarts()
+		{
+			_ts.Call("bizhawk_symbols_set", TestHelpers.Js("{\"symbols\":[{\"name\":\"persisted\",\"address\":42,\"width\":16,\"domain\":\"68K RAM\"}]}"));
+			// a brand-new toolset sharing the same UserData store must reload them
+			var fresh = new McpToolset(_apis, new InlineDispatcher());
+			var res = Parse(fresh.Call("bizhawk_symbols_list", null));
+			var sym = res.GetProperty("symbols")[0];
+			Assert.Equal("persisted", sym.GetProperty("name").GetString());
+			Assert.Equal((long)42, sym.GetProperty("address").GetInt64());
+			Assert.Equal(16, sym.GetProperty("width").GetInt32());
+			Assert.Equal("68K RAM", sym.GetProperty("domain").GetString());
+		}
+
+		[Fact]
+		public void Symbols_clear_persists_empty()
+		{
+			_ts.Call("bizhawk_symbols_set", TestHelpers.Js("{\"symbols\":[{\"name\":\"x\",\"address\":1}]}"));
+			_ts.Call("bizhawk_symbols_clear", null);
+			var fresh = new McpToolset(_apis, new InlineDispatcher());
+			var res = Parse(fresh.Call("bizhawk_symbols_list", null));
+			Assert.Empty(res.GetProperty("symbols").EnumerateArray());
+		}
+
+		[Fact]
 		public void Dump_memory_writes_file_and_resource()
 		{
 			_apis.MemoryApi.Bytes[0] = 0xDE;
@@ -615,6 +639,80 @@ namespace BizHawkMcp.Tests
 			Assert.Equal((1, 2, 10, 20), _apis.GuiApi.LastRect);
 			_ts.Call("bizhawk_overlay_line", TestHelpers.Js("{\"x1\":0,\"y1\":0,\"x2\":5,\"y2\":5}"));
 			Assert.Equal((0, 0, 5, 5), _apis.GuiApi.LastLine);
+		}
+
+		[Fact]
+		public void Start_fixture_writes_csv_with_samples_per_frame()
+		{
+			var frames = 0;
+			_apis.EmuClientApi.OnFrameAdvance = () => { frames++; _apis.MemoryApi.Bytes[100] = (byte)frames; };
+			_apis.MemoryApi.Bytes[100] = 0;
+			_apis.EmuClientApi.Paused = true;
+			_ts.Call("bizhawk_symbols_set", TestHelpers.Js("{\"symbols\":[{\"name\":\"hp\",\"address\":100,\"width\":8}]}"));
+			string path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "bizhawk-mcp-test-fixture.csv");
+
+			var res = Parse(_ts.Call("bizhawk_start_fixture", TestHelpers.Js($"{{\"frames\":5,\"samples\":[{{\"name\":\"hp\"}}],\"path\":\"{path}\"}}")));
+			Assert.Equal(5, res.GetProperty("frames").GetInt32());
+			Assert.Equal(1, res.GetProperty("samples").GetInt32());
+			Assert.True(_apis.EmuClientApi.Paused); // pause restored
+
+			var lines = System.IO.File.ReadAllLines(path);
+			Assert.Equal(6, lines.Length); // header + 5 rows
+			Assert.StartsWith("frame,", lines[0]);
+			Assert.EndsWith("hp", lines[0].TrimEnd());
+			// memory goes 1,2,3,4,5 across the 5 frames
+			Assert.Equal("0,1", lines[1]);
+			Assert.Equal("4,5", lines[5]);
+			System.IO.File.Delete(path);
+		}
+
+		[Fact]
+		public void Start_fixture_applies_input_timeline()
+		{
+			_apis.EmuClientApi.Paused = true;
+			string path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "bizhawk-mcp-test-fixture2.csv");
+			_ts.Call("bizhawk_start_fixture", TestHelpers.Js($"{{\"frames\":2,\"samples\":[{{\"address\":0,\"width\":8}}],\"inputs\":[{{\"frame\":1,\"buttons\":{{\"A\":true,\"Right\":true}}}}],\"path\":\"{path}\"}}"));
+			Assert.NotNull(_apis.JoypadApi.LastSet);
+			Assert.True(_apis.JoypadApi.LastSet!["A"]);
+			Assert.True(_apis.JoypadApi.LastSet!["Right"]);
+			System.IO.File.Delete(path);
+		}
+
+		[Fact]
+		public void Start_fixture_rejects_bad_frames()
+		{
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_start_fixture", TestHelpers.Js("{\"frames\":0,\"samples\":[{\"address\":0}]}")));
+			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
+		}
+
+		[Fact]
+		public void Read_struct_returns_relative_offsets()
+		{
+			// playerSprPtr scenario: base 0xFFF85E + 0x1A / 0x1E → X/Y (16.16 fixed)
+			_apis.MemoryApi.Bytes[0xF85E + 0x1A] = 0x00;
+			_apis.MemoryApi.Bytes[0xF85E + 0x1B] = 0x20;
+			_apis.MemoryApi.Bytes[0xF85E + 0x1C] = 0x00;
+			_apis.MemoryApi.Bytes[0xF85E + 0x1D] = 0x00;
+			_apis.MemoryApi.Bytes[0xF85E + 0x1E] = 0x00;
+			_apis.MemoryApi.Bytes[0xF85E + 0x1F] = 0x10;
+			_apis.MemoryApi.Bytes[0xF85E + 0x20] = 0xF0;
+			_apis.MemoryApi.Bytes[0xF85E + 0x21] = 0x00;
+
+			var res = Parse(_ts.Call("bizhawk_read_struct", TestHelpers.Js("{\"address\":63582,\"domain\":\"68K RAM\",\"fields\":[{\"name\":\"x\",\"offset\":26,\"width\":32},{\"name\":\"y\",\"offset\":30,\"width\":32}]}")));
+			Assert.Equal((ulong)0x00200000, res.GetProperty("fields")[0].GetProperty("value").GetUInt64());
+			Assert.Equal((ulong)0x0010F000, res.GetProperty("fields")[1].GetProperty("value").GetUInt64());
+			Assert.Equal("big", res.GetProperty("fields")[0].GetProperty("endianness").GetString());
+		}
+
+		[Fact]
+		public void Read_struct_accepts_symbol_base()
+		{
+			_ts.Call("bizhawk_symbols_set", TestHelpers.Js("{\"symbols\":[{\"name\":\"player\",\"address\":100,\"width\":8,\"domain\":\"68K RAM\"}]}"));
+			_apis.MemoryApi.Bytes[100] = 0xAA;
+			_apis.MemoryApi.Bytes[101] = 0xBB;
+			var res = Parse(_ts.Call("bizhawk_read_struct", TestHelpers.Js("{\"name\":\"player\",\"fields\":[{\"name\":\"b0\",\"offset\":0,\"width\":8},{\"name\":\"b1\",\"offset\":1,\"width\":8}]}")));
+			Assert.Equal((ulong)0xAA, res.GetProperty("fields")[0].GetProperty("value").GetUInt64());
+			Assert.Equal((ulong)0xBB, res.GetProperty("fields")[1].GetProperty("value").GetUInt64());
 		}
 
 	}
