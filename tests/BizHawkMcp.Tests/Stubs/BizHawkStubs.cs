@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 // Stubs of the BizHawk ApiHawk interfaces used by McpToolset — only the
@@ -88,12 +89,14 @@ namespace BizHawk.Client.Common
 		bool Load(string path);
 	}
 
-	public enum DisplaySurfaceID { }
+	public enum DisplaySurfaceID { Client = 1, EmuCore = 0 }
 
 	public interface IGuiApi
 	{
 		void AddMessage(string message, int? duration = null);
 		void ClearText();
+		void WithSurface(DisplaySurfaceID surfaceID, Action drawingCallsFunc);
+		void ClearGraphics(DisplaySurfaceID? surfaceID = null);
 		void DrawString(int x, int y, string message, System.Drawing.Color? forecolor = null, System.Drawing.Color? backcolor = null, int? fontsize = null, string fontfamily = null, string fontstyle = null, string horizalign = null, string vertalign = null, DisplaySurfaceID? surfaceID = null);
 		void DrawRectangle(int x, int y, int width, int height, System.Drawing.Color? line = null, System.Drawing.Color? background = null, DisplaySurfaceID? surfaceID = null);
 		void DrawLine(int x1, int y1, int x2, int y2, System.Drawing.Color? color = null, DisplaySurfaceID? surfaceID = null);

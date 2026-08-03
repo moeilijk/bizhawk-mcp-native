@@ -43,3 +43,9 @@ on explicit request — otherwise changes accumulate under `## [Unreleased]`.
 - `wait_until` now accepts a symbol `name` (not just a raw address).
 - `read_palette` decoded Genesis CRAM with R/B in the wrong bit positions —
   the hardware format is `0x0RRR0GGG0BBB` (R at bits 1-3, B at 9-11).
+- `overlay_text`/`overlay_rect`/`overlay_line` were broken: the Gui calls ran
+  without a display surface, so `Get2DRenderer(null)` threw (rect/line) or drew
+  into the invisible EmuCore buffer (text). They now draw on the Client surface
+  via `WithSurface(DisplaySurfaceID.Client, ...)`.
+- `bizhawk_screenshot` gained `include_overlays: true` to compose the
+  overlay/OSD layer into the PNG (EmuHawk's `ScreenshotCaptureOsd`).

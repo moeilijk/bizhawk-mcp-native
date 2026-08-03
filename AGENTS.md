@@ -3,7 +3,7 @@
 Guidance for AI agents (and humans) working on this repository.
 
 - **Documentation index:** `docs/` — `ARCHITECTURE.md`, `MCP-PROTOCOL.md`, `DEVELOPMENT.md`, `CI-RELEASES.md`. When in doubt, read the relevant doc before editing. Improvement ideas live in `TODO.md`.
-- **Current status (2026-08-02):** 63 tools verified end-to-end against the user's BizHawk dev build (2.11.2, commit `ed78f70a`, Windows via WSL). Server advertises `tools` + `resources` capabilities over `http://127.0.0.1:8767/mcp/`; 145 unit tests (`./scripts/test.sh`) pass on Linux without BizHawk. Deployed to `F:\projects\kid\emulators\BizHawk-dev-windows\ExternalTools\`. Test loop: an agent tests against Kid Chameleon (UE) on the Genesis gpgx waterbox core.
+- **Current status (2026-08-02):** 63 tools verified end-to-end against the user's BizHawk dev build (2.11.2, commit `ed78f70a`, Windows via WSL). Server advertises `tools` + `resources` capabilities over `http://127.0.0.1:8767/mcp/`; 146 unit tests (`./scripts/test.sh`) pass on Linux without BizHawk. Deployed to `F:\projects\kid\emulators\BizHawk-dev-windows\ExternalTools\`. Test loop: an agent tests against Kid Chameleon (UE) on the Genesis gpgx waterbox core.
 
 ## What this is
 
@@ -69,7 +69,8 @@ Recipe with code in `docs/DEVELOPMENT.md`. In short: add a `Tool(...)` descripto
 - Watchpoint callbacks fire on the **core's thread**; they only set volatile flags, and `bizhawk_watchpoint_wait` does the frame-advancing on the UI thread. Do NOT call any emulator API from inside a callback. `watchpoint_wait` with `context_bytes: N` (>0) dumps registers + PC/disasm + N raw bytes around the hit on success. Also note `MemoryCallbackImpl.AddressMask` must stay `0xFFFFFFFF` (not null) or address-specific watchpoints silently never fire.
 - Streamable HTTP subset: no sessions, no server-initiated messages, `GET` SSE is endpoint + keepalive only.
 - `bizhawk_frame_advance` pumps `Application.DoEvents` between frames so the UI stays responsive; long counts (max 600) are intentionally capped.
-- `bizhawk_screenshot`/`save_state`/`load_state` paths are host-side (Windows paths when EmuHawk runs on Windows). `bizhawk_screenshot` returns the effective path plus a `bizhawk://` resource URI; `resources/read` serves the PNG as base64.
+- `bizhawk_screenshot`/`save_state`/`load_state` paths are host-side (Windows paths when EmuHawk runs on Windows). `bizhawk_screenshot` returns the effective path plus a `bizhawk://` resource URI; `resources/read` serves the PNG as base64. `include_overlays: true` composes the overlay/OSD layer into the PNG (EmuHawk's `ScreenshotCaptureOsd` → `CaptureOSD()`).
+- **Overlay tools MUST draw on the Client surface** (`DisplaySurfaceID.Client` via `WithSurface`): `GuiApi.Get2DRenderer(null)` throws when no surface is selected, and `EmuCore` draws into the core framebuffer which is not visible in the window. `overlay_text/rect/line` all go through `WithSurface(Client, ...)`; `osd_message` (`AddMessage`) needs no surface. `clear_overlay` clears both the Client graphics layer and the text layer.
 - `bizhawk_search_memory` matches via the same endianness semantics as `bizhawk_read_memory` (per-domain default, overridable per call with `"endianness"` or globally with `bizhawk_set_big_endian`).
 - Endianness defaults are domain-aware: `68K RAM`/`M68K BUS` are big on
   GEN/SMD/32X/SAT while `Z80 RAM` is little (sound CPU), SNES/N64 big. The

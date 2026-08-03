@@ -325,8 +325,9 @@ namespace BizHawkMcp
 				Param("name", "string", "Optional disassembler name (defaults to the core's)."),
 			]),
 			Tool("bizhawk_lag_count", "Lag status: is the current frame lagging and the total lag count.", []),
-			Tool("bizhawk_screenshot", "Save a PNG of the current frame. Omit \"path\" to save into the host temp dir (bizhawk-mcp). Paths are host-side: when EmuHawk runs on Windows they must be Windows paths (e.g. F:/temp/shot.png). Returns the effective absolute path and an MCP resource URI to fetch the image bytes.", [
+			Tool("bizhawk_screenshot", "Save a PNG of the current frame. Omit \"path\" to save into the host temp dir (bizhawk-mcp). Paths are host-side: when EmuHawk runs on Windows they must be Windows paths (e.g. F:/temp/shot.png). Set \"include_overlays\": true to also compose the overlay/OSD layer (overlay_text/rect/line, OSD messages) into the PNG. Returns the effective absolute path and an MCP resource URI to fetch the image bytes.", [
 				Param("path", "string", "Optional absolute path writable by EmuHawk, e.g. C:/temp/snap.png. Defaults to a temp file."),
+				Param("include_overlays", "boolean", "Compose the overlay/OSD layer into the PNG (default false = bare core framebuffer).", false),
 			]),
 			Tool("bizhawk_save_state", "Save an emulator state to a file.", [
 				Param("path", "string", "Absolute .State path."),
@@ -1596,7 +1597,12 @@ namespace BizHawkMcp
 		private string Screenshot(JsonElement? args)
 		{
 			string? path = null;
-			if (args is { } a && a.ValueKind == JsonValueKind.Object) path = OptionalString(a, "path");
+			bool includeOverlays = false;
+			if (args is { } a && a.ValueKind == JsonValueKind.Object)
+			{
+				path = OptionalString(a, "path");
+				includeOverlays = a.TryGetProperty("include_overlays", out var io) && io.ValueKind == JsonValueKind.True;
+			}
 			if (string.IsNullOrEmpty(path))
 			{
 				var dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "bizhawk-mcp");
@@ -1604,19 +1610,25 @@ namespace BizHawkMcp
 				path = System.IO.Path.Combine(dir, $"shot-{DateTime.Now:yyyyMMdd-HHmmss-fff}.png");
 			}
 
-			_tool.EmuClient!.SetScreenshotOSD(false);
+			// ScreenshotCaptureOsd=true makes EmuHawk's CaptureOSD() compose the
+			// video surface (overlay_text/rect/line + OSD) into the PNG instead of
+			// the bare core framebuffer. Toggle it for this call (no getter, so we
+			// set our preferred value and let the next screenshot re-set it).
+			_tool.EmuClient!.SetScreenshotOSD(includeOverlays);
 			try
 			{
 				_tool.EmuClient!.Screenshot(path);
 			}
 			finally
 			{
-				_tool.EmuClient!.SetScreenshotOSD(true);
+				// restore to the no-overlay default; each call re-applies its own
+				_tool.EmuClient!.SetScreenshotOSD(false);
 			}
 			string uri = RegisterArtifact(path, "image/png", $"screenshot {System.IO.Path.GetFileName(path)}");
 			return JsonRpc.Pretty(new Dictionary<string, object?>
 			{
 				["path"] = path,
+				["include_overlays"] = includeOverlays,
 				["resource"] = uri,
 			});
 		}
@@ -1645,7 +1657,12 @@ namespace BizHawkMcp
 			string text = RequireString(a, "text");
 			var color = ParseColor(a);
 			int? fontSize = a.TryGetProperty("fontsize", out var fs) && fs.ValueKind == JsonValueKind.Number ? fs.GetInt32() : null;
-			_tool.Gui!.DrawString(x, y, text, color, null, fontSize, null, null, "Left", "Top");
+			// draw on the Client (video overlay) surface — EmuCore draws into the
+			// core framebuffer, which is not visible in the EmuHawk window.
+			_tool.Gui!.WithSurface(DisplaySurfaceID.Client, () =>
+			{
+				_tool.Gui!.DrawString(x, y, text, color, null, fontSize, null, null, "Left", "Top");
+			});
 			return "ok";
 		}
 
@@ -1658,7 +1675,10 @@ namespace BizHawkMcp
 			int height = RequireInt(a, "height", 0);
 			var line = ParseColor(a);
 			var fill = ParseColorArg(a, "fill");
-			_tool.Gui!.DrawRectangle(x, y, width, height, line, fill);
+			_tool.Gui!.WithSurface(DisplaySurfaceID.Client, () =>
+			{
+				_tool.Gui!.DrawRectangle(x, y, width, height, line, fill);
+			});
 			return "ok";
 		}
 
@@ -1670,12 +1690,16 @@ namespace BizHawkMcp
 			int x2 = RequireInt(a, "x2", 0);
 			int y2 = RequireInt(a, "y2", 0);
 			var color = ParseColor(a);
-			_tool.Gui!.DrawLine(x1, y1, x2, y2, color);
+			_tool.Gui!.WithSurface(DisplaySurfaceID.Client, () =>
+			{
+				_tool.Gui!.DrawLine(x1, y1, x2, y2, color);
+			});
 			return "ok";
 		}
 
 		private string ClearOverlay()
 		{
+			_tool.Gui!.WithSurface(DisplaySurfaceID.Client, () => _tool.Gui!.ClearGraphics());
 			_tool.Gui!.ClearText();
 			return "overlay cleared";
 		}

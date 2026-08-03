@@ -594,8 +594,19 @@ namespace BizHawkMcp.Tests
 		{
 			var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "test-osd.png");
 			_ts.Call("bizhawk_screenshot", TestHelpers.Js($"{{\"path\":\"{path}\"}}"));
-			Assert.Equal(new[] { false, true }, _apis.EmuClientApi.OsdChanges.ToArray());
-			Assert.True(_apis.EmuClientApi.OsdEnabled);
+			// default: overlay off, then restored off (no getter)
+			Assert.Equal(new[] { false, false }, _apis.EmuClientApi.OsdChanges.ToArray());
+			Assert.False(_apis.EmuClientApi.OsdEnabled);
+		}
+
+		[Fact]
+		public void Screenshot_include_overlays_sets_osd()
+		{
+			var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "test-osd-overlays.png");
+			var res = Parse(_ts.Call("bizhawk_screenshot", TestHelpers.Js($"{{\"path\":\"{path}\",\"include_overlays\":true}}")));
+			Assert.True(res.GetProperty("include_overlays").GetBoolean());
+			Assert.Equal(new[] { true, false }, _apis.EmuClientApi.OsdChanges.ToArray());
+			System.IO.File.Delete(path);
 		}
 
 		[Fact]
@@ -750,15 +761,6 @@ namespace BizHawkMcp.Tests
 			Assert.Equal(0, _apis.EmuClientApi.PauseCalls);
 			Assert.Equal(0, _apis.EmuClientApi.UnpauseCalls);
 			Assert.True(_apis.EmuClientApi.Paused);
-		}
-
-		[Fact]
-		public void Overlay_rect_and_line_draw()
-		{
-			_ts.Call("bizhawk_overlay_rect", TestHelpers.Js("{\"x\":1,\"y\":2,\"width\":10,\"height\":20,\"color\":\"#FF0000\"}"));
-			Assert.Equal((1, 2, 10, 20), _apis.GuiApi.LastRect);
-			_ts.Call("bizhawk_overlay_line", TestHelpers.Js("{\"x1\":0,\"y1\":0,\"x2\":5,\"y2\":5}"));
-			Assert.Equal((0, 0, 5, 5), _apis.GuiApi.LastLine);
 		}
 
 		[Fact]
@@ -1410,7 +1412,19 @@ namespace BizHawkMcp.Tests
 			_ts.Call("bizhawk_overlay_text", TestHelpers.Js("{\"x\":1,\"y\":2,\"text\":\"hi\",\"fontsize\":12}"));
 			Assert.Equal((1, 2, "hi", (int?)12), _apis.GuiApi.LastDraw);
 			_ts.Call("bizhawk_clear_overlay", null);
-			Assert.Equal(1, _apis.GuiApi.ClearTextCalls);
+			// clears both the Client graphics surface and the text layer
+			Assert.Equal(2, _apis.GuiApi.ClearTextCalls);
+		}
+
+		[Fact]
+		public void Overlay_rect_and_line_no_longer_throw()
+		{
+			// regression: DrawRectangle/DrawLine without a surface used to throw
+			// (Get2DRenderer(null) threw); WithSurface(Client, ...) fixes it
+			_ts.Call("bizhawk_overlay_rect", TestHelpers.Js("{\"x\":1,\"y\":2,\"width\":10,\"height\":20,\"color\":\"#FF0000\"}"));
+			Assert.Equal((1, 2, 10, 20), _apis.GuiApi.LastRect);
+			_ts.Call("bizhawk_overlay_line", TestHelpers.Js("{\"x1\":0,\"y1\":0,\"x2\":5,\"y2\":5}"));
+			Assert.Equal((0, 0, 5, 5), _apis.GuiApi.LastLine);
 		}
 
 		[Fact]

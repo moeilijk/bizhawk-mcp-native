@@ -27,6 +27,11 @@ Legend: `[x]` done · `[~]` partially done / covered by another tool · `[ ]` op
   file (also exposed as a `bizhawk://` resource) for Ghidra `import_binary`.
 - [x] **Geometric overlay** (`bizhawk_overlay_rect`/`overlay_line`): hitboxes and
   collision boxes on the video output via `IGuiApi.DrawRectangle/DrawLine`.
+  (2026-08-02: fixed — they were called WITHOUT a surface, so
+  `Get2DRenderer(null)` threw and text drew into the invisible EmuCore buffer.
+  All overlay tools now wrap their calls in `WithSurface(DisplaySurfaceID.Client,
+  ...)`; `screenshot` gained `include_overlays: true` to compose that layer into
+  the PNG via EmuHawk's `ScreenshotCaptureOsd`.)
 - [x] **Watchpoints (read/write/exec)** (`bizhawk_watchpoint_add/remove/list/wait`):
   real `IDebuggable.MemoryCallbacks` reached via reflection on
   `EmulationApi.DebuggableCore`. **Genesis gpgx waterbox core only** (the only

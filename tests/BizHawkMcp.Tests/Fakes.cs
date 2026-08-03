@@ -330,6 +330,10 @@ namespace BizHawkMcp.Tests
 
 		public void ClearText() => ClearTextCalls++;
 
+		public void WithSurface(DisplaySurfaceID surfaceID, Action drawingCallsFunc) => drawingCallsFunc();
+
+		public void ClearGraphics(DisplaySurfaceID? surfaceID = null) => ClearTextCalls++;
+
 		public void DrawString(int x, int y, string message, System.Drawing.Color? forecolor = null, System.Drawing.Color? backcolor = null, int? fontsize = null, string fontfamily = null, string fontstyle = null, string horizalign = null, string vertalign = null, DisplaySurfaceID? surfaceID = null)
 			=> LastDraw = (x, y, message, fontsize);
 
