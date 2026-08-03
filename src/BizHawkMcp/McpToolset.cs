@@ -37,18 +37,20 @@ namespace BizHawkMcp
 		[
 			Tool("bizhawk_ping", "Ping the tool. Returns \"pong\" if the plugin and server are alive.", []),
 			Tool("bizhawk_get_info", "ROM info, framecount, pause state, current endianness and active memory domain (JSON).", []),
-			Tool("bizhawk_read_memory", "Read u8/u16/u32 from a memory domain. Endianness follows the core default (big-endian on Genesis/SNES/N64) unless bizhawk_set_big_endian overrode it. Bus domains accept 32-bit disassembly addresses (e.g. 0xFFFFF832): the 68K's 24-bit bus masks them, so 0xFFFFF832 == 0xFFF832. Either \"address\" or a symbol \"name\" (from bizhawk_symbols_set) is required.", [
+			Tool("bizhawk_read_memory", "Read u8/u16/u32 from a memory domain. Optional \"endianness\": \"big\" | \"little\" | \"auto\" (default \"auto\" = the domain's native endianness, e.g. big on 68K RAM/M68K BUS but little on Z80 RAM on Genesis). Returns {\"value\": N, \"endianness\": \"big\"|\"little\"} so the interpretation is never ambiguous. Bus domains accept 32-bit disassembly addresses (e.g. 0xFFFFF832): the 68K's 24-bit bus masks them, so 0xFFFFF832 == 0xFFF832. Either \"address\" or a symbol \"name\" (from bizhawk_symbols_set) is required.", [
 				Param("address", "integer", "Offset in the domain, 0-based. For bus domains (e.g. M68K BUS) use the raw bus address (e.g. 0xFFFBCA); 32-bit forms (0xFFFFFBCA) are masked like the hardware."),
 				Param("name", "string", "Symbol name registered via bizhawk_symbols_set (overrides address/domain)."),
 				Param("width", "integer", "8, 16 or 32.", 8),
 				Param("domain", "string", "Optional domain (defaults to BizHawk's current one)."),
+				Param("endianness", "string", "\"auto\" (domain default), \"big\" or \"little\".", "auto"),
 			]),
-			Tool("bizhawk_write_memory", "Write u8/u16/u32 to a memory domain. Endianness follows the core default unless bizhawk_set_big_endian overrode it. Bus domains mask 32-bit addresses as in read. Either \"address\" or a symbol \"name\" is required.", [
+			Tool("bizhawk_write_memory", "Write u8/u16/u32 to a memory domain. Optional \"endianness\" as bizhawk_read_memory (default \"auto\" = domain native). Bus domains mask 32-bit addresses as in read. Either \"address\" or a symbol \"name\" is required.", [
 				Param("address", "integer", "Offset in the domain, 0-based. For bus domains use the raw bus address."),
 				Param("name", "string", "Symbol name registered via bizhawk_symbols_set (overrides address/domain)."),
 				Param("width", "integer", "8, 16 or 32.", 8),
 				Param("value", "integer", "Value to write (must fit the width)."),
 				Param("domain", "string", "Optional domain."),
+				Param("endianness", "string", "\"auto\" (domain default), \"big\" or \"little\".", "auto"),
 			]),
 			Tool("bizhawk_read_range", "Read a contiguous range (up to 4096 bytes) and return it as hex.", [
 				Param("address", "integer", "Start offset."),
@@ -59,10 +61,11 @@ namespace BizHawkMcp
 			Tool("bizhawk_use_memory_domain", "Switch the active memory domain.", [
 				Param("domain", "string", "Domain name, e.g. \"WRAM\"."),
 			]),
-			Tool("bizhawk_search_memory", "Scan a memory domain for a value (stateless one-shot; endianness as bizhawk_read_memory). Returns JSON with matching addresses. Pass previous hits in \"addresses\" to narrow down across calls.", [
+			Tool("bizhawk_search_memory", "Scan a memory domain for a value (stateless one-shot). Optional \"endianness\" as bizhawk_read_memory (default \"auto\" = domain native). Returns {\"count\", \"endianness\", \"matches\": [{address, value}]}. Pass previous hits in \"addresses\" to narrow down across calls.", [
 				Param("value", "integer", "Value to match (must fit the width)."),
 				Param("width", "integer", "8, 16 or 32.", 8),
 				Param("domain", "string", "Optional domain (defaults to BizHawk's current one)."),
+				Param("endianness", "string", "\"auto\" (domain default), \"big\" or \"little\".", "auto"),
 				Param("range_start", "integer", "First offset to scan.", 0),
 				Param("range_length", "integer", "Bytes to scan (default: whole domain)."),
 				Param("max_results", "integer", "Stop after this many matches, 1..4096.", 256),
@@ -76,28 +79,32 @@ namespace BizHawkMcp
 				Param("length", "integer", "Bytes to hash, 1..1048576.", 256),
 				Param("domain", "string", "Optional domain."),
 			]),
-			Tool("bizhawk_read_signed", "Read s8/s16/s24/s32 from a memory domain. Endianness as bizhawk_read_memory.", [
+			Tool("bizhawk_read_signed", "Read s8/s16/s24/s32 from a memory domain. Optional \"endianness\" as bizhawk_read_memory (default \"auto\"). Returns {\"value\", \"endianness\"}.", [
 				Param("address", "integer", "Offset in the domain, 0-based."),
 				Param("width", "integer", "8, 16, 24 or 32.", 8),
 				Param("domain", "string", "Optional domain."),
+				Param("endianness", "string", "\"auto\" (domain default), \"big\" or \"little\".", "auto"),
 			]),
-			Tool("bizhawk_write_signed", "Write s8/s16/s24/s32 to a memory domain. Endianness as bizhawk_read_memory.", [
+			Tool("bizhawk_write_signed", "Write s8/s16/s24/s32 to a memory domain. Optional \"endianness\" as bizhawk_read_memory (default \"auto\").", [
 				Param("address", "integer", "Offset in the domain, 0-based."),
 				Param("width", "integer", "8, 16, 24 or 32.", 8),
 				Param("value", "integer", "Value to write (must fit the width)."),
 				Param("domain", "string", "Optional domain."),
+				Param("endianness", "string", "\"auto\" (domain default), \"big\" or \"little\".", "auto"),
 			]),
-			Tool("bizhawk_read_float", "Read a 32-bit float from a memory domain. Endianness as bizhawk_read_memory.", [
+			Tool("bizhawk_read_float", "Read a 32-bit float from a memory domain. Optional \"endianness\" as bizhawk_read_memory (default \"auto\"). Returns {\"value\", \"endianness\"}.", [
 				Param("address", "integer", "Offset in the domain, 0-based."),
 				Param("domain", "string", "Optional domain."),
+				Param("endianness", "string", "\"auto\" (domain default), \"big\" or \"little\".", "auto"),
 			]),
-			Tool("bizhawk_write_float", "Write a 32-bit float to a memory domain. Endianness as bizhawk_read_memory.", [
+			Tool("bizhawk_write_float", "Write a 32-bit float to a memory domain. Optional \"endianness\" as bizhawk_read_memory (default \"auto\").", [
 				Param("address", "integer", "Offset in the domain, 0-based."),
 				Param("value", "number", "Float value to write."),
 				Param("domain", "string", "Optional domain."),
+				Param("endianness", "string", "\"auto\" (domain default), \"big\" or \"little\".", "auto"),
 			]),
-			Tool("bizhawk_read_many", "Read several addresses in one call (up to 256). Returns JSON: [{address, width, value, domain}]. Endianness as bizhawk_read_memory. Set \"consistent\": true to pause during the batch so all reads come from the same frame.", [
-				Param("items", "array", "Array of {\"address\": int | \"name\": string, \"width\"?: 8|16|32, \"domain\"?: string}."),
+			Tool("bizhawk_read_many", "Read several addresses in one call (up to 256). Returns JSON: [{address, width, value, domain, endianness}]. Optional per-item \"endianness\" as bizhawk_read_memory (default \"auto\" = each item's domain). Set \"consistent\": true to pause during the batch so all reads come from the same frame.", [
+				Param("items", "array", "Array of {\"address\": int | \"name\": string, \"width\"?: 8|16|32, \"domain\"?: string, \"endianness\"?: \"big\"|\"little\"|\"auto\"}."),
 				Param("consistent", "boolean", "Pause emulation for the duration of the batch so reads are frame-consistent.", false),
 			]),
 			Tool("bizhawk_write_range", "Write a contiguous byte range from a values array (up to 4096 bytes).", [
@@ -105,8 +112,8 @@ namespace BizHawkMcp
 				Param("values", "array", "Byte values (0..255) to write in order."),
 				Param("domain", "string", "Optional domain."),
 			]),
-			Tool("bizhawk_write_many", "Write several values in one call (up to 256; non-contiguous). Each item accepts \"address\" or symbol \"name\", width and value.", [
-				Param("items", "array", "Array of {\"address\": int | \"name\": string, \"width\"?: 8|16|32, \"value\": int, \"domain\"?: string}."),
+			Tool("bizhawk_write_many", "Write several values in one call (up to 256; non-contiguous). Each item accepts \"address\" or symbol \"name\", width, value and optional \"endianness\" as bizhawk_read_memory (default \"auto\" = each item's domain).", [
+				Param("items", "array", "Array of {\"address\": int | \"name\": string, \"width\"?: 8|16|32, \"value\": int, \"domain\"?: string, \"endianness\"?: \"big\"|\"little\"|\"auto\"}."),
 			]),
 			Tool("bizhawk_dump_memory", "Dump an entire memory domain to a host-side file (also exposed as a bizhawk:// resource). Omit \"path\" to save into the host temp dir (bizhawk-mcp).", [
 				Param("domain", "string", "Domain name to dump (defaults to current)."),
@@ -207,23 +214,25 @@ namespace BizHawkMcp
 			Tool("bizhawk_userdata_clear", "Clear all stored user data (or a single key).", [
 				Param("key", "string", "Optional key to remove; omit to clear all."),
 			]),
-			Tool("bizhawk_watch_add", "Register a memory watcher (address + width + domain). Values are read with bizhawk_watch_read; the watcher list is session-local.", [
+			Tool("bizhawk_watch_add", "Register a memory watcher (address + width + domain + optional endianness). Values are read with bizhawk_watch_read; the watcher list is session-local.", [
 				Param("name", "string", "Watcher name (unique)."),
 				Param("address", "integer", "Offset in the domain (see bizhawk_list_memory_domains for conventions)."),
 				Param("width", "integer", "8, 16 or 32.", 8),
 				Param("domain", "string", "Optional domain (defaults to current)."),
+				Param("endianness", "string", "\"auto\" (domain default), \"big\" or \"little\".", "auto"),
 			]),
 			Tool("bizhawk_watch_remove", "Remove a memory watcher by name.", [
 				Param("name", "string", "Watcher name."),
 			]),
 			Tool("bizhawk_watch_list", "List registered watchers with their current values (JSON).", []),
 			Tool("bizhawk_watch_read", "Read all watcher values in one call (JSON). Each entry has \"value\" and \"changed\" (true when it differs from the previous read).", []),
-			Tool("bizhawk_wait_until", "Advance frames until a memory condition holds (or timeout). Pauses when done. Condition ops: eq, ne, lt, gt, le, ge.", [
+			Tool("bizhawk_wait_until", "Advance frames until a memory condition holds (or timeout). Pauses when done. Condition ops: eq, ne, lt, gt, le, ge. Optional \"endianness\" as bizhawk_read_memory (default \"auto\").", [
 				Param("address", "integer", "Offset in the domain."),
 				Param("op", "string", "eq | ne | lt | gt | le | ge.", "eq"),
 				Param("value", "integer", "Value to compare against."),
 				Param("width", "integer", "8, 16 or 32.", 8),
 				Param("domain", "string", "Optional domain."),
+				Param("endianness", "string", "\"auto\" (domain default), \"big\" or \"little\".", "auto"),
 				Param("timeout_frames", "integer", "Max frames to advance, 1..600.", 600),
 			]),
 			Tool("bizhawk_watchpoint_add", "Register a real memory watchpoint (read/write/execute) that fires the moment the core touches the address. GENESIS gpgx core ONLY: requires IDebuggable memory callbacks; other cores return an error. Execute watchpoints need an explicit address. See bizhawk_watchpoint_wait to block until one fires.", [
@@ -327,6 +336,7 @@ namespace BizHawkMcp
 		{
 			EnsureEndianness();
 			var game = _tool.Emulation!.GetGameInfo();
+			string curDomain = _tool.Memory!.GetCurrentMemoryDomain();
 			return JsonRpc.Pretty(new Dictionary<string, object?>
 			{
 				["rom_name"] = game?.Name,
@@ -334,8 +344,8 @@ namespace BizHawkMcp
 				["system_id"] = _tool.Emulation!.GetSystemId(),
 				["framecount"] = _tool.Emulation!.FrameCount(),
 				["paused"] = _tool.EmuClient!.IsPaused(),
-				["endianness"] = EffectiveEndianness(),
-				["memory_domain"] = _tool.Memory!.GetCurrentMemoryDomain(),
+				["endianness"] = EndianName(ResolveBigEndian(null, curDomain)),
+				["memory_domain"] = curDomain,
 				["memory_domain_size"] = _tool.Memory!.GetCurrentMemoryDomainSize(),
 				["server"] = _tool.ServerUrl,
 			});
@@ -343,25 +353,28 @@ namespace BizHawkMcp
 
 		private string ReadMemory(JsonElement? args)
 		{
-			EnsureEndianness();
 			var a = Required(args);
 			var (address, width, domain) = ResolveTarget(a);
+			bool bigEndian = ResolveBigEndian(a, domain);
 			ulong value = width switch
 			{
 				8 => _tool.Memory!.ReadByte(address, domain),
-				16 => _tool.Memory!.ReadU16(address, domain),
-				32 => _tool.Memory!.ReadU32(address, domain),
+				16 or 32 => ReadValue(address, width, domain, bigEndian),
 				_ => throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "width must be 8, 16 or 32"),
 			};
-			return JsonRpc.Pretty(new Dictionary<string, object?> { ["value"] = value });
+			return JsonRpc.Pretty(new Dictionary<string, object?>
+			{
+				["value"] = value,
+				["endianness"] = EndianName(bigEndian),
+			});
 		}
 
 		private string WriteMemory(JsonElement? args)
 		{
-			EnsureEndianness();
 			var a = Required(args);
 			var (address, width, domain) = ResolveTarget(a);
 			ulong value = RequireULong(a, "value");
+			bool bigEndian = ResolveBigEndian(a, domain);
 			ulong max = width switch
 			{
 				8 => 0xFFUL,
@@ -373,10 +386,14 @@ namespace BizHawkMcp
 			switch (width)
 			{
 				case 8: _tool.Memory!.WriteU8(address, (uint)value, domain); break;
-				case 16: _tool.Memory!.WriteU16(address, (uint)value, domain); break;
-				case 32: _tool.Memory!.WriteU32(address, (uint)value, domain); break;
+				case 16: WriteValue(address, 16, domain, value, bigEndian); break;
+				case 32: WriteValue(address, 32, domain, value, bigEndian); break;
 			}
-			return "ok";
+			return JsonRpc.Pretty(new Dictionary<string, object?>
+			{
+				["ok"] = true,
+				["endianness"] = EndianName(bigEndian),
+			});
 		}
 
 		private string ReadRange(JsonElement? args)
@@ -589,9 +606,8 @@ namespace BizHawkMcp
 			if (value > max) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"value {value} does not fit width {width}");
 			if (maxResults is < 1 or > 4096) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "max_results must be 1..4096");
 
+			bool bigEndian = ResolveBigEndian(a, domain);
 			var matches = new List<object>();
-
-			bool bigEndian = EffectiveEndianness() == "big";
 
 			// restricted scan over a caller-provided address list
 			if (a.TryGetProperty("addresses", out var addrs) && addrs.ValueKind == JsonValueKind.Array)
@@ -602,7 +618,7 @@ namespace BizHawkMcp
 					if (i++ >= 4096) break;
 					if (matches.Count >= maxResults) break;
 					long addr = el.GetInt64();
-					if (ReadValue(mem, addr, width, domain, bigEndian) == value)
+					if (ReadValue(addr, width, domain, bigEndian) == value)
 						matches.Add(new Dictionary<string, object?> { ["address"] = addr, ["value"] = value });
 				}
 			}
@@ -624,11 +640,13 @@ namespace BizHawkMcp
 				}
 			}
 
-			return JsonRpc.Pretty(new Dictionary<string, object?> { ["count"] = matches.Count, ["matches"] = matches });
+			return JsonRpc.Pretty(new Dictionary<string, object?>
+			{
+				["count"] = matches.Count,
+				["endianness"] = EndianName(bigEndian),
+				["matches"] = matches,
+			});
 		}
-
-		private static ulong ReadValue(IMemoryApi mem, long addr, int width, string? domain, bool bigEndian) =>
-			BytesToValue(mem.ReadByteRange(addr, width / 8, domain), 0, width / 8, bigEndian);
 
 		private static ulong BytesToValue(IReadOnlyList<byte> bytes, int off, int bytesPer, bool bigEndian)
 		{
@@ -673,30 +691,36 @@ namespace BizHawkMcp
 
 		private string ReadSigned(JsonElement? args)
 		{
-			EnsureEndianness();
 			var a = Required(args);
 			long address = RequireLong(a, "address");
 			int width = RequireInt(a, "width", 8);
 			string? domain = OptionalString(a, "domain");
+			bool bigEndian = ResolveBigEndian(a, domain);
+			address = ValidateAddress(address, width, domain);
 			long value = width switch
 			{
-				8 => _tool.Memory!.ReadS8(address, domain),
-				16 => _tool.Memory!.ReadS16(address, domain),
-				24 => _tool.Memory!.ReadS24(address, domain),
-				32 => _tool.Memory!.ReadS32(address, domain),
+				8 => (sbyte)_tool.Memory!.ReadByte(address, domain),
+				16 => SignExtend(ReadValue(address, 16, domain, bigEndian), 2),
+				24 => SignExtend(ReadValue(address, 24, domain, bigEndian), 3),
+				32 => (int)ReadValue(address, 32, domain, bigEndian),
 				_ => throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "width must be 8, 16, 24 or 32"),
 			};
-			return JsonRpc.Pretty(new Dictionary<string, object?> { ["value"] = value });
+			return JsonRpc.Pretty(new Dictionary<string, object?>
+			{
+				["value"] = value,
+				["endianness"] = EndianName(bigEndian),
+			});
 		}
 
 		private string WriteSigned(JsonElement? args)
 		{
-			EnsureEndianness();
 			var a = Required(args);
 			long address = RequireLong(a, "address");
 			int width = RequireInt(a, "width", 8);
 			long value = RequireLong(a, "value");
 			string? domain = OptionalString(a, "domain");
+			bool bigEndian = ResolveBigEndian(a, domain);
+			address = ValidateAddress(address, width, domain);
 			long min = width switch
 			{
 				8 => -0x80L,
@@ -710,31 +734,45 @@ namespace BizHawkMcp
 			switch (width)
 			{
 				case 8: _tool.Memory!.WriteS8(address, (int)value, domain); break;
-				case 16: _tool.Memory!.WriteS16(address, (int)value, domain); break;
-				case 24: _tool.Memory!.WriteS24(address, (int)value, domain); break;
-				case 32: _tool.Memory!.WriteS32(address, (int)value, domain); break;
+				case 16: WriteValue(address, 16, domain, (ulong)(ushort)value, bigEndian); break;
+				case 24: WriteValue(address, 24, domain, (ulong)(uint)value & 0xFFFFFFUL, bigEndian); break;
+				case 32: WriteValue(address, 32, domain, (uint)value, bigEndian); break;
 			}
-			return "ok";
+			return JsonRpc.Pretty(new Dictionary<string, object?>
+			{
+				["ok"] = true,
+				["endianness"] = EndianName(bigEndian),
+			});
 		}
 
 		private string ReadFloat(JsonElement? args)
 		{
-			EnsureEndianness();
 			var a = Required(args);
 			long address = RequireLong(a, "address");
 			string? domain = OptionalString(a, "domain");
-			return JsonRpc.Pretty(new Dictionary<string, object?> { ["value"] = _tool.Memory!.ReadFloat(address, domain) });
+			bool bigEndian = ResolveBigEndian(a, domain);
+			address = ValidateAddress(address, 32, domain);
+			return JsonRpc.Pretty(new Dictionary<string, object?>
+			{
+				["value"] = ReadFloatRaw(address, domain, bigEndian),
+				["endianness"] = EndianName(bigEndian),
+			});
 		}
 
 		private string WriteFloat(JsonElement? args)
 		{
-			EnsureEndianness();
 			var a = Required(args);
 			long address = RequireLong(a, "address");
 			if (!a.TryGetProperty("value", out var v) || v.ValueKind != JsonValueKind.Number) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "missing number param: value");
 			string? domain = OptionalString(a, "domain");
-			_tool.Memory!.WriteFloat(address, v.GetSingle(), domain);
-			return "ok";
+			bool bigEndian = ResolveBigEndian(a, domain);
+			address = ValidateAddress(address, 32, domain);
+			WriteFloatRaw(address, domain, v.GetSingle(), bigEndian);
+			return JsonRpc.Pretty(new Dictionary<string, object?>
+			{
+				["ok"] = true,
+				["endianness"] = EndianName(bigEndian),
+			});
 		}
 
 		private string ReadMany(JsonElement? args)
@@ -757,13 +795,21 @@ namespace BizHawkMcp
 					if (item.ValueKind != JsonValueKind.Object)
 						throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "each item must be an object");
 					var (address, width, domain) = ResolveTarget(item);
+					bool bigEndian = ResolveBigEndian(item, domain);
 					ulong value = width switch
 					{
 						8 => _tool.Memory!.ReadByte(address, domain),
-						16 => _tool.Memory!.ReadU16(address, domain),
-						_ => _tool.Memory!.ReadU32(address, domain),
+						16 or 32 => ReadValue(address, width, domain, bigEndian),
+						_ => throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "width must be 8, 16 or 32"),
 					};
-					results.Add(new Dictionary<string, object?> { ["address"] = address, ["width"] = width, ["value"] = value, ["domain"] = domain });
+					results.Add(new Dictionary<string, object?>
+					{
+						["address"] = address,
+						["width"] = width,
+						["value"] = value,
+						["domain"] = domain,
+						["endianness"] = EndianName(bigEndian),
+					});
 				}
 				return JsonRpc.Pretty(new Dictionary<string, object?> { ["reads"] = results });
 			}
@@ -810,6 +856,7 @@ namespace BizHawkMcp
 				if (item.ValueKind != JsonValueKind.Object)
 					throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "each item must be an object");
 				var (address, width, domain) = ResolveTarget(item);
+				bool bigEndian = ResolveBigEndian(item, domain);
 				ulong value = RequireULong(item, "value");
 				ulong max = width switch
 				{
@@ -821,8 +868,8 @@ namespace BizHawkMcp
 				switch (width)
 				{
 					case 8: _tool.Memory!.WriteU8(address, (uint)value, domain); break;
-					case 16: _tool.Memory!.WriteU16(address, (uint)value, domain); break;
-					case 32: _tool.Memory!.WriteU32(address, (uint)value, domain); break;
+					case 16: WriteValue(address, 16, domain, value, bigEndian); break;
+					case 32: WriteValue(address, 32, domain, value, bigEndian); break;
 				}
 				written++;
 			}
@@ -1180,6 +1227,7 @@ namespace BizHawkMcp
 			public long Address;
 			public int Width;
 			public string? Domain;
+			public bool BigEndian;
 			public ulong? Last;
 		}
 
@@ -1286,7 +1334,8 @@ namespace BizHawkMcp
 			long address = RequireLong(a, "address");
 			var (width, domain) = WatchWidth(a);
 			address = ValidateAddress(address, width, domain);
-			_watches.Add(new Watch { Name = name, Address = address, Width = width, Domain = domain });
+			bool bigEndian = ResolveBigEndian(a, domain);
+			_watches.Add(new Watch { Name = name, Address = address, Width = width, Domain = domain, BigEndian = bigEndian });
 			return $"watcher added: {name} @ {address} (w{width})";
 		}
 
@@ -1309,6 +1358,7 @@ namespace BizHawkMcp
 					["address"] = w.Address,
 					["width"] = w.Width,
 					["domain"] = w.Domain,
+					["endianness"] = EndianName(w.BigEndian),
 					["value"] = ReadWatchValue(w),
 				});
 			}
@@ -1327,6 +1377,7 @@ namespace BizHawkMcp
 				{
 					["name"] = w.Name,
 					["value"] = value,
+					["endianness"] = EndianName(w.BigEndian),
 					["changed"] = changed,
 				});
 			}
@@ -1335,12 +1386,11 @@ namespace BizHawkMcp
 
 		private ulong ReadWatchValue(Watch w)
 		{
-			EnsureEndianness();
 			return w.Width switch
 			{
 				8 => _tool.Memory!.ReadByte(w.Address, w.Domain),
-				16 => _tool.Memory!.ReadU16(w.Address, w.Domain),
-				_ => _tool.Memory!.ReadU32(w.Address, w.Domain),
+				16 => ReadValue(w.Address, 16, w.Domain, w.BigEndian),
+				_ => ReadValue(w.Address, 32, w.Domain, w.BigEndian),
 			};
 		}
 
@@ -1520,6 +1570,7 @@ namespace BizHawkMcp
 			bool wasPaused = _tool.EmuClient!.IsPaused();
 			if (wasPaused) _tool.EmuClient!.Unpause();
 
+			bool bigEndian = ResolveBigEndian(a, domain);
 			ulong current = 0;
 			int frames = 0;
 			try
@@ -1528,12 +1579,11 @@ namespace BizHawkMcp
 				{
 					_tool.EmuClient!.DoFrameAdvance();
 					System.Windows.Forms.Application.DoEvents();
-					EnsureEndianness();
 					current = width switch
 					{
 						8 => _tool.Memory!.ReadByte(address, domain),
-						16 => _tool.Memory!.ReadU16(address, domain),
-						_ => _tool.Memory!.ReadU32(address, domain),
+						16 => ReadValue(address, 16, domain, bigEndian),
+						_ => ReadValue(address, 32, domain, bigEndian),
 					};
 					if (Compare(op, current, value)) break;
 				}
@@ -1549,6 +1599,7 @@ namespace BizHawkMcp
 				["matched"] = matched,
 				["frames"] = matched ? frames + 1 : frames,
 				["value"] = current,
+				["endianness"] = EndianName(bigEndian),
 				["framecount"] = _tool.Emulation!.FrameCount(),
 			});
 		}
@@ -1623,10 +1674,83 @@ namespace BizHawkMcp
 			_tool.Memory!.SetBigEndian(SystemIsBigEndian(sys));
 		}
 
-		private string EffectiveEndianness()
+		// Endianness resolution for a call, in precedence order:
+		//   1. explicit "endianness": "big" | "little" | "auto" param
+		//   2. a global bizhawk_set_big_endian override
+		//   3. the DOMAIN's native endianness (e.g. 68K RAM big vs Z80 RAM
+		//      little on Genesis — both live in the same system)
+		private bool ResolveBigEndian(JsonElement? args, string? domain)
 		{
-			if (_bigEndianOverride is { } o) return o ? "big" : "little";
-			return SystemIsBigEndian(_tool.Emulation!.GetSystemId()) ? "big" : "little";
+			if (args is { } a && a.TryGetProperty("endianness", out var v) && v.ValueKind == JsonValueKind.String)
+			{
+				switch (v.GetString())
+				{
+					case "big": return true;
+					case "little": return false;
+					case "auto": break;
+					default: throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "endianness must be \"big\", \"little\" or \"auto\"");
+				}
+			}
+			if (_bigEndianOverride is { } o) return o;
+			return DomainIsBigEndian(domain);
+		}
+
+		private bool DomainIsBigEndian(string? domain)
+		{
+			// Z80-family memory is little-endian even on big-endian systems
+			// (Genesis: sound CPU). Everything else follows the main CPU.
+			if (domain != null && domain.IndexOf("Z80", StringComparison.OrdinalIgnoreCase) >= 0) return false;
+			return SystemIsBigEndian(_tool.Emulation!.GetSystemId());
+		}
+
+		private static string EndianName(bool bigEndian) => bigEndian ? "big" : "little";
+
+		// Read/write multi-byte values deterministically (raw bytes + explicit
+		// endianness) so results never depend on ApiHawk's global SetBigEndian
+		// state — a per-call "endianness" always wins.
+		private ulong ReadValue(long address, int width, string? domain, bool bigEndian)
+		{
+			var raw = _tool.Memory!.ReadByteRange(address, width / 8, domain);
+			return BytesToValue(raw, 0, width / 8, bigEndian);
+		}
+
+		private void WriteValue(long address, int width, string? domain, ulong value, bool bigEndian)
+		{
+			_tool.Memory!.WriteByteRange(address, ValueToBytes(value, width / 8, bigEndian), domain);
+		}
+
+		private static byte[] ValueToBytes(ulong value, int bytesPer, bool bigEndian)
+		{
+			var b = new byte[bytesPer];
+			for (int i = 0; i < bytesPer; i++)
+			{
+				int shift = bigEndian ? (bytesPer - 1 - i) * 8 : i * 8;
+				b[i] = (byte)(value >> shift);
+			}
+			return b;
+		}
+
+		private static long SignExtend(ulong v, int bytesPer)
+		{
+			int bits = bytesPer * 8;
+			ulong sign = 1UL << (bits - 1);
+			if ((v & sign) != 0) v |= ulong.MaxValue << bits;
+			return (long)v;
+		}
+
+		private float ReadFloatRaw(long address, string? domain, bool bigEndian)
+		{
+			var raw = _tool.Memory!.ReadByteRange(address, 4, domain);
+			var bytes = new byte[] { raw[0], raw[1], raw[2], raw[3] };
+			if (bigEndian) Array.Reverse(bytes);
+			return BitConverter.ToSingle(bytes, 0);
+		}
+
+		private void WriteFloatRaw(long address, string? domain, float value, bool bigEndian)
+		{
+			var bytes = BitConverter.GetBytes(value);
+			if (bigEndian) Array.Reverse(bytes);
+			_tool.Memory!.WriteByteRange(address, bytes, domain);
 		}
 
 		private static bool SystemIsBigEndian(string systemId)

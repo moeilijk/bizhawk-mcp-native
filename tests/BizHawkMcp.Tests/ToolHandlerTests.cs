@@ -44,6 +44,62 @@ namespace BizHawkMcp.Tests
 		}
 
 		[Fact]
+		public void Write_u16_respects_explicit_big_endian_param_on_nes()
+		{
+			// NES defaults little, but an explicit param flips it for this call
+			_apis.EmulationApi.SystemId = "NES";
+			_ts.Call("bizhawk_write_memory", TestHelpers.Js("{\"address\":100,\"width\":16,\"value\":24827,\"endianness\":\"big\"}"));
+			Assert.Equal((byte)0x60, _apis.MemoryApi.Bytes[100]);
+			Assert.Equal((byte)0xFB, _apis.MemoryApi.Bytes[101]);
+		}
+
+		[Fact]
+		public void Domain_default_is_little_for_z80_ram()
+		{
+			// Genesis: the Z80 sound CPU memory is little-endian even though
+			// the 68K main memory is big-endian — the domain decides.
+			_ts.Call("bizhawk_write_memory", TestHelpers.Js("{\"address\":100,\"width\":16,\"value\":24827,\"domain\":\"Z80 RAM\"}"));
+			Assert.Equal((byte)0xFB, _apis.MemoryApi.Bytes[100]);
+			Assert.Equal((byte)0x60, _apis.MemoryApi.Bytes[101]);
+		}
+
+		[Fact]
+		public void Domain_default_is_big_for_68k_ram()
+		{
+			_ts.Call("bizhawk_write_memory", TestHelpers.Js("{\"address\":100,\"width\":16,\"value\":24827,\"domain\":\"68K RAM\"}"));
+			Assert.Equal((byte)0x60, _apis.MemoryApi.Bytes[100]);
+			Assert.Equal((byte)0xFB, _apis.MemoryApi.Bytes[101]);
+		}
+
+		[Fact]
+		public void Explicit_little_endian_param_on_z80_sticks_for_call()
+		{
+			_ts.Call("bizhawk_write_memory", TestHelpers.Js("{\"address\":100,\"width\":16,\"value\":24827,\"domain\":\"Z80 RAM\",\"endianness\":\"little\"}"));
+			Assert.Equal((byte)0xFB, _apis.MemoryApi.Bytes[100]);
+			Assert.Equal((byte)0x60, _apis.MemoryApi.Bytes[101]);
+		}
+
+		[Fact]
+		public void Read_memory_reports_used_endianness()
+		{
+			_apis.MemoryApi.Bytes[100] = 0x00;
+			_apis.MemoryApi.Bytes[101] = 0x08;
+			var res = Parse(_ts.Call("bizhawk_read_memory", TestHelpers.Js("{\"address\":100,\"width\":16,\"domain\":\"68K RAM\"}")));
+			Assert.Equal((ulong)8, res.GetProperty("value").GetUInt64());
+			Assert.Equal("big", res.GetProperty("endianness").GetString());
+			res = Parse(_ts.Call("bizhawk_read_memory", TestHelpers.Js("{\"address\":100,\"width\":16,\"domain\":\"Z80 RAM\"}")));
+			Assert.Equal((ulong)2048, res.GetProperty("value").GetUInt64());
+			Assert.Equal("little", res.GetProperty("endianness").GetString());
+		}
+
+		[Fact]
+		public void Invalid_endianness_param_rejected()
+		{
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_read_memory", TestHelpers.Js("{\"address\":0,\"endianness\":\"sideways\"}")));
+			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
+		}
+
+		[Fact]
 		public void Set_big_endian_overrides_core_default()
 		{
 			_ts.Call("bizhawk_get_info", null); // GEN → BE
@@ -245,6 +301,20 @@ namespace BizHawkMcp.Tests
 		}
 
 		[Fact]
+		public void Search_memory_uses_domain_endianness_and_reports_it()
+		{
+			// same bytes 00 08: big on 68K RAM (=8), little on Z80 RAM (=2048)
+			_apis.MemoryApi.Bytes[100] = 0x00;
+			_apis.MemoryApi.Bytes[101] = 0x08;
+			var res = Parse(_ts.Call("bizhawk_search_memory", TestHelpers.Js("{\"value\":8,\"width\":16,\"domain\":\"68K RAM\",\"max_results\":10}")));
+			Assert.Equal(1, res.GetProperty("count").GetInt32());
+			Assert.Equal("big", res.GetProperty("endianness").GetString());
+			res = Parse(_ts.Call("bizhawk_search_memory", TestHelpers.Js("{\"value\":2048,\"width\":16,\"domain\":\"Z80 RAM\",\"max_results\":10}")));
+			Assert.Equal(1, res.GetProperty("count").GetInt32());
+			Assert.Equal("little", res.GetProperty("endianness").GetString());
+		}
+
+		[Fact]
 		public void Hash_region_returns_hash()
 		{
 			var res = Parse(_ts.Call("bizhawk_hash_region", TestHelpers.Js("{\"address\":0,\"length\":64}")));
@@ -308,6 +378,19 @@ namespace BizHawkMcp.Tests
 		}
 
 		[Fact]
+		public void Read_many_mixes_domains_with_own_endianness()
+		{
+			// same bytes 00 08: 8 on big 68K RAM, 2048 on little Z80 RAM
+			_apis.MemoryApi.Bytes[100] = 0x00;
+			_apis.MemoryApi.Bytes[101] = 0x08;
+			var res = Parse(_ts.Call("bizhawk_read_many", TestHelpers.Js("{\"items\":[{\"address\":100,\"width\":16,\"domain\":\"68K RAM\"},{\"address\":100,\"width\":16,\"domain\":\"Z80 RAM\"}]}")));
+			Assert.Equal((ulong)8, res.GetProperty("reads")[0].GetProperty("value").GetUInt64());
+			Assert.Equal("big", res.GetProperty("reads")[0].GetProperty("endianness").GetString());
+			Assert.Equal((ulong)2048, res.GetProperty("reads")[1].GetProperty("value").GetUInt64());
+			Assert.Equal("little", res.GetProperty("reads")[1].GetProperty("endianness").GetString());
+		}
+
+		[Fact]
 		public void Write_range_writes_bytes_in_order()
 		{
 			_ts.Call("bizhawk_write_range", TestHelpers.Js("{\"address\":100,\"values\":[1,2,3,4]}"));
@@ -326,7 +409,20 @@ namespace BizHawkMcp.Tests
 		public void Write_many_writes_non_contiguous_values()
 		{
 			_ts.Call("bizhawk_write_many", TestHelpers.Js("{\"items\":[{\"address\":100,\"width\":8,\"value\":1},{\"address\":200,\"width\":16,\"value\":513},{\"address\":300,\"width\":32,\"value\":65537}]}"));
+			// domain default on GEN = big-endian (68K RAM)
 			Assert.Equal((byte)1, _apis.MemoryApi.Bytes[100]);
+			Assert.Equal((byte)0x02, _apis.MemoryApi.Bytes[200]);
+			Assert.Equal((byte)0x01, _apis.MemoryApi.Bytes[201]);
+			Assert.Equal((byte)0x00, _apis.MemoryApi.Bytes[300]);
+			Assert.Equal((byte)0x01, _apis.MemoryApi.Bytes[301]);
+			Assert.Equal((byte)0x00, _apis.MemoryApi.Bytes[302]);
+			Assert.Equal((byte)0x01, _apis.MemoryApi.Bytes[303]);
+		}
+
+		[Fact]
+		public void Write_many_respects_explicit_little_endian()
+		{
+			_ts.Call("bizhawk_write_many", TestHelpers.Js("{\"items\":[{\"address\":200,\"width\":16,\"value\":513,\"endianness\":\"little\"},{\"address\":300,\"width\":32,\"value\":65537,\"endianness\":\"little\"}]}"));
 			Assert.Equal((byte)0x01, _apis.MemoryApi.Bytes[200]);
 			Assert.Equal((byte)0x02, _apis.MemoryApi.Bytes[201]);
 			Assert.Equal((byte)0x01, _apis.MemoryApi.Bytes[300]);
@@ -558,6 +654,20 @@ namespace BizHawkMcp.Tests
 		}
 
 		[Fact]
+		public void Watch_reads_with_per_watcher_endianness()
+		{
+			_apis.MemoryApi.Bytes[100] = 0x00;
+			_apis.MemoryApi.Bytes[101] = 0x08;
+			_ts.Call("bizhawk_watch_add", TestHelpers.Js("{\"name\":\"main\",\"address\":100,\"width\":16,\"domain\":\"68K RAM\"}"));
+			_ts.Call("bizhawk_watch_add", TestHelpers.Js("{\"name\":\"sound\",\"address\":100,\"width\":16,\"domain\":\"Z80 RAM\"}"));
+			var listed = Parse(_ts.Call("bizhawk_watch_list", null));
+			Assert.Equal((ulong)8, listed.GetProperty("watchers")[0].GetProperty("value").GetUInt64());
+			Assert.Equal("big", listed.GetProperty("watchers")[0].GetProperty("endianness").GetString());
+			Assert.Equal((ulong)2048, listed.GetProperty("watchers")[1].GetProperty("value").GetUInt64());
+			Assert.Equal("little", listed.GetProperty("watchers")[1].GetProperty("endianness").GetString());
+		}
+
+		[Fact]
 		public void Watch_add_duplicate_rejected()
 		{
 			_ts.Call("bizhawk_watch_add", TestHelpers.Js("{\"name\":\"hp\",\"address\":100,\"width\":8}"));
@@ -613,6 +723,22 @@ namespace BizHawkMcp.Tests
 		{
 			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_wait_until", TestHelpers.Js("{\"address\":100,\"op\":\"==\",\"value\":1}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
+		}
+
+		[Fact]
+		public void Wait_until_u16_uses_domain_endianness()
+		{
+			// big-endian 68K RAM: bytes 00 01 = 1; wait until it reaches 1
+			var frames = 0;
+			_apis.EmuClientApi.OnFrameAdvance = () => { frames++; _apis.MemoryApi.Bytes[100] = 0x00; _apis.MemoryApi.Bytes[101] = (byte)frames; };
+			_apis.MemoryApi.Bytes[100] = 0x00;
+			_apis.MemoryApi.Bytes[101] = 0x00;
+			_apis.EmuClientApi.Paused = true;
+
+			var res = Parse(_ts.Call("bizhawk_wait_until", TestHelpers.Js("{\"address\":100,\"op\":\"eq\",\"value\":1,\"width\":16,\"domain\":\"68K RAM\"}")));
+			Assert.True(res.GetProperty("matched").GetBoolean());
+			Assert.Equal((ulong)1, res.GetProperty("value").GetUInt64());
+			Assert.Equal("big", res.GetProperty("endianness").GetString());
 		}
 
 		[Fact]

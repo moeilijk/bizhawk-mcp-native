@@ -3,7 +3,7 @@
 Guidance for AI agents (and humans) working on this repository.
 
 - **Documentation index:** `docs/` — `ARCHITECTURE.md`, `MCP-PROTOCOL.md`, `DEVELOPMENT.md`, `CI-RELEASES.md`. When in doubt, read the relevant doc before editing. Improvement ideas live in `TODO.md`.
-- **Current status (2026-08-02):** 60 tools verified end-to-end against the user's BizHawk dev build (2.11.2, commit `ed78f70a`, Windows via WSL). Server advertises `tools` + `resources` capabilities over `http://127.0.0.1:8767/mcp/`; 104 unit tests (`./scripts/test.sh`) pass on Linux without BizHawk. Deployed to `F:\projects\kid\emulators\BizHawk-dev-windows\ExternalTools\`. Test loop: an agent tests against Kid Chameleon (UE) on the Genesis gpgx waterbox core.
+- **Current status (2026-08-02):** 60 tools verified end-to-end against the user's BizHawk dev build (2.11.2, commit `ed78f70a`, Windows via WSL). Server advertises `tools` + `resources` capabilities over `http://127.0.0.1:8767/mcp/`; 129 unit tests (`./scripts/test.sh`) pass on Linux without BizHawk. Deployed to `F:\projects\kid\emulators\BizHawk-dev-windows\ExternalTools\`. Test loop: an agent tests against Kid Chameleon (UE) on the Genesis gpgx waterbox core.
 
 ## What this is
 
@@ -68,8 +68,11 @@ Recipe with code in `docs/DEVELOPMENT.md`. In short: add a `Tool(...)` descripto
 - Streamable HTTP subset: no sessions, no server-initiated messages, `GET` SSE is endpoint + keepalive only.
 - `bizhawk_frame_advance` pumps `Application.DoEvents` between frames so the UI stays responsive; long counts (max 600) are intentionally capped.
 - `bizhawk_screenshot`/`save_state`/`load_state` paths are host-side (Windows paths when EmuHawk runs on Windows). `bizhawk_screenshot` returns the effective path plus a `bizhawk://` resource URI; `resources/read` serves the PNG as base64.
-- `bizhawk_search_memory` matches via the same endianness semantics as `bizhawk_read_memory` (core default, overridable with `bizhawk_set_big_endian`).
-- Endianness defaults are core-aware (`SystemIsBigEndian` map: GEN/SMD/32X/SNES/SNESBG/N64/SAT → big-endian); ApiHawk's `SetBigEndian` has no getter, so the toolset tracks its own state (`_bigEndianOverride`).
+- `bizhawk_search_memory` matches via the same endianness semantics as `bizhawk_read_memory` (per-domain default, overridable per call with `"endianness"` or globally with `bizhawk_set_big_endian`).
+- Endianness defaults are domain-aware: `68K RAM`/`M68K BUS` are big on
+  GEN/SMD/32X/SAT while `Z80 RAM` is little (sound CPU), SNES/N64 big. The
+  toolset tracks its own state (`_bigEndianOverride`) because ApiHawk's
+  `SetBigEndian` has no getter; `bizhawk_set_big_endian` is the global override.
 
 ## Domain & address conventions (hard-won, Genesis/Kid Chameleon)
 
@@ -91,6 +94,15 @@ before debugging anything on the Genesis core.
   `bizhawk_trace`/`FindRegister` match by suffix. `bizhawk_set_register` needs the
   exact key (e.g. `M68K PC`) — and gpgx does NOT implement register writes at all
   (`SetCpuRegister` throws `NotImplementedException`, swallowed by ApiHawk).
+- **Endianness is per-domain, not just per-system:** every memory tool accepts an
+  optional `"endianness": "big" | "little" | "auto"` param (default `"auto"`).
+  `auto` = the **domain's** native endianness: `Z80 RAM` is little even on
+  big-endian Genesis (68K vs Z80 sound CPU), while `68K RAM`/`M68K BUS` are big.
+  Precedence: explicit param > `bizhawk_set_big_endian` override > domain default.
+  All multi-byte reads/writes are byte-level (`ReadValue`/`WriteValue`/
+  `ReadFloatRaw`) so the result never depends on ApiHawk's global `SetBigEndian`
+  state — a per-call param always wins. Every read tool also returns the
+  `"endianness"` actually used, so clients never misread a value.
 - **Palette formats:** Genesis CRAM = 16-bit BGR with 3 bits/channel packed
   `0BBB0GGG0RRR0` (R in bits 0-2), big-endian bytes; SNES CGRAM = 16-bit BGR555
   (R in bits 0-4), little-endian bytes. `bizhawk_read_palette` handles both,
