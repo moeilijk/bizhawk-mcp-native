@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.InteropServices;
 using BizHawk.Client.Common;
 using BizHawk.Emulation.Common;
 using BizHawkMcp;
@@ -154,6 +155,33 @@ namespace BizHawkMcp.Tests
 		{
 			if (BigEndian) { WriteByte(addr, value >> 24); WriteByte(addr + 1, value >> 16); WriteByte(addr + 2, value >> 8); WriteByte(addr + 3, value); }
 			else { WriteByte(addr, value); WriteByte(addr + 1, value >> 8); WriteByte(addr + 2, value >> 16); WriteByte(addr + 3, value >> 24); }
+		}
+
+		// The real MemoryApi exposes a DomainList (IMemoryDomains) with a
+		// per-name indexer returning the MemoryDomain; TryBulkWrite reaches it via
+		// reflection. Exposed opt-in so existing tests keep using the ApiHawk
+		// fallback path (dict-backed), and bulk tests verify the fast path.
+		public FakeDomainList? DomainList { get; set; }
+
+		public sealed class FakeDomainList
+		{
+			public FakeMemoryDomain this[string name] => new();
+		}
+
+		public sealed class FakeMemoryDomain
+		{
+			// pinned buffer that Marshal.Copy can write into (bulk path)
+			private static readonly byte[] Buffer = new byte[1024 * 1024];
+			private static readonly GCHandle Handle = GCHandle.Alloc(Buffer, GCHandleType.Pinned);
+
+			public static bool BulkWriteUsed;
+
+			public IntPtr Data => Handle.AddrOfPinnedObject();
+
+			public void Enter() => BulkWriteUsed = true;
+
+			// mirrors the real MemoryDomain.Enter()/Exit() pair the bulk path requires
+			public void Exit() { }
 		}
 	}
 

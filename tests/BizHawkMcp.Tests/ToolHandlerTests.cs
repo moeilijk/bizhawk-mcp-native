@@ -408,6 +408,16 @@ namespace BizHawkMcp.Tests
 		}
 
 		[Fact]
+		public void Write_range_uses_bulk_path_when_domain_is_pointer_backed()
+		{
+			_apis.MemoryApi.DomainList = new FakeMemoryApi.FakeDomainList();
+			FakeMemoryApi.FakeMemoryDomain.BulkWriteUsed = false;
+			_ts.Call("bizhawk_write_range", TestHelpers.Js("{\"address\":100,\"values\":[1,2,3,4,5,6,7,8]}"));
+			Assert.True(FakeMemoryApi.FakeMemoryDomain.BulkWriteUsed, "bulk path not taken; logs: " + string.Join(" | ", _apis.Logged));
+			Assert.False(_apis.MemoryApi.Bytes.ContainsKey(100));
+		}
+
+		[Fact]
 		public void Write_range_rejects_out_of_byte_values()
 		{
 			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_write_range", TestHelpers.Js("{\"address\":100,\"values\":[1,300]}")));

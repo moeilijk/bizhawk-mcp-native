@@ -41,6 +41,8 @@ on explicit request — otherwise changes accumulate under `## [Unreleased]`.
 - Board info (`bizhawk_get_board_info`): board name, display type, game options.
 - Real-HTTP end-to-end tests: `McpHttpServer` boots on a random port and is hit
   with actual requests (initialize/tools/list/ping/tools-call/errors).
+- `bizhawk_write_range` bulk path: writes through the domain's raw pointer in a
+  single waterbox crossing (up to ~400x fewer crossings) with a safe fallback.
 
 ### Fixed
 - `read_many`/`search_memory` ignored configured endianness (little-endian

@@ -1067,8 +1067,75 @@ namespace BizHawkMcp
 				if (v is < 0 or > 0xFF) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"value {v} does not fit a byte");
 				bytes[i++] = (byte)v;
 			}
-			_tool.Memory!.WriteByteRange(address, bytes, domain);
+			if (!TryBulkWrite(domain, address, bytes))
+				_tool.Memory!.WriteByteRange(address, bytes, domain);
 			return $"wrote {len} byte(s) at {address}";
+		}
+
+		// Writes a whole range with ONE waterbox crossing when the domain exposes
+		// a raw pointer (gpgx's Main RAM / 68K RAM is a MemoryDomainIntPtrMonitor).
+		// The ApiHawk WriteByteRange loops PokeByte per byte → one interop call per
+		// byte, which is the dominant cost (hundreds of crossings for a few hundred
+		// bytes). Writing straight into the domain's Data pointer inside a single
+		// Enter/Exit is up to ~400x fewer crossings. Falls back to the ApiHawk path
+		// if the domain isn't pointer-backed (reflection-safe, like watchpoints).
+		// GetMethod can miss methods on nested generic/closed types in some
+		// compilation contexts; enumerate instead.
+		private static System.Reflection.MethodInfo? FindMethod(Type type, string name)
+		{
+			var all = type.GetMethods(BindingFlags.Public | BindingFlags.Instance);
+			foreach (var m in all)
+			{
+				if (m.Name == name)
+				{
+					var ps = m.GetParameters();
+					if (ps.Length == 0) return m;
+				}
+			}
+			return null;
+		}
+
+		private bool TryBulkWrite(string? domain, long address, byte[] bytes)
+		{
+			try
+			{
+				var memApi = _tool.Memory!;
+				// IMemoryDomains indexer by name → MemoryDomain
+				var listProp = memApi.GetType().GetProperty("DomainList", BindingFlags.Public | BindingFlags.Instance);
+				if (listProp == null) return false;
+				var list = listProp.GetValue(memApi);
+				if (list == null) return false;
+				var indexer = list.GetType().GetProperty("Item");
+				if (indexer == null) return false;
+				string domainName = domain ?? memApi.GetCurrentMemoryDomain();
+				var memDomain = indexer.GetValue(list, new object[] { domainName });
+				if (memDomain == null) return false;
+
+				var dataProp = memDomain.GetType().GetProperty("Data", BindingFlags.Public | BindingFlags.Instance);
+				if (dataProp == null) return false;
+				var data = (IntPtr)dataProp.GetValue(memDomain)!;
+				if (data == IntPtr.Zero) return false;
+
+				// single Enter/Exit around the whole copy (Marshal.Copy is one memcpy)
+				var enter = FindMethod(memDomain.GetType(), "Enter");
+				var exit = FindMethod(memDomain.GetType(), "Exit");
+				if (enter == null || exit == null) return false;
+
+				enter.Invoke(memDomain, null);
+				try
+				{
+					System.Runtime.InteropServices.Marshal.Copy(bytes, 0, IntPtr.Add(data, checked((int)address)), bytes.Length);
+				}
+				finally
+				{
+					exit.Invoke(memDomain, null);
+				}
+				return true;
+			}
+			catch
+			{
+				return false;
+			}
 		}
 
 		private string WriteMany(JsonElement? args)
