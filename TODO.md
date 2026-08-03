@@ -31,7 +31,10 @@ Legend: `[x]` done · `[~]` partially done / covered by another tool · `[ ]` op
   `Get2DRenderer(null)` threw and text drew into the invisible EmuCore buffer.
   All overlay tools now wrap their calls in `WithSurface(DisplaySurfaceID.Client,
   ...)`; `screenshot` gained `include_overlays: true` to compose that layer into
-  the PNG via EmuHawk's `ScreenshotCaptureOsd`.)
+  the PNG via EmuHawk's `ScreenshotCaptureOsd`. Overlays now ACCUMULATE: the
+  toolset keeps a list and re-renders it on every frame advance (EmuHawk
+  discards the ApiHawk surface per frame, same as Lua), and
+  `overlay_rect`/`overlay_line` accept `rects`/`lines` arrays.)
 - [x] **Watchpoints (read/write/exec)** (`bizhawk_watchpoint_add/remove/list/wait`):
   real `IDebuggable.MemoryCallbacks` reached via reflection on
   `EmulationApi.DebuggableCore`. **Genesis gpgx waterbox core only** (the only

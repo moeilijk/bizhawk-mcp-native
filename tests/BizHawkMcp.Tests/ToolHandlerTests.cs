@@ -590,6 +590,62 @@ namespace BizHawkMcp.Tests
 		}
 
 		[Fact]
+		public void Get_vdp_view_returns_plane_bases()
+		{
+			var dbg = _apis.EnableWatchpoints();
+			dbg.PlaneABase = 0x0000;
+			dbg.PlaneBBase = 0xE000;
+			var res = Parse(_ts.Call("bizhawk_get_vdp_view", null));
+			Assert.Equal((long)0x0000, res.GetProperty("planeA").GetProperty("base").GetInt64());
+			Assert.Equal((long)0xE000, res.GetProperty("planeB").GetProperty("base").GetInt64());
+			Assert.Equal(64, res.GetProperty("planeA").GetProperty("width").GetInt32());
+		}
+
+		[Fact]
+		public void Get_vdp_view_errors_without_core()
+		{
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_get_vdp_view", null));
+			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
+		}
+
+		[Fact]
+		public void Read_plane_auto_detects_base_from_core()
+		{
+			// Kid Chameleon uses plane A at 0x0000 (not the typical 0xC000).
+			var dbg = _apis.EnableWatchpoints();
+			dbg.PlaneABase = 0x0000;
+			var mem = _apis.MemoryApi;
+			mem.WriteByte(2, 0x00, "CRAM"); mem.WriteByte(3, 0x0E, "CRAM");
+			for (var i = 0; i < 32; i++) mem.WriteByte(i, 0x11, "VRAM");
+			mem.WriteByte(0x0000, 0x00, "VRAM"); mem.WriteByte(0x0001, 0x00, "VRAM");
+
+			var res = Parse(_ts.Call("bizhawk_read_plane", TestHelpers.Js("{\"plane\":\"A\",\"columns\":1,\"rows\":1}")));
+			// no explicit base → the core's plane A base (0x0000) is used
+			Assert.Equal((long)0x0000, res.GetProperty("base").GetInt64());
+			var path = res.GetProperty("path").GetString();
+			Assert.True(System.IO.File.Exists(path));
+			System.IO.File.Delete(path);
+		}
+
+		[Fact]
+		public void Read_plane_window_offset_crops_camera()
+		{
+			var mem = _apis.MemoryApi;
+			mem.WriteByte(2, 0x00, "CRAM"); mem.WriteByte(3, 0x0E, "CRAM");
+			for (var i = 0; i < 32; i++) mem.WriteByte(i, 0x11, "VRAM");
+			// entry at base + offset_x*2 (tile 0 at column 40): tile 0, white
+			mem.WriteByte(0xC000 + 40 * 2, 0x00, "VRAM");
+			mem.WriteByte(0xC000 + 40 * 2 + 1, 0x00, "VRAM");
+
+			var res = Parse(_ts.Call("bizhawk_read_plane", TestHelpers.Js("{\"plane\":\"B\",\"columns\":1,\"rows\":1,\"offset_x\":40}")));
+			Assert.Equal((long)0xE000, res.GetProperty("base").GetInt64());
+			Assert.Equal(8, res.GetProperty("width").GetInt32());
+			var path = res.GetProperty("path").GetString();
+			Assert.True(System.IO.File.Exists(path));
+			System.IO.File.Delete(path);
+		}
+
+		[Fact]
 		public void Screenshot_toggles_osd_off_and_back_on()
 		{
 			var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "test-osd.png");
@@ -1412,8 +1468,29 @@ namespace BizHawkMcp.Tests
 			_ts.Call("bizhawk_overlay_text", TestHelpers.Js("{\"x\":1,\"y\":2,\"text\":\"hi\",\"fontsize\":12}"));
 			Assert.Equal((1, 2, "hi", (int?)12), _apis.GuiApi.LastDraw);
 			_ts.Call("bizhawk_clear_overlay", null);
-			// clears both the Client graphics surface and the text layer
-			Assert.Equal(2, _apis.GuiApi.ClearTextCalls);
+			// clears the Client graphics surface, the text layer, and the list
+			Assert.Equal(3, _apis.GuiApi.ClearTextCalls);
+		}
+
+		[Fact]
+		public void Overlays_accumulate_and_redraw_all()
+		{
+			// drawing a new shape must NOT wipe the previous ones: the toolset
+			// keeps a list and re-renders everything on every mutation
+			_ts.Call("bizhawk_overlay_rect", TestHelpers.Js("{\"x\":1,\"y\":2,\"width\":10,\"height\":20}"));
+			Assert.Equal(1, _apis.GuiApi.DrawCount); // one rect
+			_ts.Call("bizhawk_overlay_line", TestHelpers.Js("{\"x1\":0,\"y1\":0,\"x2\":5,\"y2\":5}"));
+			// re-rendered the rect again + the new line (2 draws this mutation)
+			Assert.Equal((1, 2, 10, 20), _apis.GuiApi.LastRect);
+			Assert.Equal((0, 0, 5, 5), _apis.GuiApi.LastLine);
+			Assert.Equal(3, _apis.GuiApi.DrawCount);
+		}
+
+		[Fact]
+		public void Overlay_rects_list_in_one_call()
+		{
+			_ts.Call("bizhawk_overlay_rect", TestHelpers.Js("{\"rects\":[{\"x\":1,\"y\":2,\"width\":3,\"height\":4},{\"x\":5,\"y\":6,\"width\":7,\"height\":8}]}"));
+			Assert.Equal((5, 6, 7, 8), _apis.GuiApi.LastRect);
 		}
 
 		[Fact]

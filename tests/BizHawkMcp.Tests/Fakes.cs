@@ -247,6 +247,34 @@ namespace BizHawkMcp.Tests
 		public FakeMemoryCallbacks Callbacks { get; } = new();
 
 		public IMemoryCallbackSystem MemoryCallbacks => Callbacks;
+
+		// Simulates the gpgx core's VDP view (plane nametable bases/dims).
+		public int PlaneABase = 0x0000;
+		public int PlaneBBase = 0xE000;
+		public int PlaneAWidth = 64, PlaneAHeight = 32;
+		public int PlaneBWidth = 64, PlaneBHeight = 32;
+
+		public FakeVdpView UpdateVDPViewContext()
+		{
+			return new FakeVdpView
+			{
+				NTA = new FakeNameTable { Baseaddr = PlaneABase, Width = PlaneAWidth, Height = PlaneAHeight },
+				NTB = new FakeNameTable { Baseaddr = PlaneBBase, Width = PlaneBWidth, Height = PlaneBHeight },
+			};
+		}
+
+		public sealed class FakeVdpView
+		{
+			public FakeNameTable NTA;
+			public FakeNameTable NTB;
+		}
+
+		public sealed class FakeNameTable
+		{
+			public int Width;
+			public int Height;
+			public int Baseaddr;
+		}
 	}
 
 	public sealed class FakeMemoryCallbacks : IMemoryCallbackSystem
@@ -322,6 +350,7 @@ namespace BizHawkMcp.Tests
 	{
 		public readonly List<string> Messages = new();
 		public int ClearTextCalls;
+		public int DrawCount;
 		public (int x, int y, string text, int? fontsize)? LastDraw;
 		public (int x, int y, int w, int h)? LastRect;
 		public (int x1, int y1, int x2, int y2)? LastLine;
@@ -335,13 +364,22 @@ namespace BizHawkMcp.Tests
 		public void ClearGraphics(DisplaySurfaceID? surfaceID = null) => ClearTextCalls++;
 
 		public void DrawString(int x, int y, string message, System.Drawing.Color? forecolor = null, System.Drawing.Color? backcolor = null, int? fontsize = null, string fontfamily = null, string fontstyle = null, string horizalign = null, string vertalign = null, DisplaySurfaceID? surfaceID = null)
-			=> LastDraw = (x, y, message, fontsize);
+		{
+			DrawCount++;
+			LastDraw = (x, y, message, fontsize);
+		}
 
 		public void DrawRectangle(int x, int y, int width, int height, System.Drawing.Color? line = null, System.Drawing.Color? background = null, DisplaySurfaceID? surfaceID = null)
-			=> LastRect = (x, y, width, height);
+		{
+			DrawCount++;
+			LastRect = (x, y, width, height);
+		}
 
 		public void DrawLine(int x1, int y1, int x2, int y2, System.Drawing.Color? color = null, DisplaySurfaceID? surfaceID = null)
-			=> LastLine = (x1, y1, x2, y2);
+		{
+			DrawCount++;
+			LastLine = (x1, y1, x2, y2);
+		}
 	}
 
 	public sealed class FakeInputApi : IInputApi

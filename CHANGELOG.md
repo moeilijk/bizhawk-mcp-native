@@ -47,5 +47,9 @@ on explicit request — otherwise changes accumulate under `## [Unreleased]`.
   without a display surface, so `Get2DRenderer(null)` threw (rect/line) or drew
   into the invisible EmuCore buffer (text). They now draw on the Client surface
   via `WithSurface(DisplaySurfaceID.Client, ...)`.
+- Overlays now **accumulate** until `bizhawk_clear_overlay` (EmuHawk discards
+  the ApiHawk surface each rendered frame, so the toolset re-renders the full
+  list on every frame advance — like Lua scripts do). `overlay_rect`/
+  `overlay_line` accept `rects`/`lines` arrays to draw many shapes in one call.
 - `bizhawk_screenshot` gained `include_overlays: true` to compose the
   overlay/OSD layer into the PNG (EmuHawk's `ScreenshotCaptureOsd`).

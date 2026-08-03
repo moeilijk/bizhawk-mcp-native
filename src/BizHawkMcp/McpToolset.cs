@@ -291,14 +291,17 @@ namespace BizHawkMcp
 				Param("count", "integer", "Number of colors to read, 1..256.", 64),
 				Param("domain", "string", "Optional palette domain (defaults to CRAM on GEN, CGRAM on SNES)."),
 			]),
-			Tool("bizhawk_read_plane", "Decode a Genesis background nametable (plane A/B) from VRAM into a PNG (also exposed as a bizhawk:// resource). Plane base defaults to 0xC000 (A) / 0xE000 (B) but can be overridden with \"base\". Uses the CRAM palette; \"columns\"/\"rows\" select the region (default full 64x32), \"scale\" zooms.", [
+			Tool("bizhawk_read_plane", "Decode a Genesis background nametable (plane A/B) from VRAM into a PNG (also exposed as a bizhawk:// resource). Plane base auto-detected from the core's VDP view (Kid Chameleon uses plane A at 0x0000, not the typical 0xC000); override with \"base\". \"columns\"/\"rows\" select the region, \"offset_x\"/\"offset_y\" (tiles) crop to a camera window, \"scale\" zooms. Uses the CRAM palette.", [
 				Param("plane", "string", "\"A\" or \"B\".", "A"),
-				Param("base", "integer", "VRAM offset of the nametable (default 0xC000 for A, 0xE000 for B)."),
+				Param("base", "integer", "VRAM offset of the nametable (default: auto-detect from the core)."),
 				Param("columns", "integer", "Tile columns to render, 1..128.", 64),
 				Param("rows", "integer", "Tile rows to render, 1..128.", 32),
+				Param("offset_x", "integer", "Tile column to start at (camera crop).", 0),
+				Param("offset_y", "integer", "Tile row to start at (camera crop).", 0),
 				Param("scale", "integer", "Pixel zoom factor, 1..8.", 1),
 				Param("path", "string", "Optional absolute PNG path writable by EmuHawk (default: temp dir)."),
 			]),
+			Tool("bizhawk_get_vdp_view", "Read the Genesis VDP nametable bases from the core (plane A/B addresses + dimensions in tiles, as the game configures them). Genesis gpgx core only; other cores error. Use it to find where the planes live before read_plane.", []),
 			Tool("bizhawk_press_buttons", "Set joypad state for the NEXT frame.", [
 				Param("buttons", "object", "Map of button name -> pressed bool, e.g. {\"A\": true, \"Right\": true}."),
 				Param("controller", "integer", "Optional controller index (1-based).", 1),
@@ -336,28 +339,30 @@ namespace BizHawkMcp
 				Param("path", "string", "Absolute .State path."),
 			]),
 			Tool("bizhawk_shutdown", "Stop the MCP server (plugin stays loaded; restart via the form's button or the emulator's Lua/tools menu).", []),
-			Tool("bizhawk_overlay_text", "Draw text on the emulator's video output (GUI layer).", [
+			Tool("bizhawk_overlay_text", "Draw text on the emulator's video output. Overlays ACCUMULATE until bizhawk_clear_overlay (all are re-rendered on every frame advance), so multiple hitboxes/labels can stay on screen at once.", [
 				Param("x", "integer", "X position."),
 				Param("y", "integer", "Y position."),
 				Param("text", "string", "Text to draw."),
 				Param("color", "string", "Optional hex color, e.g. \"#FFFFFF\"."),
 				Param("fontsize", "integer", "Optional font size in pixels."),
 			]),
-			Tool("bizhawk_clear_overlay", "Remove all text drawn on the video output.", []),
-			Tool("bizhawk_overlay_rect", "Draw a rectangle on the video output (hitboxes, regions). Cleared with bizhawk_clear_overlay.", [
+			Tool("bizhawk_clear_overlay", "Remove all overlays drawn on the video output (graphics + text).", []),
+			Tool("bizhawk_overlay_rect", "Draw a rectangle on the video output (hitboxes, regions). Overlays ACCUMULATE until bizhawk_clear_overlay. Accepts a single rect or a list via \"rects\": [{x,y,width,height,color,fill}].", [
 				Param("x", "integer", "X position."),
 				Param("y", "integer", "Y position."),
 				Param("width", "integer", "Width in pixels."),
 				Param("height", "integer", "Height in pixels."),
 				Param("color", "string", "Optional line color, e.g. \"#FF0000\"."),
 				Param("fill", "string", "Optional fill color, e.g. \"#00FF0080\" (ARGB)."),
+				Param("rects", "array", "Optional list of rects to draw in one call."),
 			]),
-			Tool("bizhawk_overlay_line", "Draw a line on the video output. Cleared with bizhawk_clear_overlay.", [
+			Tool("bizhawk_overlay_line", "Draw a line on the video output. Overlays ACCUMULATE until bizhawk_clear_overlay. Accepts a single line or a list via \"lines\": [{x1,y1,x2,y2,color}].", [
 				Param("x1", "integer", "Start X."),
 				Param("y1", "integer", "Start Y."),
 				Param("x2", "integer", "End X."),
 				Param("y2", "integer", "End Y."),
 				Param("color", "string", "Optional color, e.g. \"#00FF00\"."),
+				Param("lines", "array", "Optional list of lines to draw in one call."),
 			]),
 			Tool("bizhawk_osd_message", "Show a message in the emulator's OSD (on-screen display).", [
 				Param("message", "string", "Text to show."),
@@ -425,6 +430,29 @@ namespace BizHawkMcp
 		// clobber each other (e.g. a read racing a use_memory_domain).
 		private readonly object _callGate = new();
 
+		// Persistent overlay list. EmuHawk's Client surface holds ONE drawing
+		// (drawing a new shape replaces the previous), so we keep the full list
+		// here and re-render everything after every mutation and every
+		// frame-advance. Shapes accumulate until bizhawk_clear_overlay.
+		private readonly List<System.Action> _overlays = new();
+
+		private void RedrawOverlays()
+		{
+			if (_overlays.Count == 0) return;
+			_tool.Gui!.WithSurface(DisplaySurfaceID.Client, () => _tool.Gui!.ClearGraphics());
+			foreach (var draw in _overlays) draw();
+		}
+
+		// Single place for "advance one frame": runs the core frame, pumps the
+		// UI, and re-renders any persistent overlays (EmuHawk discards the
+		// ApiHawk surface after each rendered frame).
+		private void AdvanceFrame()
+		{
+			_tool.EmuClient!.DoFrameAdvance();
+			System.Windows.Forms.Application.DoEvents();
+			RedrawOverlays();
+		}
+
 		public string Call(string name, JsonElement? args)
 		{
 			lock (_callGate)
@@ -458,6 +486,7 @@ namespace BizHawkMcp
 				"bizhawk_symbols_clear" => _ui.Invoke(() => SymbolsClear(args)),
 				"bizhawk_read_palette" => _ui.Invoke(() => ReadPalette(args)),
 				"bizhawk_read_plane" => _ui.Invoke(() => ReadPlane(args)),
+				"bizhawk_get_vdp_view" => _ui.Invoke(GetVdpView),
 				"bizhawk_press_buttons" => _ui.Invoke(() => PressButtons(args)),
 				"bizhawk_frame_advance" => _ui.Invoke(() => FrameAdvance(args)),
 				"bizhawk_pause" => _ui.Invoke(() => PauseTool()),
@@ -1109,8 +1138,7 @@ namespace BizHawkMcp
 				// optional leading delay (skip title screens, reach gameplay)
 				for (var i = 0; i < delay; i++)
 				{
-					_tool.EmuClient!.DoFrameAdvance();
-					System.Windows.Forms.Application.DoEvents();
+					AdvanceFrame();
 				}
 
 				var lines = new System.Text.StringBuilder();
@@ -1121,8 +1149,7 @@ namespace BizHawkMcp
 				for (var f = 0; f < frames; f++)
 				{
 					if (timeline.TryGetValue(f, out var ev)) _tool.Joypad!.Set(ev.buttons, ev.controller);
-					_tool.EmuClient!.DoFrameAdvance();
-					System.Windows.Forms.Application.DoEvents();
+					AdvanceFrame();
 
 					// sample after the frame, while paused-at-frame (single step)
 					lines.Append(f);
@@ -1276,22 +1303,83 @@ namespace BizHawkMcp
 		//     high nibble (left) + low nibble (right). Pixel color = (byte[x>>1]
 		//     >> ((x&1)?0:4)) & 0xF — the color index into the 16-color palette.
 		//   tile base = tileIndex * 0x20 (+ row*4 for the row bytes).
-		// Plane A default base 0xC000, plane B 0xE000 (reg2/reg4 typical values).
+		// The plane bases come from the core's VDP view (gpgx exposes NTA/NTB via
+		// UpdateVDPViewContext — reached by reflection like the watchpoints); when
+		// that's unavailable we fall back to the typical reg2/reg4 values.
+
+		// Returns (planeA, planeB) nametable base addresses from the core, or null.
+		private (long a, long b, int aw, int ah, int bw, int bh)? TryGetVdpPlaneBases()
+		{
+			try
+			{
+				var emu = _tool.Emulation;
+				if (emu == null) return null;
+				var prop = emu.GetType().GetProperty("DebuggableCore", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+				var core = prop?.GetValue(emu);
+				if (core == null) return null;
+				var m = core.GetType().GetMethod("UpdateVDPViewContext", BindingFlags.Public | BindingFlags.Instance);
+				var view = m?.Invoke(core, null);
+				if (view == null) return null;
+				var ntA = view.GetType().GetField("NTA")?.GetValue(view);
+				var ntB = view.GetType().GetField("NTB")?.GetValue(view);
+				if (ntA == null || ntB == null) return null;
+				int ABase = (int)ntA.GetType().GetField("Baseaddr")!.GetValue(ntA)!;
+				int BBase = (int)ntB.GetType().GetField("Baseaddr")!.GetValue(ntB)!;
+				int AW = (int)ntA.GetType().GetField("Width")!.GetValue(ntA)!;
+				int AH = (int)ntA.GetType().GetField("Height")!.GetValue(ntA)!;
+				int BW = (int)ntB.GetType().GetField("Width")!.GetValue(ntB)!;
+				int BH = (int)ntB.GetType().GetField("Height")!.GetValue(ntB)!;
+				return (ABase, BBase, AW, AH, BW, BH);
+			}
+			catch
+			{
+				return null;
+			}
+		}
+
+		private string GetVdpView()
+		{
+			var v = TryGetVdpPlaneBases();
+			if (v == null)
+				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "VDP view unavailable: the loaded core does not expose nametable bases (Genesis gpgx only)");
+			return JsonRpc.Pretty(new Dictionary<string, object?>
+			{
+				["planeA"] = new Dictionary<string, object?> { ["base"] = v.Value.a, ["width"] = v.Value.aw, ["height"] = v.Value.ah },
+				["planeB"] = new Dictionary<string, object?> { ["base"] = v.Value.b, ["width"] = v.Value.bw, ["height"] = v.Value.bh },
+			});
+		}
 
 		private string ReadPlane(JsonElement? args)
 		{
 			var a = Required(args);
 			string plane = a.TryGetProperty("plane", out var p) && p.ValueKind == JsonValueKind.String ? p.GetString()! : "A";
 			if (plane is not ("A" or "B")) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "plane must be \"A\" or \"B\"");
-			long baseAddr = a.TryGetProperty("base", out var b) && b.ValueKind == JsonValueKind.Number ? b.GetInt64() : (plane == "A" ? 0xC000 : 0xE000);
+
+			// base: explicit param wins; otherwise ask the core for the real
+			// nametable address (Kid Chameleon uses plane A at 0x0000, not the
+			// typical 0xC000); fall back to the common reg2/reg4 values.
+			long baseAddr;
+			if (a.TryGetProperty("base", out var b) && b.ValueKind == JsonValueKind.Number)
+			{
+				baseAddr = b.GetInt64();
+			}
+			else
+			{
+				var v = TryGetVdpPlaneBases();
+				baseAddr = v != null ? (plane == "A" ? v.Value.a : v.Value.b) : (plane == "A" ? 0xC000 : 0xE000);
+			}
+
 			int cols = RequireInt(a, "columns", 64);
 			int rows = RequireInt(a, "rows", 32);
 			int scale = RequireInt(a, "scale", 1);
+			int offsetX = RequireInt(a, "offset_x", 0);
+			int offsetY = RequireInt(a, "offset_y", 0);
 			if (cols is < 1 or > 128) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "columns must be 1..128");
 			if (rows is < 1 or > 128) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "rows must be 1..128");
 			if (scale is < 1 or > 8) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "scale must be 1..8");
-			if (baseAddr < 0 || baseAddr + (long)cols * rows * 2 > 0x10000)
-				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"base {baseAddr:X} + {cols}x{rows} nametable exceeds VRAM (64KB)");
+			if (offsetX < 0 || offsetY < 0) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "offset_x/offset_y must be >= 0");
+			if (baseAddr < 0 || baseAddr + (long)(offsetY + rows) * 128 + (long)(offsetX + cols) * 2 > 0x10000)
+				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"base {baseAddr:X} + window {offsetX},{offsetY}+{cols}x{rows} exceeds VRAM (64KB)");
 
 			// palette: 64 entries × 16-bit BE from CRAM, hardware 0x0RRR0GGG0BBB
 			var palette = new byte[64 * 3];
@@ -1313,7 +1401,9 @@ namespace BizHawkMcp
 			{
 				for (var tx = 0; tx < cols; tx++)
 				{
-					long nt = baseAddr + (ty * cols + tx) * 2;
+					// nametable row stride is 64 entries (128 bytes); the window
+					// offset selects a camera-sized region within it
+					long nt = baseAddr + (long)(offsetY + ty) * 128 + (long)(offsetX + tx) * 2;
 					byte lo = (byte)_tool.Memory!.ReadByte(nt, "VRAM");
 					byte hi = (byte)_tool.Memory!.ReadByte(nt + 1, "VRAM");
 					int attr = (lo << 8) | hi;
@@ -1507,8 +1597,7 @@ namespace BizHawkMcp
 			if (wasPaused) _tool.EmuClient!.Unpause();
 			for (var i = 0; i < count; i++)
 			{
-				_tool.EmuClient!.DoFrameAdvance();
-				System.Windows.Forms.Application.DoEvents();
+				AdvanceFrame();
 			}
 			if (wasPaused) _tool.EmuClient!.Pause();
 			return wasPaused ? $"advanced {count} frame(s) (was paused; pause restored)" : $"advanced {count} frame(s)";
@@ -1659,46 +1748,96 @@ namespace BizHawkMcp
 			int? fontSize = a.TryGetProperty("fontsize", out var fs) && fs.ValueKind == JsonValueKind.Number ? fs.GetInt32() : null;
 			// draw on the Client (video overlay) surface — EmuCore draws into the
 			// core framebuffer, which is not visible in the EmuHawk window.
-			_tool.Gui!.WithSurface(DisplaySurfaceID.Client, () =>
+			_overlays.Add(() =>
 			{
-				_tool.Gui!.DrawString(x, y, text, color, null, fontSize, null, null, "Left", "Top");
+				_tool.Gui!.WithSurface(DisplaySurfaceID.Client, () =>
+					_tool.Gui!.DrawString(x, y, text, color, null, fontSize, null, null, "Left", "Top"));
 			});
-			return "ok";
+			RedrawOverlays();
+			return $"overlay text drawn (overlay count: {_overlays.Count})";
 		}
 
 		private string OverlayRect(JsonElement? args)
 		{
 			var a = Required(args);
-			int x = RequireInt(a, "x", 0);
-			int y = RequireInt(a, "y", 0);
-			int width = RequireInt(a, "width", 0);
-			int height = RequireInt(a, "height", 0);
-			var line = ParseColor(a);
-			var fill = ParseColorArg(a, "fill");
-			_tool.Gui!.WithSurface(DisplaySurfaceID.Client, () =>
+			// single rect, or a list of rects in one call: {rects: [{x,y,width,height,color,fill}...]}
+			if (a.TryGetProperty("rects", out var rects) && rects.ValueKind == JsonValueKind.Array)
 			{
-				_tool.Gui!.DrawRectangle(x, y, width, height, line, fill);
+				foreach (var r in rects.EnumerateArray())
+				{
+					int x = RequireInt(r, "x", 0);
+					int y = RequireInt(r, "y", 0);
+					int width = RequireInt(r, "width", 0);
+					int height = RequireInt(r, "height", 0);
+					var line = ParseColor(r);
+					var fill = ParseColorArg(r, "fill");
+					AddOverlayRect(x, y, width, height, line, fill);
+				}
+			}
+			else
+			{
+				int x = RequireInt(a, "x", 0);
+				int y = RequireInt(a, "y", 0);
+				int width = RequireInt(a, "width", 0);
+				int height = RequireInt(a, "height", 0);
+				var line = ParseColor(a);
+				var fill = ParseColorArg(a, "fill");
+				AddOverlayRect(x, y, width, height, line, fill);
+			}
+			RedrawOverlays();
+			return $"overlay rect drawn (overlay count: {_overlays.Count})";
+		}
+
+		private void AddOverlayRect(int x, int y, int width, int height, System.Drawing.Color? line, System.Drawing.Color? fill)
+		{
+			_overlays.Add(() =>
+			{
+				_tool.Gui!.WithSurface(DisplaySurfaceID.Client, () =>
+					_tool.Gui!.DrawRectangle(x, y, width, height, line, fill));
 			});
-			return "ok";
 		}
 
 		private string OverlayLine(JsonElement? args)
 		{
 			var a = Required(args);
-			int x1 = RequireInt(a, "x1", 0);
-			int y1 = RequireInt(a, "y1", 0);
-			int x2 = RequireInt(a, "x2", 0);
-			int y2 = RequireInt(a, "y2", 0);
-			var color = ParseColor(a);
-			_tool.Gui!.WithSurface(DisplaySurfaceID.Client, () =>
+			// single line, or a list in one call: {lines: [{x1,y1,x2,y2,color}...]}
+			if (a.TryGetProperty("lines", out var lines) && lines.ValueKind == JsonValueKind.Array)
 			{
-				_tool.Gui!.DrawLine(x1, y1, x2, y2, color);
+				foreach (var l in lines.EnumerateArray())
+				{
+					int x1 = RequireInt(l, "x1", 0);
+					int y1 = RequireInt(l, "y1", 0);
+					int x2 = RequireInt(l, "x2", 0);
+					int y2 = RequireInt(l, "y2", 0);
+					var color = ParseColor(l);
+					AddOverlayLine(x1, y1, x2, y2, color);
+				}
+			}
+			else
+			{
+				int x1 = RequireInt(a, "x1", 0);
+				int y1 = RequireInt(a, "y1", 0);
+				int x2 = RequireInt(a, "x2", 0);
+				int y2 = RequireInt(a, "y2", 0);
+				var color = ParseColor(a);
+				AddOverlayLine(x1, y1, x2, y2, color);
+			}
+			RedrawOverlays();
+			return $"overlay line drawn (overlay count: {_overlays.Count})";
+		}
+
+		private void AddOverlayLine(int x1, int y1, int x2, int y2, System.Drawing.Color? color)
+		{
+			_overlays.Add(() =>
+			{
+				_tool.Gui!.WithSurface(DisplaySurfaceID.Client, () =>
+					_tool.Gui!.DrawLine(x1, y1, x2, y2, color));
 			});
-			return "ok";
 		}
 
 		private string ClearOverlay()
 		{
+			_overlays.Clear();
 			_tool.Gui!.WithSurface(DisplaySurfaceID.Client, () => _tool.Gui!.ClearGraphics());
 			_tool.Gui!.ClearText();
 			return "overlay cleared";
@@ -2119,8 +2258,7 @@ namespace BizHawkMcp
 			{
 				for (; frames < timeout; frames++)
 				{
-					_tool.EmuClient!.DoFrameAdvance();
-					System.Windows.Forms.Application.DoEvents();
+					AdvanceFrame();
 					if (_wpFired) break;
 				}
 			}
@@ -2215,8 +2353,7 @@ namespace BizHawkMcp
 			{
 				for (; frames < timeout; frames++)
 				{
-					_tool.EmuClient!.DoFrameAdvance();
-					System.Windows.Forms.Application.DoEvents();
+					AdvanceFrame();
 					current = width switch
 					{
 						8 => _tool.Memory!.ReadByte(address, domain),
@@ -2268,8 +2405,7 @@ namespace BizHawkMcp
 			{
 				for (var i = 0; i < count; i++)
 				{
-					_tool.EmuClient!.DoFrameAdvance();
-					System.Windows.Forms.Application.DoEvents();
+					AdvanceFrame();
 					if (i % step != 0) continue;
 					var regs = _tool.Emulation!.GetRegisters();
 					ulong pc = FindRegister(regs, "PC");
