@@ -166,8 +166,15 @@ namespace BizHawkMcp.Tests
 		public sealed class FakeDomainList
 		{
 			private readonly Dictionary<long, byte> _bytes;
+			private readonly List<string> _names = new() { "68K RAM", "Z80 RAM", "M68K BUS", "VRAM", "CRAM" };
 
 			public FakeDomainList(Dictionary<long, byte> bytes) => _bytes = bytes;
+
+			// mirrors the real MemoryDomainList: BOTH this[int] (inherited from
+			// ReadOnlyCollection) and this[string] — GetProperty("Item") is
+			// ambiguous on it, which broke the freeze/bulk paths (regression
+			// guard for the FindStringIndexer lookup).
+			public FakeMemoryDomain this[int index] => new(_bytes, _names[index]);
 
 			public FakeMemoryDomain this[string name] => new(_bytes, name);
 		}

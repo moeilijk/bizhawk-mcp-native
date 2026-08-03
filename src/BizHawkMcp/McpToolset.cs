@@ -693,19 +693,26 @@ namespace BizHawkMcp
 				_ => throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "width must be 8, 16 or 32"),
 			};
 			if (value > max) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"value {value} does not fit width {width}");
+			bool doFreeze = a.TryGetProperty("freeze", out var fz) && fz.ValueKind == JsonValueKind.True;
+			if (doFreeze)
+			{
+				// resolve BEFORE writing so a freeze failure never leaves the
+				// memory written but the call errored (2026-08-03 QA finding)
+				ResolveDomain(domain);
+				ResolveCheatList();
+			}
 			switch (width)
 			{
 				case 8: _tool.Memory!.WriteU8(address, (uint)value, domain); break;
 				case 16: WriteValue(address, 16, domain, value, bigEndian); break;
 				case 32: WriteValue(address, 32, domain, value, bigEndian); break;
 			}
-			if (a.TryGetProperty("freeze", out var fz) && fz.ValueKind == JsonValueKind.True)
-				FreezeWritten(address, width, domain, bigEndian, value);
+			if (doFreeze) FreezeWritten(address, width, domain, bigEndian, value);
 			return JsonRpc.Pretty(new Dictionary<string, object?>
 			{
 				["ok"] = true,
 				["endianness"] = EndianName(bigEndian),
-				["frozen"] = a.TryGetProperty("freeze", out var fz2) && fz2.ValueKind == JsonValueKind.True,
+				["frozen"] = doFreeze,
 			});
 		}
 
@@ -1217,9 +1224,16 @@ namespace BizHawkMcp
 			}
 
 			address = ValidateAddress(address, 8, domain);
+			bool doFreeze = a.TryGetProperty("freeze", out var fz) && fz.ValueKind == JsonValueKind.True;
+			if (doFreeze)
+			{
+				// resolve BEFORE writing (2026-08-03 QA finding)
+				ResolveDomain(domain);
+				ResolveCheatList();
+			}
 			if (!TryBulkWrite(domain, address, bytes))
 				_tool.Memory!.WriteByteRange(address, bytes, domain);
-			if (a.TryGetProperty("freeze", out var fz) && fz.ValueKind == JsonValueKind.True)
+			if (doFreeze)
 			{
 				var md = ResolveDomain(domain);
 				var list = new List<Cheat>();
@@ -1233,13 +1247,13 @@ namespace BizHawkMcp
 					["wrote"] = bytes.Length,
 					["address"] = address,
 					["fill"] = fill.Value,
-					["frozen"] = a.TryGetProperty("freeze", out var fz2) && fz2.ValueKind == JsonValueKind.True,
+					["frozen"] = doFreeze,
 				});
 			return JsonRpc.Pretty(new Dictionary<string, object?>
 			{
 				["wrote"] = bytes.Length,
 				["address"] = address,
-				["frozen"] = a.TryGetProperty("freeze", out var fz3) && fz3.ValueKind == JsonValueKind.True,
+				["frozen"] = doFreeze,
 			});
 		}
 
@@ -1276,7 +1290,11 @@ namespace BizHawkMcp
 				if (listProp == null) return false;
 				var list = listProp.GetValue(memApi);
 				if (list == null) return false;
-				var indexer = list.GetType().GetProperty("Item");
+				// the real MemoryDomainList has both this[int] and this[string]:
+				// GetProperty("Item") is ambiguous (AmbiguousMatchException), so
+				// the bulk path silently fell back on every write until the
+				// string-indexer lookup was fixed (2026-08-03 live QA).
+				var indexer = FindStringIndexer(list.GetType());
 				if (indexer == null) return false;
 				string domainName = domain ?? memApi.GetCurrentMemoryDomain();
 				var memDomain = indexer.GetValue(list, new object[] { domainName });
@@ -1324,6 +1342,11 @@ namespace BizHawkMcp
 			var failures = new List<object?>();
 			int written = 0;
 			var index = 0;
+			bool anyFreeze = false;
+			foreach (var item in items.EnumerateArray())
+				if (item.ValueKind == JsonValueKind.Object && item.TryGetProperty("freeze", out var f) && f.ValueKind == JsonValueKind.True)
+					anyFreeze = true;
+			if (anyFreeze) ResolveCheatList(); // fail the batch before writing anything (QA finding)
 			foreach (var item in items.EnumerateArray())
 			{
 				if (item.ValueKind != JsonValueKind.Object)
@@ -1347,14 +1370,15 @@ namespace BizHawkMcp
 						_ => 0xFFFFFFFFUL,
 					};
 					if (value > max) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"value {value} does not fit width {width}");
+					bool itemFreeze = item.TryGetProperty("freeze", out var fz) && fz.ValueKind == JsonValueKind.True;
+					if (itemFreeze) ResolveDomain(domain); // validate before writing this item
 					switch (width)
 					{
 						case 8: _tool.Memory!.WriteU8(address, (uint)value, domain); break;
 						case 16: WriteValue(address, 16, domain, value, bigEndian); break;
 						case 32: WriteValue(address, 32, domain, value, bigEndian); break;
 					}
-					if (item.TryGetProperty("freeze", out var fz) && fz.ValueKind == JsonValueKind.True)
-						FreezeWritten(address, width, domain, bigEndian, value);
+					if (itemFreeze) FreezeWritten(address, width, domain, bigEndian, value);
 					written++;
 				}
 				catch (JsonRpc.Error ex)
@@ -2228,13 +2252,28 @@ namespace BizHawkMcp
 		}
 
 		// Reaches MemoryApi.DomainList[name] (same reflection as TryBulkWrite)
-		// and returns the real MemoryDomain for the cheat Watch.
+		// and returns the real MemoryDomain for the cheat Watch. NOTE: the real
+		// MemoryDomainList has TWO "Item" indexers (this[int] inherited from
+		// ReadOnlyCollection + this[string] declared), so GetProperty("Item")
+		// throws AmbiguousMatchException — look the string indexer up by its
+		// parameter type instead (found by the 2026-08-03 live QA).
+		private static PropertyInfo? FindStringIndexer(Type type)
+		{
+			foreach (var p in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+			{
+				if (p.Name != "Item") continue;
+				var ps = p.GetIndexParameters();
+				if (ps.Length == 1 && ps[0].ParameterType == typeof(string)) return p;
+			}
+			return null;
+		}
+
 		private MemoryDomain ResolveDomain(string? domainName)
 		{
 			var memApi = _tool.Memory!;
 			var listProp = memApi.GetType().GetProperty("DomainList", BindingFlags.Public | BindingFlags.Instance);
 			var list = listProp?.GetValue(memApi);
-			var indexer = list?.GetType().GetProperty("Item");
+			var indexer = list == null ? null : FindStringIndexer(list.GetType());
 			var md = indexer?.GetValue(list, new object[] { domainName ?? memApi.GetCurrentMemoryDomain() }) as MemoryDomain;
 			if (md == null)
 				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"unknown domain: {domainName ?? memApi.GetCurrentMemoryDomain()}");
@@ -2267,6 +2306,12 @@ namespace BizHawkMcp
 			long? value = a.TryGetProperty("value", out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt64() : (long?)null;
 			if (length > 1 && value.HasValue && value is < 0 or > 0xFF)
 				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"range fill value must fit a byte (got {value})");
+			if (length == 1 && value.HasValue)
+			{
+				ulong max = width switch { 8 => 0xFFUL, 16 => 0xFFFFUL, _ => 0xFFFFFFFFUL };
+				if ((ulong)value.Value > max)
+					throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"value {value} does not fit width {width}");
+			}
 
 			var md = ResolveDomain(domain);
 			if (!md.Writable) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"domain \"{md.Name}\" is not writable");

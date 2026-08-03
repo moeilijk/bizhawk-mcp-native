@@ -1891,6 +1891,9 @@ namespace BizHawkMcp.Tests
 			// range fill value not a byte
 			ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_freeze_add", TestHelpers.Js("{\"address\":100,\"length\":2,\"value\":256}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
+			// single value not fitting the width
+			ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_freeze_add", TestHelpers.Js("{\"address\":100,\"width\":8,\"value\":999}")));
+			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 			// non-writable domain (VRAM in the fake)
 			ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_freeze_add", TestHelpers.Js("{\"address\":0,\"width\":8,\"domain\":\"VRAM\"}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
@@ -1957,6 +1960,17 @@ namespace BizHawkMcp.Tests
 			Assert.Equal(100L, cheat.Address);
 			Assert.Equal(513, cheat.Value);
 			Assert.Equal(WatchSize.Word, cheat.Size);
+		}
+
+		[Fact]
+		public void Write_memory_freeze_failure_does_not_write()
+		{
+			// cheat list unreachable: the call must error BEFORE the write
+			// happens (2026-08-03 QA finding: write-then-error inconsistency)
+			_apis.MemoryApi.DomainList = new FakeMemoryApi.FakeDomainList(_apis.MemoryApi.Bytes);
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_write_memory", TestHelpers.Js("{\"address\":100,\"width\":8,\"value\":7,\"freeze\":true,\"domain\":\"68K RAM\"}")));
+			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
+			Assert.False(_apis.MemoryApi.Bytes.ContainsKey(100));
 		}
 
 		[Fact]

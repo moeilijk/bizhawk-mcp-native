@@ -44,6 +44,19 @@ on explicit request — otherwise changes accumulate under `## [Unreleased]`.
   `close_rom`/`reboot`).
 
 ### Fixed
+- `freeze_*` and the `write_range` bulk path failed on the real core with
+  `AmbiguousMatchException`: the real `MemoryDomainList` has TWO `Item`
+  indexers (`this[int]` inherited + `this[string]`), so `GetProperty("Item")`
+  is ambiguous. The string indexer is now found by parameter type — this also
+  means the bulk write fast path (~400x fewer waterbox crossings) actually
+  engages on gpgx instead of silently falling back to per-byte pokes.
+  (Found by the 2026-08-03 live QA; regression-tested with a fake that
+  mirrors both indexers.)
+- `write_memory`/`write_many`/`write_range` with `freeze: true` now resolve
+  the domain and cheat list BEFORE writing, so a freeze failure can never
+  leave the memory written while the call errored.
+- `freeze_add` validates that an explicit `value` fits the width (single
+  address) or is 0..255 (range fill) instead of silently truncating.
 - `read_many`/`search_memory` ignored configured endianness (little-endian
   reads) — both now resolve the effective endianness.
 - Inert watchpoints: `MemoryCallbackImpl.AddressMask` was `null`, so
