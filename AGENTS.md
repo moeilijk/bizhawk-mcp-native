@@ -3,7 +3,7 @@
 Guidance for AI agents (and humans) working on this repository.
 
 - **Documentation index:** `docs/` — `ARCHITECTURE.md`, `MCP-PROTOCOL.md`, `DEVELOPMENT.md`, `CI-RELEASES.md`. When in doubt, read the relevant doc before editing. Improvement ideas live in `TODO.md`.
-- **Current status (2026-08-02):** 62 tools verified end-to-end against the user's BizHawk dev build (2.11.2, commit `ed78f70a`, Windows via WSL). Server advertises `tools` + `resources` capabilities over `http://127.0.0.1:8767/mcp/`; 139 unit tests (`./scripts/test.sh`) pass on Linux without BizHawk. Deployed to `F:\projects\kid\emulators\BizHawk-dev-windows\ExternalTools\`. Test loop: an agent tests against Kid Chameleon (UE) on the Genesis gpgx waterbox core.
+- **Current status (2026-08-02):** 62 tools verified end-to-end against the user's BizHawk dev build (2.11.2, commit `ed78f70a`, Windows via WSL). Server advertises `tools` + `resources` capabilities over `http://127.0.0.1:8767/mcp/`; 142 unit tests (`./scripts/test.sh`) pass on Linux without BizHawk. Deployed to `F:\projects\kid\emulators\BizHawk-dev-windows\ExternalTools\`. Test loop: an agent tests against Kid Chameleon (UE) on the Genesis gpgx waterbox core.
 
 ## What this is
 
@@ -63,7 +63,7 @@ Recipe with code in `docs/DEVELOPMENT.md`. In short: add a `Tool(...)` descripto
 ## Known limitations (skeleton state)
 
 - No in-memory savestates: `IMemorySaveStateApi` is not registered by the provider, so only disk-based `bizhawk_save_state`/`load_state` exist.
-- Symbols persist across EmuHawk restarts via the plugin's user data store (key `mcp.symbols`); saved on every `symbols_set`/`symbols_clear`. Everything else (watchers, watchpoints, endianness override) is session-local.
+- Symbols persist across EmuHawk restarts via the plugin's user data store, **scoped per ROM hash + namespace** (key `mcp.symbols`, shape `{romHash: {namespace: [symbols]}}`); saved on every `symbols_set`/`symbols_clear`, reloaded automatically when the ROM changes (`get_info`). Default namespace `"default"`; agents on the same ROM partition with explicit namespaces (`"ghidra"`, `"fixture"`, …). `symbols_clear` accepts `namespace` to clear just one. Everything else (watchers, watchpoints, endianness override) is session-local.
 - `bizhawk_start_fixture` is the orchestrated fixture capture: input timeline + per-frame samples + CSV on the host disk. It frame-advances (pausing/unpausing like `frame_advance`) and samples after each frame; max 600 frames. `bizhawk_read_struct` reads relative-offset fields from a base/symbol in one pass.
 - Watchers/breakpoints are **polling-based** (`bizhawk_watch_*`, `bizhawk_wait_until`) OR **real watchpoints** (`bizhawk_watchpoint_*`) — the latter use `IDebuggable.MemoryCallbacks` reached via reflection on `EmulationApi.DebuggableCore` (private `[OptionalService]`). **Only the Genesis gpgx waterbox core exposes memory callbacks**; every other core returns a clear `INVALID_PARAMS` error. No per-instruction stepping exists (`CanStep` is false on gpgx) — `bizhawk_trace` samples PC per frame.
 - Watchpoint callbacks fire on the **core's thread**; they only set volatile flags, and `bizhawk_watchpoint_wait` does the frame-advancing on the UI thread. Do NOT call any emulator API from inside a callback. `watchpoint_wait` with `context_bytes: N` (>0) dumps registers + PC/disasm + N raw bytes around the hit on success. Also note `MemoryCallbackImpl.AddressMask` must stay `0xFFFFFFFF` (not null) or address-specific watchpoints silently never fire.
@@ -129,4 +129,4 @@ before debugging anything on the Genesis core.
 
 - Workflow triggers: `workflow_dispatch` and `push` of `v*` tags. Matrix is flavor (`stable`/`dev`) × platform (`win`/`linux`): stable resolves the latest release (win-x64.zip + linux-x64.tar.gz assets) via the GitHub API; dev downloads the `BizHawk-dev-{windows,linux}` nightly artifacts from nightly.link. Each zip carries a `build-info.json` with the BizHawk version (stable) / commit (dev) it was built against.
 - Packaging copies only the tool + NuGet deps from `bin/Release` (BizHawk assemblies are `Private=false` and never shipped).
-- The release job attaches all matrix zips to the tag's GitHub release (`gh release`).
+- The release job attaches all matrix zips to the tag's GitHub release (`gh release`); notes come from the `## [<tag>]` section of `CHANGELOG.md` (fallback: `--generate-notes`).

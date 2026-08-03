@@ -147,13 +147,41 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
+
+      - name: Extract changelog section
+        run: |
+          TAG="${{ github.ref_name }}"
+          python3 - "$TAG" <<'EOF'
+          import sys
+          tag = sys.argv[1]
+          out, in_section = [], False
+          with open("CHANGELOG.md") as f:
+              for ln in f:
+                  if ln.startswith("## ["):
+                      if in_section:
+                          break
+                      in_section = ln.startswith(f"## [{tag}]")
+                      continue
+                  if in_section:
+                      out.append(ln.rstrip("\n"))
+          with open("notes.md", "w") as f:
+              f.write("\n".join(out).strip() + ("\n" if out else ""))
+          EOF
+
       - name: Attach to release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="${{ github.ref_name }}"
-          gh release create "$TAG" artifacts/**/*.zip --generate-notes || true
+          if [ -s notes.md ]; then
+            ARGS=(--notes-file notes.md)
+          else
+            ARGS=(--generate-notes)
+          fi
+          gh release create "$TAG" artifacts/**/*.zip "${ARGS[@]}" || true
           gh release upload "$TAG" artifacts/**/*.zip --clobber

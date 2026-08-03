@@ -100,9 +100,9 @@ Because the server lives inside EmuHawk, every opencode session connects to the 
 | `bizhawk_dump_memory` | `domain?`, `path?` | `{path, size, resource}` (JSON) |
 | `bizhawk_ram_snapshot` | `domain?`, `label?` | snapshot captured |
 | `bizhawk_ram_diff` | `domain?`, `max_results?` | changed runs with old/new hex (JSON) |
-| `bizhawk_symbols_set` | `symbols` (name/address/width/domain) | `registered N symbol(s)` |
-| `bizhawk_symbols_list` | — | registered symbols (JSON) |
-| `bizhawk_symbols_clear` | — | `cleared N symbol(s)` |
+| `bizhawk_symbols_set` | `symbols` (name/address/width/domain), `namespace?` | `registered N symbol(s) in "<ns>" (persisted)` |
+| `bizhawk_symbols_list` | — | registered symbols + namespaces (JSON) |
+| `bizhawk_symbols_clear` | `namespace?` | `cleared N symbol(s)` |
 | `bizhawk_read_palette` | `count?`, `domain?` | hex RGB colors (JSON; GEN/SNES) |
 | `bizhawk_hash_region` | `address`, `length`, `domain?` | SHA1 of region |
 | `bizhawk_read_range` | `address`, `length` (1–4096), `domain?` | hex dump |

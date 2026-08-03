@@ -52,7 +52,9 @@ Legend: `[x]` done · `[~]` partially done / covered by another tool · `[ ]` op
   base address or symbol, frame-consistent, with per-field endianness. Turns
   sprObjectOffsets into a reusable definition.
 - [x] **Persistent symbols**: `symbols_set`/`clear` now persist across EmuHawk
-  restarts via the user data store (key `mcp.symbols`).
+  restarts via the user data store, **scoped per ROM hash + namespace**
+  (`mcp.symbols` = `{romHash: {ns: [symbols]}}`). Reloaded automatically when
+  the ROM changes (`get_info`); `symbols_clear {namespace}` clears one scope.
 - [ ] **Polling watchpoint** (`bizhawk_watch_change`): frame-stepping variant that
   watches an address and returns the frame + value the moment it changes, using
   the existing `wait_until`/`ram_diff` infra — works on ANY core (no callbacks

@@ -193,6 +193,7 @@ namespace BizHawkMcp.Tests
 	public sealed class FakeEmulationApi : IEmulationApi
 	{
 		public string SystemId = "GEN";
+		public string RomHash = "abcd";
 		public int FrameCountValue = 1000;
 		public bool Lagged;
 		public int LagCountValue;
@@ -225,7 +226,7 @@ namespace BizHawkMcp.Tests
 
 		public void SetLagCount(int count) => LagCountValue = count;
 
-		public IGameInfo? GetGameInfo() => new FakeGameInfo { Name = "Test ROM", Hash = "abcd", System = "GEN" };
+		public IGameInfo? GetGameInfo() => new FakeGameInfo { Name = "Test ROM", Hash = RomHash, System = "GEN" };
 	}
 
 	/// <summary>Fake IDebuggable whose MemoryCallbacks can be fired manually from a test.</summary>

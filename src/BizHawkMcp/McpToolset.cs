@@ -31,32 +31,50 @@ namespace BizHawkMcp
 		{
 			_tool = tool;
 			_ui = ui;
-			LoadPersistedSymbols();
+			_lastRomHash = CurrentRomHash();
+			LoadPersistedSymbols(_lastRomHash);
 		}
 
 		// Symbols persist across EmuHawk restarts via the plugin's user data
-		// store (key "mcp.symbols", JSON array). Saved on every mutation.
+		// store, scoped per ROM hash and per namespace:
+		//   key "mcp.symbols" = { "<romHash>": { "<namespace>": [ {name,address,width,domain}, ... ] } }
+		// Default namespace "default"; agents on the same ROM can partition with
+		// explicit namespaces ("ghidra", "fixture", "manual"). Saved on every
+		// mutation; reloaded automatically when the ROM changes (get_info).
 		private const string SymbolsUserKey = "mcp.symbols";
+		private const string DefaultNamespace = "default";
+		private string? _lastRomHash;
 
-		private void LoadPersistedSymbols()
+		private string? CurrentRomHash()
 		{
+			try { return _tool.Emulation?.GetGameInfo()?.Hash; }
+			catch { return null; }
+		}
+
+		private void LoadPersistedSymbols(string? romHash)
+		{
+			_symbols.Clear();
 			try
 			{
 				var raw = _tool.UserData?.Get(SymbolsUserKey) as string;
-				if (string.IsNullOrEmpty(raw)) return;
+				if (string.IsNullOrEmpty(raw) || string.IsNullOrEmpty(romHash)) return;
 				using var doc = JsonDocument.Parse(raw);
-				JsonElement arr = doc.RootElement.ValueKind == JsonValueKind.Array
-					? doc.RootElement
-					: doc.RootElement.TryGetProperty("symbols", out var inner) && inner.ValueKind == JsonValueKind.Array ? inner : default;
-				if (arr.ValueKind != JsonValueKind.Array) return;
-				foreach (var s in arr.EnumerateArray())
+				if (doc.RootElement.ValueKind != JsonValueKind.Object) return;
+				if (!doc.RootElement.TryGetProperty(romHash, out var byNs)) return;
+				if (byNs.ValueKind != JsonValueKind.Object) return;
+				foreach (var nsProp in byNs.EnumerateObject())
 				{
-					string? name = s.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String ? n.GetString() : null;
-					if (name == null) continue;
-					long address = s.TryGetProperty("address", out var ad) && ad.ValueKind == JsonValueKind.Number ? ad.GetInt64() : 0;
-					int width = s.TryGetProperty("width", out var w) && w.ValueKind == JsonValueKind.Number ? w.GetInt32() : 8;
-					string? domain = s.TryGetProperty("domain", out var d) && d.ValueKind == JsonValueKind.String ? d.GetString() : null;
-					_symbols[name] = new Symbol { Address = address, Width = width, Domain = domain };
+					string ns = nsProp.Name;
+					if (nsProp.Value.ValueKind != JsonValueKind.Array) continue;
+					foreach (var s in nsProp.Value.EnumerateArray())
+					{
+						string? name = s.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String ? n.GetString() : null;
+						if (name == null) continue;
+						long address = s.TryGetProperty("address", out var ad) && ad.ValueKind == JsonValueKind.Number ? ad.GetInt64() : 0;
+						int width = s.TryGetProperty("width", out var w) && w.ValueKind == JsonValueKind.Number ? w.GetInt32() : 8;
+						string? domain = s.TryGetProperty("domain", out var d) && d.ValueKind == JsonValueKind.String ? d.GetString() : null;
+						_symbols[name] = new Symbol { Address = address, Width = width, Domain = domain, Namespace = ns };
+					}
 				}
 			}
 			catch
@@ -65,15 +83,44 @@ namespace BizHawkMcp
 			}
 		}
 
+		// Called from get_info: if the loaded ROM changed, swap to that ROM's
+		// symbol set so one session never mixes two games' addresses.
+		private void MaybeReloadSymbolsForRom()
+		{
+			var hash = CurrentRomHash();
+			if (hash == _lastRomHash) return;
+			_lastRomHash = hash;
+			LoadPersistedSymbols(hash);
+		}
+
 		private void SaveSymbols()
 		{
 			try
 			{
-				var arr = new List<object?>();
+				// merge the current ROM+namespace groups into the existing payload
+				var root = new Dictionary<string, object?>();
+				var raw = _tool.UserData?.Get(SymbolsUserKey) as string;
+				if (!string.IsNullOrEmpty(raw))
+				{
+					try
+					{
+						using var doc = JsonDocument.Parse(raw);
+						if (doc.RootElement.ValueKind == JsonValueKind.Object)
+						{
+							foreach (var romProp in doc.RootElement.EnumerateObject())
+								root[romProp.Name] = CloneJson(romProp.Value);
+						}
+					}
+					catch { /* keep empty root */ }
+				}
+
+				// group in-memory symbols by namespace under the current ROM
+				var byNs = new Dictionary<string, List<object?>>();
 				foreach (var kv in _symbols)
 				{
 					var s = kv.Value;
-					arr.Add(new Dictionary<string, object?>
+					if (!byNs.TryGetValue(s.Namespace, out var list)) byNs[s.Namespace] = list = new List<object?>();
+					list.Add(new Dictionary<string, object?>
 					{
 						["name"] = kv.Key,
 						["address"] = s.Address,
@@ -81,11 +128,47 @@ namespace BizHawkMcp
 						["domain"] = s.Domain,
 					});
 				}
-				_tool.UserData?.Set(SymbolsUserKey, JsonRpc.Pretty(new Dictionary<string, object?> { ["symbols"] = arr }));
+				var nsDict = new Dictionary<string, object?>();
+				foreach (var kv in byNs) nsDict[kv.Key] = kv.Value;
+
+				string romKey = _lastRomHash ?? "";
+				if (string.IsNullOrEmpty(romKey))
+				{
+					// no ROM loaded yet — write the current state under a fallback key
+					root["__no_rom__"] = nsDict;
+				}
+				else
+				{
+					root[romKey] = nsDict;
+				}
+
+				_tool.UserData?.Set(SymbolsUserKey, JsonRpc.Pretty(root));
 			}
 			catch
 			{
 				// persisting is best-effort; the in-memory table still works
+			}
+		}
+
+		// Deep-ish clone of a JsonElement into plain CLR objects so we can
+		// merge persisted payloads back without lossy round-trips.
+		private static object? CloneJson(JsonElement el)
+		{
+			switch (el.ValueKind)
+			{
+				case JsonValueKind.Object:
+					var d = new Dictionary<string, object?>();
+					foreach (var p in el.EnumerateObject()) d[p.Name] = CloneJson(p.Value);
+					return d;
+				case JsonValueKind.Array:
+					var l = new List<object?>();
+					foreach (var item in el.EnumerateArray()) l.Add(CloneJson(item));
+					return l;
+				case JsonValueKind.String: return el.GetString();
+				case JsonValueKind.Number: return el.TryGetInt64(out var i) ? i : el.GetDouble();
+				case JsonValueKind.True: return true;
+				case JsonValueKind.False: return false;
+				default: return null;
 			}
 		}
 
@@ -196,11 +279,14 @@ namespace BizHawkMcp
 				Param("domain", "string", "Domain name (defaults to current)."),
 				Param("max_results", "integer", "Stop after this many changes, 1..4096.", 256),
 			]),
-			Tool("bizhawk_symbols_set", "Register symbol names for addresses (from Ghidra exports, fixtures, etc.). Symbols can then be used as \"name\" in read_memory/write_memory/read_many instead of raw addresses.", [
+			Tool("bizhawk_symbols_set", "Register symbol names for addresses (from Ghidra exports, fixtures, etc.). Symbols can then be used as \"name\" in read_memory/write_memory/read_many instead of raw addresses. Scoped per ROM (auto) + optional \"namespace\" (default \"default\"); persists across restarts.", [
 				Param("symbols", "array", "Array of {\"name\": string, \"address\": int, \"width\"?: 8|16|32, \"domain\"?: string}."),
+				Param("namespace", "string", "Namespace to store under (e.g. \"ghidra\", \"fixture\").", "default"),
 			]),
-			Tool("bizhawk_symbols_list", "List registered symbols (JSON).", []),
-			Tool("bizhawk_symbols_clear", "Remove all registered symbols.", []),
+			Tool("bizhawk_symbols_list", "List registered symbols with their namespace (JSON).", []),
+			Tool("bizhawk_symbols_clear", "Remove all registered symbols, or just one namespace with \"namespace\".", [
+				Param("namespace", "string", "Optional namespace to clear; omit to clear everything."),
+			]),
 			Tool("bizhawk_read_palette", "Read a core's color palette as hex RGB strings. Genesis: CRAM (64 colors, 16-bit BGR). SNES: CGRAM (256 colors, 16-bit BGR555). Other systems: unsupported.", [
 				Param("count", "integer", "Number of colors to read, 1..256.", 64),
 				Param("domain", "string", "Optional palette domain (defaults to CRAM on GEN, CGRAM on SNES)."),
@@ -360,7 +446,7 @@ namespace BizHawkMcp
 				"bizhawk_ram_diff" => _ui.Invoke(() => RamDiff(args)),
 				"bizhawk_symbols_set" => _ui.Invoke(() => SymbolsSet(args)),
 				"bizhawk_symbols_list" => _ui.Invoke(SymbolsList),
-				"bizhawk_symbols_clear" => _ui.Invoke(SymbolsClear),
+				"bizhawk_symbols_clear" => _ui.Invoke(() => SymbolsClear(args)),
 				"bizhawk_read_palette" => _ui.Invoke(() => ReadPalette(args)),
 				"bizhawk_press_buttons" => _ui.Invoke(() => PressButtons(args)),
 				"bizhawk_frame_advance" => _ui.Invoke(() => FrameAdvance(args)),
@@ -408,6 +494,7 @@ namespace BizHawkMcp
 		private string GetInfo()
 		{
 			EnsureEndianness();
+			MaybeReloadSymbolsForRom();
 			var game = _tool.Emulation!.GetGameInfo();
 			string curDomain = _tool.Memory!.GetCurrentMemoryDomain();
 			return JsonRpc.Pretty(new Dictionary<string, object?>
@@ -1473,6 +1560,7 @@ namespace BizHawkMcp
 			public long Address;
 			public int Width;
 			public string? Domain;
+			public string Namespace = DefaultNamespace;
 		}
 
 		private readonly Dictionary<string, Symbol> _symbols = new(StringComparer.OrdinalIgnoreCase);
@@ -1485,6 +1573,7 @@ namespace BizHawkMcp
 			if (syms.GetArrayLength() is < 1 or > 4096)
 				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "symbols must contain 1..4096 entries");
 
+			string ns = a.TryGetProperty("namespace", out var nsEl) && nsEl.ValueKind == JsonValueKind.String ? nsEl.GetString()! : DefaultNamespace;
 			var added = 0;
 			foreach (var s in syms.EnumerateArray())
 			{
@@ -1495,11 +1584,11 @@ namespace BizHawkMcp
 				int width = RequireInt(s, "width", 8);
 				string? domain = OptionalString(s, "domain");
 				if (width is not (8 or 16 or 32)) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"symbol {name}: width must be 8, 16 or 32");
-				_symbols[name] = new Symbol { Address = address, Width = width, Domain = domain };
+				_symbols[name] = new Symbol { Address = address, Width = width, Domain = domain, Namespace = ns };
 				added++;
 			}
 			SaveSymbols();
-			return $"registered {added} symbol(s) (persisted)";
+			return $"registered {added} symbol(s) in \"{ns}\" (persisted)";
 		}
 
 		private string SymbolsList()
@@ -1514,14 +1603,26 @@ namespace BizHawkMcp
 					["address"] = s.Address,
 					["width"] = s.Width,
 					["domain"] = s.Domain,
+					["namespace"] = s.Namespace,
 				});
 			}
 			return JsonRpc.Pretty(new Dictionary<string, object?> { ["symbols"] = list });
 		}
 
-		private string SymbolsClear()
+		private string SymbolsClear(JsonElement? args)
 		{
-			int n = _symbols.Count;
+			int n = 0;
+			if (args is { } a && a.ValueKind == JsonValueKind.Object && a.TryGetProperty("namespace", out var nsEl) && nsEl.ValueKind == JsonValueKind.String)
+			{
+				string ns = nsEl.GetString()!;
+				var doomed = new List<string>();
+				foreach (var kv in _symbols) if (kv.Value.Namespace == ns) doomed.Add(kv.Key);
+				n = doomed.Count;
+				foreach (var k in doomed) _symbols.Remove(k);
+				SaveSymbols();
+				return $"cleared {n} symbol(s) from \"{ns}\" (persisted)";
+			}
+			n = _symbols.Count;
 			_symbols.Clear();
 			SaveSymbols();
 			return $"cleared {n} symbol(s) (persisted)";

@@ -39,7 +39,22 @@ The resolve step writes a `build-info.json` into every zip with the exact BizHaw
 
 ## Release job
 
-On tag push: `gh release create <tag> artifacts/**/*.zip --generate-notes` (idempotent — `--clobber` on re-upload). Release naming convention: `v0.1.0`, `v0.2.0`, … (own project version, independent of BizHawk's). All 4 matrix zips are attached.
+On tag push: `gh release create <tag> artifacts/**/*.zip` (idempotent — `--clobber` on re-upload). Release naming convention: `v0.1.0`, `v0.2.0`, … (own project version, independent of BizHawk's). All 4 matrix zips are attached.
+
+## Release notes from CHANGELOG.md
+
+The `release` job checks out the repo and extracts the section matching the pushed tag from `CHANGELOG.md` (Keep a Changelog format) — the block between `## [<tag>]` and the next `## [` — and passes it via `--notes-file`. If no such section exists, it falls back to `--generate-notes` (auto notes from PRs), so a forgotten changelog entry never fails the release.
+
+Section headers must use the exact tag name, e.g. for tag `v0.1.0`:
+
+```md
+## [v0.1.0] - 2026-08-02
+
+### Added
+- ...
+### Fixed
+- ...
+```
 
 ## Notes
 

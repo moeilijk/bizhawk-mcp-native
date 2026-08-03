@@ -593,6 +593,54 @@ namespace BizHawkMcp.Tests
 		}
 
 		[Fact]
+		public void Symbols_namespaces_are_isolated_and_clearable()
+		{
+			_ts.Call("bizhawk_symbols_set", TestHelpers.Js("{\"namespace\":\"ghidra\",\"symbols\":[{\"name\":\"mainFunction\",\"address\":100}]}"));
+			_ts.Call("bizhawk_symbols_set", TestHelpers.Js("{\"namespace\":\"fixture\",\"symbols\":[{\"name\":\"hp\",\"address\":200}]}"));
+
+			var res = Parse(_ts.Call("bizhawk_symbols_list", null));
+			Assert.Equal(2, res.GetProperty("symbols").GetArrayLength());
+			// namespaces survive a reload
+			var fresh = new McpToolset(_apis, new InlineDispatcher());
+			var reloaded = Parse(fresh.Call("bizhawk_symbols_list", null));
+			Assert.Equal(2, reloaded.GetProperty("symbols").GetArrayLength());
+
+			// clearing just one namespace keeps the other
+			fresh.Call("bizhawk_symbols_clear", TestHelpers.Js("{\"namespace\":\"fixture\"}"));
+			var after = Parse(fresh.Call("bizhawk_symbols_list", null));
+			Assert.Single(after.GetProperty("symbols").EnumerateArray());
+			Assert.Equal("ghidra", after.GetProperty("symbols")[0].GetProperty("namespace").GetString());
+		}
+
+		[Fact]
+		public void Symbols_switch_when_rom_changes()
+		{
+			_ts.Call("bizhawk_symbols_set", TestHelpers.Js("{\"symbols\":[{\"name\":\"onlyInRom1\",\"address\":11}]}"));
+			// same toolset, different ROM loaded → get_info swaps the symbol set
+			_apis.EmulationApi.RomHash = "rom2";
+			var info = Parse(_ts.Call("bizhawk_get_info", null));
+			var after = Parse(_ts.Call("bizhawk_symbols_list", null));
+			Assert.Empty(after.GetProperty("symbols").EnumerateArray());
+		}
+
+		[Fact]
+		public void Symbols_rom2_persists_separately()
+		{
+			// default ROM hash is "abcd"
+			_ts.Call("bizhawk_symbols_set", TestHelpers.Js("{\"symbols\":[{\"name\":\"rom1sym\",\"address\":11}]}"));
+			_apis.EmulationApi.RomHash = "rom2";
+			_ts.Call("bizhawk_get_info", null);
+			_ts.Call("bizhawk_symbols_set", TestHelpers.Js("{\"symbols\":[{\"name\":\"rom2sym\",\"address\":22}]}"));
+
+			// back to the original ROM restores its own set
+			_apis.EmulationApi.RomHash = "abcd";
+			_ts.Call("bizhawk_get_info", null);
+			var listed = Parse(_ts.Call("bizhawk_symbols_list", null));
+			Assert.Single(listed.GetProperty("symbols").EnumerateArray());
+			Assert.Equal("rom1sym", listed.GetProperty("symbols")[0].GetProperty("name").GetString());
+		}
+
+		[Fact]
 		public void Dump_memory_writes_file_and_resource()
 		{
 			_apis.MemoryApi.Bytes[0] = 0xDE;
