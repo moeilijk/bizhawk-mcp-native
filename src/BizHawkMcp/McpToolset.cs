@@ -95,6 +95,7 @@ namespace BizHawkMcp
 			if (hash == _lastRomHash) return;
 			_lastRomHash = hash;
 			LoadPersistedSymbols(hash);
+			_searchPrev.Clear();
 		}
 
 		private void SaveSymbols()
@@ -179,7 +180,7 @@ namespace BizHawkMcp
 		public IReadOnlyList<Dictionary<string, object?>> ToolSchemas { get; } =
 		[
 			Tool("bizhawk_ping", "Ping the tool. Returns \"pong\" if the plugin and server are alive.", []),
-			Tool("bizhawk_get_info", "ROM info, framecount, pause state, current endianness and active memory domain (JSON).", []),
+			Tool("bizhawk_get_info", "ROM info, framecount, pause state, current endianness, active memory domain and host paths (JSON). \"paths\" reports where the emulator runs: install_dir (EmuHawk's folder), working_dir, temp_dir (the bizhawk-mcp dir where screenshot/dump_memory/start_fixture save by default) and the loaded ROM's rom_path/rom_dir — so relative paths can always be resolved against the right base.", []),
 			Tool("bizhawk_get_board_info", "Board info: board name, display type (NTSC/PAL), and game options — helps identify the game revision.", []),
 			Tool("bizhawk_read_memory", "Read u8/u16/u32 from a memory domain. Optional \"endianness\": \"big\" | \"little\" | \"auto\" (default \"auto\" = the domain's native endianness, e.g. big on 68K RAM/M68K BUS but little on Z80 RAM on Genesis). Returns {\"value\": N, \"endianness\": \"big\"|\"little\"} so the interpretation is never ambiguous. Bus domains accept 32-bit disassembly addresses (e.g. 0xFFFFF832): the 68K's 24-bit bus masks them, so 0xFFFFF832 == 0xFFF832. Either \"address\" or a symbol \"name\" (from bizhawk_symbols_set) is required.", [
 				Param("address", "integer", "Offset in the domain, 0-based. For bus domains (e.g. M68K BUS) use the raw bus address (e.g. 0xFFFBCA); 32-bit forms (0xFFFFFBCA) are masked like the hardware."),
@@ -212,8 +213,9 @@ namespace BizHawkMcp
 			Tool("bizhawk_use_memory_domain", "Switch the active memory domain.", [
 				Param("domain", "string", "Domain name, e.g. \"WRAM\"."),
 			]),
-			Tool("bizhawk_search_memory", "Scan a memory domain for a value (stateless one-shot). Optional \"endianness\" as bizhawk_read_memory (default \"auto\" = domain native). Returns {\"count\", \"endianness\", \"matches\": [{address, value}]}. Pass previous hits in \"addresses\" to narrow down across calls.", [
-				Param("value", "integer", "Value to match (must fit the width)."),
+			Tool("bizhawk_search_memory", "Scan a memory domain. With \"value\": one-shot match (\"op\" eq default | ne | lt | gt | le | ge against that constant). WITHOUT \"value\", \"op\" compares against the PREVIOUS state of the domain (ne/lt/gt/le/ge/changed/unchanged — the classic RAM-search flow): the first call only takes a baseline snapshot (returns \"baseline\": true, 0 matches), then advance frames and call again to find what changed; pass previous hits in \"addresses\" to narrow down across calls. The reference is updated after every stateful call. Keep width/endianness/domain constant between calls; unsigned comparison. Optional \"endianness\" as bizhawk_read_memory (default \"auto\" = domain native). Returns {\"count\", \"endianness\", \"matches\": [{address, value}], \"op\", \"baseline\"}.", [
+				Param("value", "integer", "Value to match (must fit the width; omit for stateful compare ops)."),
+				Param("op", "string", "eq | ne | lt | gt | le | ge (vs value, or vs previous state without value) | changed | unchanged (vs previous state).", "eq"),
 				Param("width", "integer", "8, 16 or 32.", 8),
 				Param("domain", "string", "Optional domain (defaults to BizHawk's current one)."),
 				Param("endianness", "string", "\"auto\" (domain default), \"big\" or \"little\".", "auto"),
@@ -318,6 +320,7 @@ namespace BizHawkMcp
 				Param("path", "string", "Optional absolute PNG path writable by EmuHawk (default: temp dir)."),
 			]),
 			Tool("bizhawk_genesis_get_vdp_view", "Read the Genesis VDP nametable bases from the core (plane A/B addresses + dimensions in tiles, as the game configures them). Genesis gpgx core only; other cores error. Use it to find where the planes live before genesis_read_plane.", []),
+			Tool("bizhawk_genesis_get_z80_registers", "Read the Z80 sound CPU registers from the Genesis core (gpgx reports both CPUs in one register table — this filters the Z80 half). The core names them lowercase: \"Z80 pc\", \"Z80 sp\", \"Z80 af\", \"Z80 hl\", ... Genesis gpgx core only; other cores error.", []),
 			Tool("bizhawk_press_buttons", "Set joypad state for the NEXT frame.", [
 				Param("buttons", "object", "Map of button name -> pressed bool, e.g. {\"A\": true, \"Right\": true}."),
 				Param("controller", "integer", "Optional controller index (1-based).", 1),
@@ -365,6 +368,10 @@ namespace BizHawkMcp
 			Tool("bizhawk_screenshot", "Save a PNG of the current frame. Omit \"path\" to save into the host temp dir (bizhawk-mcp). Paths are host-side: when EmuHawk runs on Windows they must be Windows paths (e.g. F:/temp/shot.png). Set \"include_overlays\": true to also compose the overlay/OSD layer (overlay_text/rect/line, OSD messages) into the PNG. Returns the effective absolute path and an MCP resource URI to fetch the image bytes.", [
 				Param("path", "string", "Optional absolute path writable by EmuHawk, e.g. C:/temp/snap.png. Defaults to a temp file."),
 				Param("include_overlays", "boolean", "Compose the overlay/OSD layer into the PNG (default false = bare core framebuffer).", false),
+			]),
+			Tool("bizhawk_frame_hash", "SHA1 hash of the current rendered frame (screenshot → hash of the PNG bytes). Identical rendered output produces the same hash (BizHawk's PNG save is deterministic), so this is a cheap screen-change detector: hash once, advance, hash again — equal hashes = same screen, no pixel transfer. Returns {sha1, frame, path, resource} (path/resource to fetch the hashed PNG). Same host-path and overlay semantics as bizhawk_screenshot.", [
+				Param("path", "string", "Optional absolute path writable by EmuHawk, e.g. C:/temp/hash.png. Defaults to a temp file."),
+				Param("include_overlays", "boolean", "Compose the overlay/OSD layer into the PNG before hashing (default false).", false),
 			]),
 			Tool("bizhawk_save_state", "Save an emulator state to a file.", [
 				Param("path", "string", "Absolute .State path."),
@@ -589,6 +596,7 @@ namespace BizHawkMcp
 				"bizhawk_read_palette" => _ui.Invoke(() => ReadPalette(args)),
 				"bizhawk_genesis_read_plane" => _ui.Invoke(() => ReadPlane(args)),
 				"bizhawk_genesis_get_vdp_view" => _ui.Invoke(GetVdpView),
+				"bizhawk_genesis_get_z80_registers" => _ui.Invoke(GenesisGetZ80Registers),
 				"bizhawk_press_buttons" => _ui.Invoke(() => PressButtons(args)),
 				"bizhawk_frame_advance" => _ui.Invoke(() => FrameAdvance(args)),
 				"bizhawk_pause" => _ui.Invoke(() => PauseTool()),
@@ -609,6 +617,7 @@ namespace BizHawkMcp
 				"bizhawk_disassemble" => _ui.Invoke(() => Disassemble(args)),
 				"bizhawk_lag_count" => _ui.Invoke(LagCount),
 				"bizhawk_screenshot" => _ui.Invoke(() => Screenshot(args)),
+				"bizhawk_frame_hash" => _ui.Invoke(() => FrameHash(args)),
 				"bizhawk_save_state" => _ui.Invoke(() => SaveState(args)),
 				"bizhawk_load_state" => _ui.Invoke(() => LoadState(args)),
 				"bizhawk_save_slot" => _ui.Invoke(() => SaveSlot(args)),
@@ -676,8 +685,49 @@ namespace BizHawkMcp
 				["endianness"] = EndianName(ResolveBigEndian(null, curDomain)),
 				["memory_domain"] = curDomain,
 				["memory_domain_size"] = _tool.Memory!.GetCurrentMemoryDomainSize(),
+				["paths"] = GetPaths(),
 				["server"] = _tool.ServerUrl,
 			});
+		}
+
+		// Where the emulator runs and where host-side files land by default,
+		// so agents can resolve relative paths against a known base. All
+		// paths are on the host that EmuHawk runs on (Windows when the agent
+		// sees C:\..., Linux/Mono otherwise).
+		private Dictionary<string, object?> GetPaths()
+		{
+			string? romPath = ResolveCurrentRomPath(_tool);
+			return new Dictionary<string, object?>
+			{
+				["install_dir"] = AppDomain.CurrentDomain.BaseDirectory,
+				["working_dir"] = Environment.CurrentDirectory,
+				["temp_dir"] = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "bizhawk-mcp"),
+				["rom_path"] = romPath,
+				["rom_dir"] = string.IsNullOrEmpty(romPath) ? null : System.IO.Path.GetDirectoryName(romPath),
+				["host_is_windows"] = IsWindowsHost(),
+			};
+		}
+
+		// MainForm.CurrentlyOpenRom (the loaded ROM's path), via the same
+		// reflection route as ResolveCheatList: the plugin form's Owner is the
+		// MainForm, with a GlobalWin.MainForm fallback. get_info must never
+		// throw when the EmuHawk assembly is unreachable — returns null.
+		private static string? ResolveCurrentRomPath(object? tool)
+		{
+			try
+			{
+				object? mf = tool?.GetType().GetProperty("Owner", BindingFlags.Public | BindingFlags.Instance)?.GetValue(tool);
+				if (mf == null)
+				{
+					var gwType = Type.GetType("BizHawk.Client.EmuHawk.GlobalWin, BizHawk.Client.EmuHawk");
+					mf = gwType?.GetProperty("MainForm", BindingFlags.Public | BindingFlags.Static)?.GetValue(null);
+				}
+				return mf?.GetType().GetProperty("CurrentlyOpenRom", BindingFlags.Public | BindingFlags.Instance)?.GetValue(mf) as string;
+			}
+			catch
+			{
+				return null;
+			}
 		}
 
 		private string GetBoardInfo()
@@ -841,6 +891,11 @@ namespace BizHawkMcp
 
 		private readonly Dictionary<string, RamSnapshotData> _ramSnapshots = new(StringComparer.OrdinalIgnoreCase);
 
+		// RAM-search reference states: raw domain bytes captured by the last
+		// stateful bizhawk_search_memory call (op without "value"), keyed by
+		// domain name — the classic "baseline then compare" search flow.
+		private readonly Dictionary<string, byte[]> _searchPrev = new(StringComparer.OrdinalIgnoreCase);
+
 		private string RamSnapshot(JsonElement? args)
 		{
 			string? domain = null;
@@ -971,7 +1026,11 @@ namespace BizHawkMcp
 		{
 			EnsureEndianness();
 			var a = Required(args);
-			ulong value = RequireULong(a, "value");
+			string op = a.TryGetProperty("op", out var opEl) && opEl.ValueKind == JsonValueKind.String ? opEl.GetString()! : "eq";
+			if (op is not ("eq" or "ne" or "lt" or "gt" or "le" or "ge" or "changed" or "unchanged"))
+				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"unknown op: {op} (eq|ne|lt|gt|le|ge|changed|unchanged)");
+			bool hasValue = a.TryGetProperty("value", out var vEl) && vEl.ValueKind == JsonValueKind.Number;
+			ulong value = hasValue ? vEl.GetUInt64() : 0;
 			int width = RequireInt(a, "width", 8);
 			string? domain = OptionalString(a, "domain");
 			int maxResults = RequireInt(a, "max_results", 256);
@@ -984,11 +1043,57 @@ namespace BizHawkMcp
 				32 => 0xFFFFFFFFUL,
 				_ => throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "width must be 8, 16 or 32"),
 			};
-			if (value > max) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"value {value} does not fit width {width}");
+			if (hasValue && value > max) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"value {value} does not fit width {width}");
 			if (maxResults is < 1 or > 4096) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "max_results must be 1..4096");
 
+			string domName = domain ?? mem.GetCurrentMemoryDomain();
+			bool stateful = !hasValue;
+			if (stateful && op == "eq")
+				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "op \"eq\" needs a \"value\" — omit value only for stateful ops (ne/lt/gt/le/ge/changed/unchanged)");
+			if (hasValue && op is "changed" or "unchanged")
+				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "op \"changed\"/\"unchanged\" compares against the previous state — omit \"value\"");
+
+			byte[]? prevBuf = null;
+			if (stateful && !_searchPrev.TryGetValue(domName, out prevBuf))
+			{
+				// first stateful call: capture the baseline and ask the caller
+				// to advance frames before comparing (classic RAM search)
+				_searchPrev[domName] = ReadDomainBytes(domain);
+				return JsonRpc.Pretty(new Dictionary<string, object?>
+				{
+					["count"] = 0,
+					["endianness"] = EndianName(ResolveBigEndian(a, domain)),
+					["op"] = op,
+					["baseline"] = true,
+					["matches"] = Array.Empty<object>(),
+					["message"] = "no previous state for this domain — baseline snapshot taken. Advance frames, then call again to find what changed.",
+				});
+			}
+
 			bool bigEndian = ResolveBigEndian(a, domain);
+			int bytesPer = width / 8;
 			var matches = new List<object>();
+
+			bool Matches(ulong cur, ulong target) => op switch
+			{
+				"eq" => cur == target,
+				"ne" => cur != target,
+				"lt" => cur < target,
+				"gt" => cur > target,
+				"le" => cur <= target,
+				"ge" => cur >= target,
+				"changed" => cur != target,
+				_ => cur == target, // unchanged
+			};
+
+			// constant mode compares against "value"; stateful mode against the
+			// reference bytes captured by the previous call
+			ulong TargetAt(long addr)
+			{
+				if (!stateful) return value;
+				if (addr < 0 || addr + bytesPer > prevBuf!.Length) return 0;
+				return BytesToValue(prevBuf!, (int)addr, bytesPer, bigEndian);
+			}
 
 			// restricted scan over a caller-provided address list
 			if (a.TryGetProperty("addresses", out var addrs) && addrs.ValueKind == JsonValueKind.Array)
@@ -999,8 +1104,9 @@ namespace BizHawkMcp
 					if (i++ >= 4096) break;
 					if (matches.Count >= maxResults) break;
 					long addr = el.GetInt64();
-					if (ReadValue(addr, width, domain, bigEndian) == value)
-						matches.Add(new Dictionary<string, object?> { ["address"] = addr, ["value"] = value });
+					ulong cur = ReadValue(addr, width, domain, bigEndian);
+					if (Matches(cur, TargetAt(addr)))
+						matches.Add(new Dictionary<string, object?> { ["address"] = addr, ["value"] = cur });
 				}
 			}
 			else
@@ -1011,22 +1117,45 @@ namespace BizHawkMcp
 				if (rangeLen > 16 * 1024 * 1024) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "range_length too large (max 16 MiB)");
 
 				var bytes = mem.ReadByteRange(rangeStart, (int)rangeLen, domain);
-				int bytesPer = width / 8;
 				for (int off = 0; off < bytes.Count && matches.Count < maxResults; off++)
 				{
 					if (off + bytesPer > bytes.Count) break;
-					ulong v = BytesToValue(bytes, off, bytesPer, bigEndian);
-					if (v == value)
-						matches.Add(new Dictionary<string, object?> { ["address"] = rangeStart + off, ["value"] = v });
+					ulong cur = BytesToValue(bytes, off, bytesPer, bigEndian);
+					if (Matches(cur, TargetAt(rangeStart + off)))
+						matches.Add(new Dictionary<string, object?> { ["address"] = rangeStart + off, ["value"] = cur });
 				}
+			}
+
+			if (stateful)
+			{
+				// the reference for the next call is the state we just scanned
+				_searchPrev[domName] = ReadDomainBytes(domain);
 			}
 
 			return JsonRpc.Pretty(new Dictionary<string, object?>
 			{
 				["count"] = matches.Count,
 				["endianness"] = EndianName(bigEndian),
+				["op"] = op,
+				["baseline"] = false,
 				["matches"] = matches,
 			});
+		}
+
+		// Whole-domain read in 64 KiB chunks (same shape as RamSnapshot), used
+		// as the stateful search reference.
+		private byte[] ReadDomainBytes(string? domain)
+		{
+			uint size = _tool.Memory!.GetMemoryDomainSize(domain ?? "");
+			var buf = new byte[size];
+			const int chunk = 0x10000;
+			for (long off = 0; off < size; off += chunk)
+			{
+				int len = (int)Math.Min(chunk, size - off);
+				var part = _tool.Memory!.ReadByteRange(off, len, domain);
+				for (var i = 0; i < len; i++) buf[off + i] = part[i];
+			}
+			return buf;
 		}
 
 		private static ulong BytesToValue(IReadOnlyList<byte> bytes, int off, int bytesPer, bool bigEndian)
@@ -1742,6 +1871,19 @@ namespace BizHawkMcp
 			});
 		}
 
+		// The gpgx core reports BOTH CPUs in one register table
+		// (GetCpuFlagsAndRegisters: "M68K PC", "Z80 PC", ...) — this filters
+		// the Z80 sound CPU half. Core-specific surface, so the name says so.
+		private string GenesisGetZ80Registers()
+		{
+			var regs = _tool.Emulation!.GetRegisters();
+			var z80 = regs.Where(kv => kv.Key.StartsWith("Z80", StringComparison.Ordinal))
+				.ToDictionary(kv => kv.Key, kv => kv.Value);
+			if (z80.Count == 0)
+				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "no Z80 registers: the loaded core does not expose the sound CPU (Genesis gpgx only — e.g. Z80 PC, Z80 SP, Z80 A)");
+			return JsonRpc.Pretty(new Dictionary<string, object?> { ["registers"] = z80 });
+		}
+
 		private string ReadPlane(JsonElement? args)
 		{
 			var a = Required(args);
@@ -2132,8 +2274,24 @@ namespace BizHawkMcp
 
 		private string Screenshot(JsonElement? args)
 		{
+			string path = CapturePng(args, "shot", out bool includeOverlays);
+			string uri = RegisterArtifact(path, "image/png", $"screenshot {System.IO.Path.GetFileName(path)}");
+			return JsonRpc.Pretty(new Dictionary<string, object?>
+			{
+				["path"] = path,
+				["include_overlays"] = includeOverlays,
+				["resource"] = uri,
+			});
+		}
+
+		// Screenshot to a PNG file — explicit path or the temp dir default —
+		// with the OSD-overlay flag, restoring the no-overlay default after the
+		// call (no getter, so each call re-applies its own preference). Shared
+		// by screenshot and frame_hash. Returns the effective absolute path.
+		private string CapturePng(JsonElement? args, string prefix, out bool includeOverlays)
+		{
 			string? path = null;
-			bool includeOverlays = false;
+			includeOverlays = false;
 			if (args is { } a && a.ValueKind == JsonValueKind.Object)
 			{
 				path = NormalizeHostPath(OptionalString(a, "path"), IsWindowsHost());
@@ -2143,13 +2301,12 @@ namespace BizHawkMcp
 			{
 				var dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "bizhawk-mcp");
 				System.IO.Directory.CreateDirectory(dir);
-				path = System.IO.Path.Combine(dir, $"shot-{DateTime.Now:yyyyMMdd-HHmmss-fff}.png");
+				path = System.IO.Path.Combine(dir, $"{prefix}-{DateTime.Now:yyyyMMdd-HHmmss-fff}.png");
 			}
 
 			// ScreenshotCaptureOsd=true makes EmuHawk's CaptureOSD() compose the
 			// video surface (overlay_text/rect/line + OSD) into the PNG instead of
-			// the bare core framebuffer. Toggle it for this call (no getter, so we
-			// set our preferred value and let the next screenshot re-set it).
+			// the bare core framebuffer.
 			_tool.EmuClient!.SetScreenshotOSD(includeOverlays);
 			try
 			{
@@ -2157,12 +2314,29 @@ namespace BizHawkMcp
 			}
 			finally
 			{
-				// restore to the no-overlay default; each call re-applies its own
 				_tool.EmuClient!.SetScreenshotOSD(false);
 			}
-			string uri = RegisterArtifact(path!, "image/png", $"screenshot {System.IO.Path.GetFileName(path)}");
+			return path;
+		}
+
+		// SHA1 of the current rendered frame's PNG. Identical rendered output
+		// produces identical bytes (BizHawk's PNG save is deterministic), so the
+		// hash is a cheap screen-change detector: equal hashes = same screen,
+		// and the agent never has to transfer pixels to compare frames.
+		private string FrameHash(JsonElement? args)
+		{
+			string path = CapturePng(args, "hash", out bool includeOverlays);
+			if (!System.IO.File.Exists(path))
+				throw new JsonRpc.Error(JsonRpc.Error.INTERNAL_ERROR, $"screenshot did not produce a file: {path}");
+			string sha1;
+			using (var fs = System.IO.File.OpenRead(path))
+			using (var sha = System.Security.Cryptography.SHA1.Create())
+				sha1 = BitConverter.ToString(sha.ComputeHash(fs)).Replace("-", "").ToLowerInvariant();
+			string uri = RegisterArtifact(path, "image/png", $"frame hash {System.IO.Path.GetFileName(path)}");
 			return JsonRpc.Pretty(new Dictionary<string, object?>
 			{
+				["sha1"] = sha1,
+				["frame"] = _tool.Emulation!.FrameCount(),
 				["path"] = path,
 				["include_overlays"] = includeOverlays,
 				["resource"] = uri,

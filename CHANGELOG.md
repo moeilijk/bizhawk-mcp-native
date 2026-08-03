@@ -11,6 +11,26 @@ on explicit request — otherwise changes accumulate under `## [Unreleased]`.
 
 ## [Unreleased]
 
+### Added
+- `bizhawk_get_info` now returns a `paths` block exposing where the emulator
+  runs: `install_dir` (EmuHawk's folder), `working_dir`, `temp_dir` (the
+  `bizhawk-mcp` dir where `screenshot`/`dump_memory`/`start_fixture` save by
+  default) and the loaded ROM's `rom_path`/`rom_dir` — agents can resolve
+  relative paths against a known base instead of guessing.
+- `bizhawk_search_memory` stateful comparative search: without `value`, `op`
+  (`ne`/`lt`/`gt`/`le`/`ge`/`changed`/`unchanged`) compares against the
+  domain's previous state — the first call takes a baseline (`"baseline":
+  true`), then advancing frames and re-calling (narrowing with `addresses`)
+  finds what changed/increased/decreased, like a classic RAM search. New
+  constant-comparison ops (`lt`/`gt`/`le`/`ge`/`ne` with `value`) too. The
+  reference is per-domain and cleared when the ROM changes.
+- `bizhawk_frame_hash`: SHA1 of the current rendered frame's PNG (deterministic
+  for identical output) — a cheap screen-change detector that never transfers
+  pixels; returns `{sha1, frame, path, resource}`.
+- `bizhawk_genesis_get_z80_registers`: filters the Z80 sound CPU registers
+  (`Z80 PC`, `Z80 SP`, ...) out of the gpgx register table (Genesis gpgx only;
+  other cores error).
+
 ### Fixed
 - Zero compiler warnings: nullable-annotated the ApiHawk stubs/fakes
   (`string? domain = null`), migrated the overlay tools to the non-obsolete

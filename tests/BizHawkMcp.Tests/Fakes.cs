@@ -275,10 +275,14 @@ namespace BizHawkMcp.Tests
 			OsdChanges.Add(value);
 		}
 
+		// PNG-magic bytes; tests can swap ScreenshotPayload to simulate a
+		// different rendered frame (frame_hash determinism tests)
+		public byte[] ScreenshotPayload = new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A };
+
 		public void Screenshot(string? path = null)
 		{
 			Screenshots.Add(path!);
-			System.IO.File.WriteAllBytes(path!, new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A });
+			System.IO.File.WriteAllBytes(path!, ScreenshotPayload);
 		}
 	}
 

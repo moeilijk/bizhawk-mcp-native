@@ -153,6 +153,19 @@ namespace BizHawkMcp.Tests
 		}
 
 		[Fact]
+		public void Get_info_reports_host_paths()
+		{
+			var res = Parse(_ts.Call("bizhawk_get_info", null));
+			var paths = res.GetProperty("paths");
+			Assert.Equal(AppDomain.CurrentDomain.BaseDirectory, paths.GetProperty("install_dir").GetString());
+			Assert.Equal(Environment.CurrentDirectory, paths.GetProperty("working_dir").GetString());
+			Assert.Equal(System.IO.Path.Combine(System.IO.Path.GetTempPath(), "bizhawk-mcp"), paths.GetProperty("temp_dir").GetString());
+			Assert.Equal(Environment.OSVersion.Platform == PlatformID.Win32NT, paths.GetProperty("host_is_windows").GetBoolean());
+			Assert.Equal(JsonValueKind.Null, paths.GetProperty("rom_path").ValueKind); // no MainForm in tests
+			Assert.Equal(JsonValueKind.Null, paths.GetProperty("rom_dir").ValueKind);
+		}
+
+		[Fact]
 		public void Get_info_reports_little_on_gb()
 		{
 			_apis.EmulationApi.SystemId = "GB";
@@ -341,6 +354,64 @@ namespace BizHawkMcp.Tests
 			res = Parse(_ts.Call("bizhawk_search_memory", TestHelpers.Js("{\"value\":2048,\"width\":16,\"domain\":\"Z80 RAM\",\"max_results\":10}")));
 			Assert.Equal(1, res.GetProperty("count").GetInt32());
 			Assert.Equal("little", res.GetProperty("endianness").GetString());
+		}
+
+		[Fact]
+		public void Search_stateful_baseline_then_finds_increases()
+		{
+			// first stateful call takes the baseline (count 0, baseline true)
+			_apis.MemoryApi.Bytes[100] = 5;
+			var res = Parse(_ts.Call("bizhawk_search_memory", TestHelpers.Js("{\"op\":\"gt\"}")));
+			Assert.True(res.GetProperty("baseline").GetBoolean());
+			Assert.Equal(0, res.GetProperty("count").GetInt32());
+
+			// value increased at 100 → found; the rest stayed 0 → not > 0
+			_apis.MemoryApi.Bytes[100] = 9;
+			res = Parse(_ts.Call("bizhawk_search_memory", TestHelpers.Js("{\"op\":\"gt\"}")));
+			Assert.False(res.GetProperty("baseline").GetBoolean());
+			Assert.Equal(1, res.GetProperty("count").GetInt32());
+			Assert.Equal((long)100, res.GetProperty("matches")[0].GetProperty("address").GetInt64());
+			Assert.Equal("gt", res.GetProperty("op").GetString());
+		}
+
+		[Fact]
+		public void Search_stateful_changed_narrows_and_updates_reference()
+		{
+			_ts.Call("bizhawk_search_memory", TestHelpers.Js("{\"op\":\"changed\"}"));
+			_apis.MemoryApi.Bytes[100] = 1;
+			_apis.MemoryApi.Bytes[200] = 2;
+			var res = Parse(_ts.Call("bizhawk_search_memory", TestHelpers.Js("{\"op\":\"changed\",\"addresses\":[100,200]}")));
+			Assert.Equal(2, res.GetProperty("count").GetInt32());
+
+			// the reference was updated to the state just scanned → no more changes
+			res = Parse(_ts.Call("bizhawk_search_memory", TestHelpers.Js("{\"op\":\"changed\",\"addresses\":[100,200]}")));
+			Assert.Equal(0, res.GetProperty("count").GetInt32());
+
+			// a still-zero address is "unchanged" against the same reference
+			res = Parse(_ts.Call("bizhawk_search_memory", TestHelpers.Js("{\"op\":\"unchanged\",\"addresses\":[50]}")));
+			Assert.Equal(1, res.GetProperty("count").GetInt32());
+			Assert.Equal((long)50, res.GetProperty("matches")[0].GetProperty("address").GetInt64());
+		}
+
+		[Fact]
+		public void Search_op_compares_against_value_constant()
+		{
+			_apis.MemoryApi.Bytes[10] = 3;
+			_apis.MemoryApi.Bytes[11] = 9;
+			var res = Parse(_ts.Call("bizhawk_search_memory", TestHelpers.Js("{\"value\":8,\"op\":\"lt\",\"range_start\":10,\"range_length\":2}")));
+			Assert.Equal(1, res.GetProperty("count").GetInt32());
+			Assert.Equal((long)10, res.GetProperty("matches")[0].GetProperty("address").GetInt64());
+		}
+
+		[Fact]
+		public void Search_rejects_bad_op_combinations()
+		{
+			// eq needs a value
+			Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_search_memory", TestHelpers.Js("{\"op\":\"eq\"}")));
+			// changed/unchanged need the previous state (no value)
+			Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_search_memory", TestHelpers.Js("{\"value\":1,\"op\":\"changed\"}")));
+			// unknown op
+			Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_search_memory", TestHelpers.Js("{\"op\":\"bogus\"}")));
 		}
 
 		[Fact]
@@ -823,6 +894,43 @@ namespace BizHawkMcp.Tests
 			Assert.True(res.GetProperty("include_overlays").GetBoolean());
 			Assert.Equal(new[] { true, false }, _apis.EmuClientApi.OsdChanges.ToArray());
 			System.IO.File.Delete(path);
+		}
+
+		[Fact]
+		public void Frame_hash_is_deterministic_and_tracks_pixels()
+		{
+			var r1 = Parse(_ts.Call("bizhawk_frame_hash", null));
+			var r2 = Parse(_ts.Call("bizhawk_frame_hash", null));
+			Assert.Equal(r1.GetProperty("sha1").GetString(), r2.GetProperty("sha1").GetString());
+			Assert.Equal(1000, r1.GetProperty("frame").GetInt32());
+			var path = r1.GetProperty("path").GetString()!;
+			Assert.False(string.IsNullOrEmpty(path));
+			System.IO.File.Delete(path);
+
+			// a different rendered frame → different hash
+			_apis.EmuClientApi.ScreenshotPayload = new byte[] { 0x00, 0xFF, 0x11 };
+			var r3 = Parse(_ts.Call("bizhawk_frame_hash", null));
+			Assert.NotEqual(r1.GetProperty("sha1").GetString(), r3.GetProperty("sha1").GetString());
+			System.IO.File.Delete(r3.GetProperty("path").GetString()!);
+		}
+
+		[Fact]
+		public void Genesis_z80_registers_filters_z80_keys()
+		{
+			_apis.EmulationApi.Registers = new Dictionary<string, ulong> { ["M68K PC"] = 1, ["Z80 PC"] = 0x1234, ["Z80 SP"] = 0xFFFF };
+			var res = Parse(_ts.Call("bizhawk_genesis_get_z80_registers", null));
+			var regs = res.GetProperty("registers");
+			Assert.Equal((ulong)0x1234, regs.GetProperty("Z80 PC").GetUInt64());
+			Assert.Equal((ulong)0xFFFF, regs.GetProperty("Z80 SP").GetUInt64());
+			Assert.False(regs.TryGetProperty("M68K PC", out _));
+		}
+
+		[Fact]
+		public void Genesis_z80_registers_errors_without_z80_cpu()
+		{
+			_apis.EmulationApi.Registers = new Dictionary<string, ulong> { ["M68K PC"] = 1 };
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_genesis_get_z80_registers", null));
+			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 		}
 
 		[Fact]
