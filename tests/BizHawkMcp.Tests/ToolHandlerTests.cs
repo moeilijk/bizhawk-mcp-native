@@ -100,6 +100,23 @@ namespace BizHawkMcp.Tests
 		}
 
 		[Fact]
+		public void Use_memory_domain_valid_switches()
+		{
+			var res = _ts.Call("bizhawk_use_memory_domain", TestHelpers.Js("{\"domain\":\"M68K BUS\"}"));
+			Assert.Contains("M68K BUS", res);
+			Assert.Equal("M68K BUS", _apis.MemoryApi.CurrentDomain);
+		}
+
+		[Fact]
+		public void Use_memory_domain_unknown_throws_invalid_params()
+		{
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_use_memory_domain", TestHelpers.Js("{\"domain\":\"NOPE\"}")));
+			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
+			Assert.Contains("known domains", ex.Message);
+			Assert.Contains("68K RAM", ex.Message);
+		}
+
+		[Fact]
 		public void Set_big_endian_overrides_core_default()
 		{
 			_ts.Call("bizhawk_get_info", null); // GEN → BE

@@ -151,8 +151,8 @@ Legend: `[x]` done · `[~]` partially done / covered by another tool · `[ ]` op
   the domain (with the 68K bus masking exception), instead of silent 0.
 - [x] **`movie_info`/`movie_input` without a movie**: return empty/clean error
   instead of NullReferenceException.
-- [ ] **Better errors**: `bizhawk_use_memory_domain` returns a message instead
-  of failing on unknown domain — should probably be `INVALID_PARAMS`.
+- [x] **Better errors**: `bizhawk_use_memory_domain` now throws `INVALID_PARAMS`
+  on an unknown domain, listing the known domains in the message.
 - [ ] **Larger reads**: `bizhawk_read_range` caps at 4096 bytes; consider a
   chunked resource (`bizhawk://range/...`) for bigger dumps (dump_memory covers
   whole-domain dumps as resources already).
@@ -168,9 +168,9 @@ Legend: `[x]` done · `[~]` partially done / covered by another tool · `[ ]` op
 - [ ] **Version bump helper**: script to update `bizhawk.build` +
   re-fetch source + grep for changed ApiHawk signatures (half-automate the
   "Bumping the BizHawk version" steps in AGENTS.md).
-- [ ] **`opencode` config sample**: tidy up `opencode.mcp.example.json` /
-  `opencode.mcp.example copy.json` — commit exactly one example with both
-  `tools` and `resources` client support.
+- [x] **`opencode` config sample**: exactly one example committed
+  (`opencode.mcp.example.json`) with `tools` + `resources` client support; the
+  duplicate `opencode.mcp.example copy.json` is gone.
 
 ## Misc / research
 

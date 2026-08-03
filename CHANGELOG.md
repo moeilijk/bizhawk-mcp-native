@@ -61,6 +61,8 @@ on explicit request — otherwise changes accumulate under `## [Unreleased]`.
   `overlay_line` accept `rects`/`lines` arrays to draw many shapes in one call.
 - `bizhawk_screenshot` gained `include_overlays: true` to compose the
   overlay/OSD layer into the PNG (EmuHawk's `ScreenshotCaptureOsd`).
+- `bizhawk_use_memory_domain` now returns `INVALID_PARAMS` on an unknown domain
+  with the list of known domains in the message (was a bare status string).
 
 ## [v0.1.0] - 2026-08-02
 

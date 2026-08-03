@@ -922,7 +922,12 @@ namespace BizHawkMcp
 			var a = Required(args);
 			string? domain = RequireString(a, "domain");
 			bool ok = _tool.Memory!.UseMemoryDomain(domain);
-			return ok ? $"domain set to {domain}" : $"unknown domain: {domain}";
+			if (!ok)
+			{
+				string known = string.Join(", ", _tool.Memory!.GetMemoryDomainList());
+				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"unknown domain: {domain} (known domains: {known})");
+			}
+			return $"domain set to {domain}";
 		}
 
 		private string SetBigEndian(JsonElement? args)
