@@ -102,7 +102,8 @@ on explicit request — otherwise changes accumulate under `## [Unreleased]`.
   BizHawk.Client.Common) is reached via `IToolApi.GetTool("LuaConsole")` +
   reflection on its private `LuaImp` field (same pattern as watchpoints) — no
   deep reflection into the Lua machinery. `lua_exec` runs snippets through the
-  same path as the console's REPL; loaded scripts are pumped every frame by
+  same path as the console's REPL (memory API uses underscore forms:
+  `read_u8`/`read_u16_be`/`read_u32_le`/`write_u8`/...); loaded scripts are pumped every frame by
   EmuHawk's frame events (even free-running emulation) and survive core
   reboots.
 - `bizhawk_read_bulk`: contiguous range as raw base64 in one call (up to 64 KiB).
