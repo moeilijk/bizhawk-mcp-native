@@ -34,6 +34,29 @@ on explicit request — otherwise changes accumulate under `## [Unreleased]`.
   `{address|name, op, value, width?, domain?, endianness?}` waits until ALL
   hold on the SAME frame (AND), returning per-condition results — replaces
   fragile nested single waits; single-address mode unchanged.
+- Z80 sound-CPU debugging on the Genesis gpgx core:
+  `bizhawk_genesis_disassemble_z80(address, count)` disassembles code from the
+  Z80 bus space (0x0000-0xFFFF; 0x2000-0x3FFF = Z80 RAM) via BizHawk's static
+  `Z80ADisassembler` (the gpgx core's own disassembler only speaks 68K);
+  `bizhawk_genesis_trace_z80(count, step, stack_words)` samples PC/SP +
+  instruction at PC every step and optionally dumps little-endian 16-bit stack
+  words — shows the sound driver's main loop and busy-waits. Both require the
+  "Z80 BUS" domain (gpgx only); other cores error clearly.
+- Z80 bus synthesis: the Genesis gpgx core has NO "Z80 BUS" domain (verified in
+  the pinned `GPGX.IMemoryDomains.cs` — it is only created for SMS/GG), so the
+  Z80 debug tools synthesize the bus from "MD CART"/"ROM" (bank 0, 0x0000-0x1FFF)
+  + "Z80 RAM" (0x2000-0x5FFF + mirror, 0x6000+ = open bus); SMS/GG use the
+  native "Z80 BUS" domain.
+- Z80 bus synthesis mapping fixed after live re-QA: on the GEN gpgx core the
+  Z80 executes from ITS OWN RAM at bus 0x0000-0x1FFF (the 68K uploads the
+  sound driver there; the reset vector runs RAM@0x0000), aliased at
+  0x2000-0x3FFF, with 0x4000+ as sound I/O/open bus — not the "0x0000 ROM
+  window / 0x2000 RAM" layout first assumed. `disassemble_z80`/`trace_z80`
+  now decode the real executed driver (verified against live registers).
+- **Domain safety**: ApiHawk's `NamedDomainOrCurrent` silently falls back to
+  the current domain when a requested name doesn't exist (reads mislabeled
+  data with the wrong endianness) — the toolset now rejects unknown domain
+  names up front (INVALID_PARAMS) across all memory tools.
 
 ### Fixed
 - Zero compiler warnings: nullable-annotated the ApiHawk stubs/fakes

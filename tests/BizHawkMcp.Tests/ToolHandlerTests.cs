@@ -934,6 +934,119 @@ namespace BizHawkMcp.Tests
 		}
 
 		[Fact]
+		public void Genesis_z80_disassemble_walks_instructions()
+		{
+			// fake disassembler: each byte = one 1-byte instruction → 0x2000, 0x2001, ...
+			_apis.MemoryApi.Bytes[0x2000] = 0x3E; // LD A,n
+			_apis.MemoryApi.Bytes[0x2001] = 0x7C;
+			var res = Parse(_ts.Call("bizhawk_genesis_disassemble_z80", TestHelpers.Js("{\"address\":8192,\"count\":2}")));
+			var insns = res.GetProperty("instructions");
+			Assert.Equal(2, insns.GetArrayLength());
+			Assert.Equal((long)0x2000, insns[0].GetProperty("address").GetInt64());
+			Assert.Equal("op 3E", insns[0].GetProperty("instruction").GetString());
+			Assert.Equal("3E", insns[0].GetProperty("bytes").GetString());
+			Assert.Equal((long)0x2001, insns[1].GetProperty("address").GetInt64());
+			Assert.Equal("op 7C", insns[1].GetProperty("instruction").GetString());
+			Assert.Equal("7C", insns[1].GetProperty("bytes").GetString());
+		}
+
+		[Fact]
+		public void Genesis_z80_disassemble_rejects_bad_address()
+		{
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_genesis_disassemble_z80", TestHelpers.Js("{\"address\":65536}")));
+			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
+			ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_genesis_disassemble_z80", TestHelpers.Js("{\"address\":0,\"count\":65}")));
+			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
+		}
+
+		[Fact]
+		public void Genesis_z80_synthesizes_bus_without_bus_domain()
+		{
+			// the real GEN gpgx has NO "Z80 BUS" domain (only SMS/GG do) — the
+			// tool must synthesize from Z80 RAM: 0x0000-0x1FFF = RAM,
+			// 0x2000-0x3FFF = aliased, 0x4000+ = open bus (live-QA mapping)
+			_apis.MemoryApi.Domains.Remove("Z80 BUS");
+			_apis.MemoryApi.Bytes[0x0000] = 0xC3;
+			_apis.MemoryApi.Bytes[0x1000] = 0xED;
+
+			// RAM at bus 0x0000
+			var res = Parse(_ts.Call("bizhawk_genesis_disassemble_z80", TestHelpers.Js("{\"address\":0,\"count\":1}")));
+			Assert.Equal("op C3", res.GetProperty("instructions")[0].GetProperty("instruction").GetString());
+			// RAM at bus 0x1000
+			res = Parse(_ts.Call("bizhawk_genesis_disassemble_z80", TestHelpers.Js("{\"address\":4096,\"count\":1}")));
+			Assert.Equal("op ED", res.GetProperty("instructions")[0].GetProperty("instruction").GetString());
+			// alias: bus 0x3000 = 12288 reads RAM offset 0x1000
+			res = Parse(_ts.Call("bizhawk_genesis_disassemble_z80", TestHelpers.Js("{\"address\":12288,\"count\":1}")));
+			Assert.Equal("op ED", res.GetProperty("instructions")[0].GetProperty("instruction").GetString());
+			// sound I/O / open bus 0x4000+ reads 0xFF
+			res = Parse(_ts.Call("bizhawk_genesis_disassemble_z80", TestHelpers.Js("{\"address\":16384,\"count\":1}")));
+			Assert.Equal("op FF", res.GetProperty("instructions")[0].GetProperty("instruction").GetString());
+			res = Parse(_ts.Call("bizhawk_genesis_disassemble_z80", TestHelpers.Js("{\"address\":24576,\"count\":1}")));
+			Assert.Equal("op FF", res.GetProperty("instructions")[0].GetProperty("instruction").GetString());
+		}
+
+		[Fact]
+		public void Read_memory_rejects_unknown_domain()
+		{
+			// ApiHawk silently falls back to the current domain on a miss —
+			// the plugin must reject instead of reading mislabeled data
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_read_memory", TestHelpers.Js("{\"address\":0,\"domain\":\"NOPE\"}")));
+			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
+			ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_read_range", TestHelpers.Js("{\"address\":0,\"domain\":\"NOPE\"}")));
+			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
+			ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_search_memory", TestHelpers.Js("{\"value\":1,\"domain\":\"NOPE\"}")));
+			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
+		}
+
+		[Fact]
+		public void Genesis_z80_trace_samples_pc_sp_and_stack()
+		{
+			// Z80 pc counts up each frame (registers refreshed per frame like
+			// the real core); Z80 sp fixed; stack lives in Z80 RAM
+			var frames = 0;
+			_apis.EmuClientApi.OnFrameAdvance = () =>
+			{
+				frames++;
+				_apis.EmulationApi.Registers = new Dictionary<string, ulong>
+				{
+					["M68K PC"] = 0xFF0000,
+					["Z80 pc"] = (ulong)(0x2000 + frames),
+					["Z80 sp"] = 0x3FFC,
+				};
+			};
+			_apis.EmulationApi.Registers = new Dictionary<string, ulong>
+			{
+				["M68K PC"] = 0xFF0000,
+				["Z80 pc"] = 0x2000,
+				["Z80 sp"] = 0x3FFC,
+			};
+			_apis.MemoryApi.Bytes[0x3FFC] = 0x34;
+			_apis.MemoryApi.Bytes[0x3FFD] = 0x12;
+			_apis.MemoryApi.Bytes[0x2001] = 0x3E; // sampled at pc 0x2001 (frame 1)
+			_apis.EmuClientApi.Paused = true;
+
+			var res = Parse(_ts.Call("bizhawk_genesis_trace_z80", TestHelpers.Js("{\"count\":2,\"step\":1,\"stack_words\":2}")));
+			var samples = res.GetProperty("samples");
+			Assert.Equal(2, samples.GetArrayLength());
+			Assert.Equal((ulong)0x2001, samples[0].GetProperty("pc").GetUInt64());
+			Assert.Equal((ulong)0x3FFC, samples[0].GetProperty("sp").GetUInt64());
+			Assert.Equal("op 3E", samples[0].GetProperty("instruction").GetString());
+			// stack: little-endian 16-bit at SP (0x1234) and SP+2 (0x0000)
+			Assert.Equal((ulong)0x1234, samples[0].GetProperty("stack")[0].GetProperty("value").GetUInt64());
+			Assert.Equal((ulong)0x0000, samples[0].GetProperty("stack")[1].GetProperty("value").GetUInt64());
+			Assert.Equal((ulong)0x2002, samples[1].GetProperty("pc").GetUInt64());
+			Assert.True(_apis.EmuClientApi.Paused); // pause restored
+		}
+
+		[Fact]
+		public void Genesis_z80_trace_errors_without_z80_cpu()
+		{
+			_apis.EmulationApi.Registers = new Dictionary<string, ulong> { ["M68K PC"] = 1 };
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_genesis_trace_z80", TestHelpers.Js("{\"count\":1}")));
+			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
+		}
+
+		[Fact]
 		public void Symbols_set_then_read_and_write_by_name()
 		{
 			_apis.MemoryApi.Bytes[0xFFFBCA] = 0x12;

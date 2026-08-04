@@ -29,12 +29,13 @@ namespace BizHawkMcp
 
 		public McpToolset(IHostApis tool, IUiDispatcher ui) : this(tool, ui, null, null) { }
 
-		internal McpToolset(IHostApis tool, IUiDispatcher ui, Func<CheatCollection?>? cheatListResolver, Func<LuaLibraries?>? luaResolver = null)
+		internal McpToolset(IHostApis tool, IUiDispatcher ui, Func<CheatCollection?>? cheatListResolver, Func<LuaLibraries?>? luaResolver = null, Func<ushort, Func<ushort, byte>, (string Text, int Size)>? z80Disassembler = null)
 		{
 			_tool = tool;
 			_ui = ui;
 			_cheatListResolver = cheatListResolver;
 			_luaResolver = luaResolver;
+			_z80DisasmOverride = z80Disassembler;
 			_lastRomHash = CurrentRomHash();
 			LoadPersistedSymbols(_lastRomHash);
 		}
@@ -182,7 +183,7 @@ namespace BizHawkMcp
 			Tool("bizhawk_ping", "Ping the tool. Returns \"pong\" if the plugin and server are alive.", []),
 			Tool("bizhawk_get_info", "ROM info, framecount, pause state, current endianness, active memory domain and host paths (JSON). \"paths\" reports where the emulator runs: install_dir (EmuHawk's folder), working_dir, temp_dir (the bizhawk-mcp dir where screenshot/dump_memory/start_fixture save by default) and the loaded ROM's rom_path/rom_dir — so relative paths can always be resolved against the right base.", []),
 			Tool("bizhawk_get_board_info", "Board info: board name, display type (NTSC/PAL), and game options — helps identify the game revision.", []),
-			Tool("bizhawk_read_memory", "Read u8/u16/u32 from a memory domain. Optional \"endianness\": \"big\" | \"little\" | \"auto\" (default \"auto\" = the domain's native endianness, e.g. big on 68K RAM/M68K BUS but little on Z80 RAM on Genesis). Returns {\"value\": N, \"endianness\": \"big\"|\"little\"} so the interpretation is never ambiguous. Bus domains accept 32-bit disassembly addresses (e.g. 0xFFFFF832): the 68K's 24-bit bus masks them, so 0xFFFFF832 == 0xFFF832. Either \"address\" or a symbol \"name\" (from bizhawk_symbols_set) is required.", [
+			Tool("bizhawk_read_memory", "Read u8/u16/u32 from a memory domain. Optional \"endianness\": \"big\" | \"little\" | \"auto\" (default \"auto\" = the domain's native endianness, e.g. big on 68K RAM/M68K BUS but little on Z80 RAM on Genesis). Returns {\"value\": N, \"endianness\": \"big\"|\"little\"} so the interpretation is never ambiguous. On 68K-family bus domains only (GEN/SMD/32X/SAT) 32-bit disassembly addresses are masked by the 24-bit bus, e.g. 0xFFFFF832 == 0xFFF832; other cores/domains reject out-of-range addresses. Either \"address\" or a symbol \"name\" (from bizhawk_symbols_set) is required.", [
 				Param("address", "integer", "Offset in the domain, 0-based. For bus domains (e.g. M68K BUS) use the raw bus address (e.g. 0xFFFBCA); 32-bit forms (0xFFFFFBCA) are masked like the hardware."),
 				Param("name", "string", "Symbol name registered via bizhawk_symbols_set (overrides address/domain)."),
 				Param("width", "integer", "8, 16 or 32.", 8),
@@ -321,6 +322,15 @@ namespace BizHawkMcp
 			]),
 			Tool("bizhawk_genesis_get_vdp_view", "Read the Genesis VDP nametable bases from the core (plane A/B addresses + dimensions in tiles, as the game configures them). Genesis gpgx core only; other cores error. Use it to find where the planes live before genesis_read_plane.", []),
 			Tool("bizhawk_genesis_get_z80_registers", "Read the Z80 sound CPU registers from the Genesis core (gpgx reports both CPUs in one register table — this filters the Z80 half). The core names them lowercase: \"Z80 pc\", \"Z80 sp\", \"Z80 af\", \"Z80 hl\", ... Genesis gpgx core only; other cores error.", []),
+			Tool("bizhawk_genesis_disassemble_z80", "Disassemble Z80 (sound CPU) code from its bus space: 0x0000-0x1FFF is Z80 RAM (where the 68K uploads the sound driver — the reset vector runs RAM@0x0000), aliased at 0x2000-0x3FFF; 0x4000+ is sound I/O/open bus. \"address\" is a raw Z80 bus address; \"count\" instructions follow sequentially. Uses BizHawk's static Z80ADisassembler (the gpgx core's own disassembler only speaks 68K). On GEN the Z80 bus is synthesized from the Z80 RAM domain (the core has no Z80 BUS domain on Genesis); SMS/GG use the native Z80 BUS domain. Other cores error.", [
+				Param("address", "integer", "Z80 bus address to start at (0x0000-0xFFFF)."),
+				Param("count", "integer", "Instructions to disassemble, 1..64.", 8),
+			]),
+			Tool("bizhawk_genesis_trace_z80", "Advance N frames sampling the Z80 sound CPU each step: PC, SP and the disassembled instruction at PC — shows the sound driver's main loop, busy-waits (e.g. polling the 68K handshake port) and where it spends each frame. \"stack_words\": N > 0 also dumps that many 16-bit words from the Z80 stack (SP lives in Z80 RAM at bus 0x0000-0x1FFF, little-endian). Z80 bus reads are synthesized from the Z80 RAM domain on GEN (0x0000-0x3FFF, aliased) or use the native Z80 BUS domain on SMS/GG. Genesis gpgx core only; other cores error.", [
+				Param("count", "integer", "Frames to trace, 1..600.", 60),
+				Param("step", "integer", "Sample every step frames.", 1),
+				Param("stack_words", "integer", "16-bit stack words to dump per sample (0..32; 0 = off).", 0),
+			]),
 			Tool("bizhawk_press_buttons", "Set joypad state for the NEXT frame.", [
 				Param("buttons", "object", "Map of button name -> pressed bool, e.g. {\"A\": true, \"Right\": true}."),
 				Param("controller", "integer", "Optional controller index (1-based).", 1),
@@ -598,6 +608,8 @@ namespace BizHawkMcp
 				"bizhawk_genesis_read_plane" => _ui.Invoke(() => ReadPlane(args)),
 				"bizhawk_genesis_get_vdp_view" => _ui.Invoke(GetVdpView),
 				"bizhawk_genesis_get_z80_registers" => _ui.Invoke(GenesisGetZ80Registers),
+				"bizhawk_genesis_disassemble_z80" => _ui.Invoke(() => Z80DisassembleTool(args)),
+				"bizhawk_genesis_trace_z80" => _ui.Invoke(() => Z80Trace(args)),
 				"bizhawk_press_buttons" => _ui.Invoke(() => PressButtons(args)),
 				"bizhawk_frame_advance" => _ui.Invoke(() => FrameAdvance(args)),
 				"bizhawk_pause" => _ui.Invoke(() => PauseTool()),
@@ -807,6 +819,7 @@ namespace BizHawkMcp
 			long address = RequireLong(a, "address");
 			int length = RequireInt(a, "length", 256);
 			string? domain = OptionalString(a, "domain");
+			EnsureKnownDomain(domain);
 			if (length is < 1 or > 4096) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "length must be 1..4096");
 			var sb = new System.Text.StringBuilder(length * 3);
 			for (var i = 0; i < length; i++) sb.Append(_tool.Memory!.ReadByte(address + i, domain).ToString("X2")).Append(' ');
@@ -844,6 +857,7 @@ namespace BizHawkMcp
 		{
 			string? domain = null;
 			if (args is { } a && a.ValueKind == JsonValueKind.Object) domain = OptionalString(a, "domain");
+			EnsureKnownDomain(domain);
 			uint size = _tool.Memory!.GetMemoryDomainSize(domain ?? "");
 
 			string? path = null;
@@ -901,6 +915,7 @@ namespace BizHawkMcp
 		{
 			string? domain = null;
 			if (args is { } a && a.ValueKind == JsonValueKind.Object) domain = OptionalString(a, "domain");
+			EnsureKnownDomain(domain);
 			string name = domain ?? _tool.Memory!.GetCurrentMemoryDomain();
 			uint size = _tool.Memory!.GetMemoryDomainSize(domain ?? "");
 
@@ -928,6 +943,7 @@ namespace BizHawkMcp
 				domain = OptionalString(a, "domain");
 				maxResults = RequireInt(a, "max_results", 256);
 			}
+			EnsureKnownDomain(domain);
 			if (maxResults is < 1 or > 4096) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "max_results must be 1..4096");
 
 			string name = domain ?? _tool.Memory!.GetCurrentMemoryDomain();
@@ -1034,6 +1050,7 @@ namespace BizHawkMcp
 			ulong value = hasValue ? vEl.GetUInt64() : 0;
 			int width = RequireInt(a, "width", 8);
 			string? domain = OptionalString(a, "domain");
+			EnsureKnownDomain(domain);
 			int maxResults = RequireInt(a, "max_results", 256);
 			var mem = _tool.Memory!;
 
@@ -1201,6 +1218,7 @@ namespace BizHawkMcp
 			long address = RequireLong(a, "address");
 			int length = RequireInt(a, "length", 256);
 			string? domain = OptionalString(a, "domain");
+			EnsureKnownDomain(domain);
 			if (length is < 1 or > 1048576) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "length must be 1..1048576");
 			return JsonRpc.Pretty(new Dictionary<string, object?> { ["hash"] = _tool.Memory!.HashRegion(address, length, domain) });
 		}
@@ -1379,6 +1397,7 @@ namespace BizHawkMcp
 			var a = Required(args);
 			long address = RequireLong(a, "address");
 			string? domain = OptionalString(a, "domain");
+			EnsureKnownDomain(domain);
 
 			// fill mode: one byte repeated "length" times — a tiny payload for
 			// large clears (e.g. zeroing 1440 bytes of level layout). The values
@@ -1873,7 +1892,7 @@ namespace BizHawkMcp
 		}
 
 		// The gpgx core reports BOTH CPUs in one register table
-		// (GetCpuFlagsAndRegisters: "M68K PC", "Z80 PC", ...) — this filters
+		// (GetCpuFlagsAndRegisters: "M68K PC", "Z80 pc", ...) — this filters
 		// the Z80 sound CPU half. Core-specific surface, so the name says so.
 		private string GenesisGetZ80Registers()
 		{
@@ -1883,6 +1902,174 @@ namespace BizHawkMcp
 			if (z80.Count == 0)
 				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "no Z80 registers: the loaded core does not expose the sound CPU (Genesis gpgx only — e.g. Z80 PC, Z80 SP, Z80 A)");
 			return JsonRpc.Pretty(new Dictionary<string, object?> { ["registers"] = z80 });
+		}
+
+		// ── Z80 disassembly ──────────────────────────────────────────────────
+		// The gpgx core's own IDisassemblable only speaks 68K, but BizHawk ships
+		// a pure static Z80 table disassembler (Z80ADisassembler in
+		// BizHawk.Emulation.Cores — loaded in-process with the core), so no CPU
+		// instance is needed. Reached via reflection; tests inject a fake.
+		private Func<ushort, Func<ushort, byte>, (string Text, int Size)>? _z80DisasmOverride;
+		private static MethodInfo? _z80DisasmMethod;
+
+		private static MethodInfo? Z80Disasm()
+		{
+			if (_z80DisasmMethod != null) return _z80DisasmMethod;
+			var t = Type.GetType("BizHawk.Emulation.Cores.Components.Z80A.Z80ADisassembler, BizHawk.Emulation.Cores");
+			foreach (var m in t?.GetMethods(BindingFlags.Public | BindingFlags.Static) ?? Array.Empty<MethodInfo>())
+			{
+				if (m.Name == "Disassemble" && m.GetParameters().Length == 3)
+				{
+					_z80DisasmMethod = m;
+					break;
+				}
+			}
+			return _z80DisasmMethod;
+		}
+
+		private (string Text, int Size) Z80Disassemble(ushort addr, Func<ushort, byte> read)
+		{
+			if (_z80DisasmOverride != null) return _z80DisasmOverride(addr, read);
+			var m = Z80Disasm();
+			if (m == null)
+				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "Z80 disassembler unavailable: BizHawk.Emulation.Cores not loaded (Genesis gpgx core only)");
+			var args = new object[] { addr, read, 0 };
+			var result = m.Invoke(null, args);
+			return ((string)result!, (int)args[2]);
+		}
+
+		// Z80 debugging needs the Z80's 16-bit bus space. On SMS/GG the core
+		// exposes a native "Z80 BUS" domain (gpgx_peek_z80_bus); on GEN it does
+		// NOT (verified in the pinned GPGX.IMemoryDomains.cs — the Z80 BUS
+		// domain is only created in the non-GEN branch), and the bus is
+		// synthesized. Live QA (Kid Chameleon) proved the GEN mapping is:
+		//   0x0000-0x1FFF = Z80 RAM (where sound drivers run — the 68K uploads
+		//                    them; the reset vector executes RAM@0x0000)
+		//   0x2000-0x3FFF = Z80 RAM aliased (& 0x1FFF)
+		//   0x4000-0x7FFF = sound I/O (YM2612/PSG ports — reads as open bus)
+		//   0x8000-0xFFFF = open bus (0xFF)
+		// NOT the "0x0000-0x1FFF ROM window / 0x2000 RAM" layout — the first
+		// version of this synthesis had it inverted (caught by re-QA).
+		// Point of view matters: the domain's "bus_base 0xA00000" is the 68K's
+		// WINDOW onto the same physical RAM — from the Z80's perspective there
+		// is no 68K/ROM/RAM split, only its own bus, with its RAM at 0x0000.
+		private void EnsureZ80Accessible()
+		{
+			var known = _tool.Memory!.GetMemoryDomainList();
+			bool ok = known.Contains("Z80 BUS") || known.Contains("Z80 RAM");
+			if (!ok)
+				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "Z80 debugging requires a Genesis gpgx or SMS/GG core (Z80 BUS/Z80 RAM domain missing)");
+		}
+
+		private byte Z80Read(ushort addr)
+		{
+			var mem = _tool.Memory!;
+			var known = mem.GetMemoryDomainList();
+			if (known.Contains("Z80 BUS")) return (byte)mem.ReadByte(addr, "Z80 BUS");
+			if (addr >= 0x4000) return 0xFF; // sound I/O + open bus read as 0xFF
+			return (byte)mem.ReadByte(addr & 0x1FFF, "Z80 RAM");
+		}
+
+		private string Z80DisassembleTool(JsonElement? args)
+		{
+			var a = Required(args);
+			long address = RequireLong(a, "address");
+			int count = RequireInt(a, "count", 8);
+			if (count is < 1 or > 64) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "count must be 1..64");
+			if (address is < 0 or > 0xFFFF) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "address must be in Z80 bus space 0x0000-0xFFFF");
+			EnsureZ80Accessible();
+
+			var instructions = new List<object?>();
+			ushort pc = (ushort)address;
+			for (var i = 0; i < count; i++)
+			{
+				var (text, size) = Z80Disassemble(pc, Z80Read);
+				if (size < 1) size = 1;
+				var raw = new List<byte>(size);
+				for (var b = 0; b < size; b++) raw.Add(Z80Read((ushort)(pc + b)));
+				var hex = new System.Text.StringBuilder(size * 3);
+				for (var b = 0; b < size; b++) hex.Append(raw[b].ToString("X2")).Append(' ');
+				instructions.Add(new Dictionary<string, object?>
+				{
+					["address"] = pc,
+					["bytes"] = hex.ToString().TrimEnd(),
+					["instruction"] = text,
+				});
+				pc = (ushort)(pc + size);
+			}
+
+			return JsonRpc.Pretty(new Dictionary<string, object?>
+			{
+				["address"] = address,
+				["count"] = instructions.Count,
+				["instructions"] = instructions,
+			});
+		}
+
+		// Z80 analog of bizhawk_trace: sample the sound CPU's PC/SP each frame
+		// and disassemble at PC — shows the sound driver's main loop, busy-waits
+		// and per-frame cost. Optional stack_words dumps the Z80 stack (SP
+		// points into Z80 RAM at 0x2000-0x3FFF of bus space).
+		private string Z80Trace(JsonElement? args)
+		{
+			var a = Required(args);
+			int count = RequireInt(a, "count", 60);
+			int step = RequireInt(a, "step", 1);
+			int stackWords = RequireInt(a, "stack_words", 0);
+			if (count is < 1 or > 600) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "count must be 1..600");
+			if (step is < 1 or > 600) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "step must be 1..600");
+			if (stackWords is < 0 or > 32) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "stack_words must be 0..32");
+			EnsureZ80Accessible();
+
+			bool wasPaused = _tool.EmuClient!.IsPaused();
+			if (wasPaused) _tool.EmuClient!.Unpause();
+
+			var samples = new List<object?>();
+			try
+			{
+				for (var i = 0; i < count; i++)
+				{
+					AdvanceFrame();
+					if (i % step != 0) continue;
+					var regs = _tool.Emulation!.GetRegisters();
+					var z80 = regs.Where(kv => kv.Key.StartsWith("Z80", StringComparison.OrdinalIgnoreCase)).ToDictionary(kv => kv.Key, kv => kv.Value);
+					if (z80.Count == 0)
+						throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "no Z80 registers: the loaded core does not expose the sound CPU (Genesis gpgx only)");
+					ulong pc = FindRegister(z80, "pc");
+					ulong sp = FindRegister(z80, "sp");
+
+					string? disasm = null;
+					try { (disasm, _) = Z80Disassemble((ushort)pc, Z80Read); }
+					catch { disasm = null; }
+
+					var sample = new Dictionary<string, object?>
+					{
+						["frame"] = _tool.Emulation!.FrameCount(),
+						["pc"] = pc,
+						["sp"] = sp,
+						["instruction"] = disasm,
+					};
+					if (stackWords > 0)
+					{
+						var stack = new List<object?>();
+						for (var w = 0; w < stackWords; w++)
+						{
+							ulong addr = (sp + (ulong)(2 * w)) & 0xFFFF;
+							uint lo = Z80Read((ushort)addr);
+							uint hi = Z80Read((ushort)((addr + 1) & 0xFFFF));
+							stack.Add(new Dictionary<string, object?> { ["address"] = addr, ["value"] = (ulong)(lo | (hi << 8)) });
+						}
+						sample["stack"] = stack;
+					}
+					samples.Add(sample);
+				}
+			}
+			finally
+			{
+				if (wasPaused) _tool.EmuClient!.Pause();
+			}
+
+			return JsonRpc.Pretty(new Dictionary<string, object?> { ["samples"] = samples });
 		}
 
 		private string ReadPlane(JsonElement? args)
@@ -4085,6 +4272,7 @@ namespace BizHawkMcp
 		// VRAM, ...) are offsets and must fit — out-of-range is an error.
 		private long ValidateAddress(long address, int width, string? domain)
 		{
+			EnsureKnownDomain(domain);
 			uint size = _tool.Memory!.GetMemoryDomainSize(domain ?? "");
 			string name = domain ?? _tool.Memory.GetCurrentMemoryDomain();
 			if (Has24BitBus() && name.IndexOf("BUS", StringComparison.OrdinalIgnoreCase) >= 0)
@@ -4098,6 +4286,17 @@ namespace BizHawkMcp
 			if (address < 0 || address + (width / 8) > size)
 				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"address {address} (width {width}) outside domain \"{name}\" (size {size})");
 			return address;
+		}
+
+		// ApiHawk's NamedDomainOrCurrent SILENTLY falls back to the current
+		// domain when the requested name doesn't exist (a catch that ignores
+		// the miss), so a typo'd domain reads the WRONG memory and labels it
+		// with the wrong endianness. Reject unknown names up front instead.
+		private void EnsureKnownDomain(string? domain)
+		{
+			if (string.IsNullOrEmpty(domain)) return;
+			if (!_tool.Memory!.GetMemoryDomainList().Contains(domain))
+				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"unknown domain: {domain}");
 		}
 
 		// Cores whose main CPU has a 24-bit address bus (68000 family). Other

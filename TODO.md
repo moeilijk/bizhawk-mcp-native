@@ -74,6 +74,18 @@ Legend: `[~]` partially done / covered by another tool · `[ ]` open · `[x]` do
 - [x] **Z80 registers** (`bizhawk_genesis_get_z80_registers`): the gpgx core
   reports both CPUs in one register table (`GetCpuFlagsAndRegisters`); the
   tool filters the `Z80 *` half (sound CPU) — other cores error.
+- [x] **Z80 code debugging** (`bizhawk_genesis_disassemble_z80` +
+  `bizhawk_genesis_trace_z80`): disassembles Z80 bus space through BizHawk's
+  static `Z80ADisassembler` (the gpgx core's own disassembler only speaks 68K),
+  and traces PC/SP + stack words per frame — the sound driver's main loop and
+  busy-waits. The bus is synthesized on GEN (the core has no "Z80 BUS" domain
+  there — verified in `GPGX.IMemoryDomains.cs`; only SMS/GG get one). Live QA
+  proved the GEN mapping: 0x0000-0x1FFF = Z80 RAM (the 68K uploads the driver;
+  reset vector runs RAM@0x0000), 0x2000-0x3FFF aliased, 0x4000+ = sound
+  I/O/open bus. Note: real watchpoints on Z80 access are impossible (gpgx
+  memory callbacks scope to "M68K BUS" only); polling watchers cover Z80 RAM.
+  Also hardened: unknown domain names are now rejected everywhere instead of
+  ApiHawk's silent fallback to the current domain (mislabeled reads).
 
 ## Misc / research
 

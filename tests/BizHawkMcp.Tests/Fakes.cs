@@ -27,12 +27,19 @@ namespace BizHawkMcp.Tests
 
 		public void SetBigEndian(bool enabled = true) { BigEndian = enabled; SetBigEndianCalls++; }
 
-		public IReadOnlyCollection<string> GetMemoryDomainList() => ["68K RAM", "Z80 RAM", "M68K BUS", "VRAM", "CRAM"];
+		// Mutable so tests can simulate cores without a "Z80 BUS" domain
+		// (the real GEN gpgx has none — see McpToolset.Z80Read) and reject
+		// unknown-domain lookups.
+		public readonly List<string> Domains = new() { "68K RAM", "Z80 RAM", "M68K BUS", "Z80 BUS", "VRAM", "CRAM", "CGRAM" };
+
+		public IReadOnlyCollection<string> GetMemoryDomainList() => Domains;
 
 		public uint GetMemoryDomainSize(string name = "")
 		{
 			if (string.IsNullOrEmpty(name) || name == "68K RAM") return 65536u;
 			if (name == "Z80 RAM") return 8192u;
+			if (name == "Z80 BUS") return 65536u;
+			if (name == "MD CART") return 0x400000u;
 			if (name == "VRAM") return 65536u;
 			if (name == "CRAM") return 128u;
 			return 16u * 1024 * 1024;
@@ -685,7 +692,16 @@ namespace BizHawkMcp.Tests
 
 		public CheatCollection? Cheats { get; set; }
 
-		public McpToolset Toolset() => new(this, new InlineDispatcher(), () => Cheats, () => Lua);
+		public McpToolset Toolset() => new(this, new InlineDispatcher(), () => Cheats, () => Lua, Z80Disasm);
+
+		// Stand-in for the real static Z80ADisassembler (BizHawk.Emulation.Cores
+		// is not linked into the tests): each byte decodes to a 1-byte
+		// instruction, so sequential addresses advance by one — enough to
+		// verify the tools' plumbing (address walking, bytes hex, stack reads).
+		private (string Text, int Size) Z80Disasm(ushort addr, Func<ushort, byte> read)
+		{
+			return ($"op {read(addr):X2}", 1);
+		}
 
 		/// <summary>Wires up a fake Lua runtime like the Lua Console would,
 		/// with a couple of doc entries for lua_docs tests.</summary>
