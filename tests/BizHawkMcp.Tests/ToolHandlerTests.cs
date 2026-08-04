@@ -1820,6 +1820,74 @@ namespace BizHawkMcp.Tests
 		}
 
 		[Fact]
+		public void Run_to_advances_until_target_executes_and_cleans_up()
+		{
+			var dbg = _apis.EnableWatchpoints();
+			_apis.EmuClientApi.Paused = true;
+			// fake PC is 0xFFFBCA; target 0xFFFBCE (16776142) executes on frame 2
+			var frame = 0;
+			_apis.EmuClientApi.OnFrameAdvance = () =>
+			{
+				if (++frame == 2) dbg.Callbacks.Fire(0xFFFBCE, 0x60);
+			};
+
+			var res = Parse(_ts.Call("run_to", TestHelpers.Js("{\"address\":16776142}")));
+			Assert.True(res.GetProperty("matched").GetBoolean());
+			Assert.False(res.GetProperty("timed_out").GetBoolean());
+			Assert.Equal(2, res.GetProperty("frames").GetInt32());
+			Assert.Equal((ulong)0xFFFBCE, res.GetProperty("address").GetUInt64());
+			Assert.Equal((ulong)0x60, res.GetProperty("value").GetUInt64());
+			Assert.True(res.TryGetProperty("pc", out _)); // state at END of the frame
+			Assert.True(res.TryGetProperty("pc_instruction", out _));
+			Assert.True(res.TryGetProperty("instruction", out _)); // disasm at the target
+			// the one-shot watchpoint was removed — nothing lingers
+			Assert.Empty(dbg.Callbacks.Registered);
+			Assert.True(_apis.EmuClientApi.Paused); // pause restored
+		}
+
+		[Fact]
+		public void Run_to_masks_bus_addresses_and_translates_symbols()
+		{
+			var dbg = _apis.EnableWatchpoints();
+			_apis.EmuClientApi.Paused = true;
+			// 32-bit disassembly form masks down to the 24-bit bus
+			var res = Parse(_ts.Call("run_to", TestHelpers.Js("{\"address\":4294966218}"))); // 0xFFFFFBCA
+			Assert.Equal((ulong)0xFFFBCA, res.GetProperty("address").GetUInt64());
+			Assert.Equal((ulong)4294966218, res.GetProperty("requested").GetUInt64());
+			Assert.Equal(0, res.GetProperty("frames").GetInt32()); // 0xFFFBCA == fake PC: already there
+			Assert.True(res.GetProperty("already_at_target").GetBoolean());
+
+			// a symbol registered on the 68K RAM domain (0-based) translates
+			// by the domain's bus base: 0xFBCA → 0xFFFBCA
+			_ts.Call("symbols_set", TestHelpers.Js("{\"symbols\":[{\"name\":\"snd_main\",\"address\":64458,\"domain\":\"68K RAM\",\"width\":8}]}")); // 0xFBCA
+			var frame = 0;
+			_apis.EmuClientApi.OnFrameAdvance = () =>
+			{
+				if (++frame == 1) dbg.Callbacks.Fire(0xFFFBCA, 0x4E);
+			};
+			var res2 = Parse(_ts.Call("run_to", TestHelpers.Js("{\"name\":\"snd_main\"}")));
+			Assert.True(res2.GetProperty("matched").GetBoolean());
+			Assert.Equal((ulong)0xFFFBCA, res2.GetProperty("address").GetUInt64());
+			Assert.Equal((ulong)64458, res2.GetProperty("requested").GetUInt64());
+			Assert.Empty(dbg.Callbacks.Registered);
+		}
+
+		[Fact]
+		public void Run_to_times_out_and_errors_without_callbacks()
+		{
+			_apis.EnableWatchpoints();
+			var res = Parse(_ts.Call("run_to", TestHelpers.Js("{\"address\":16776142,\"timeout_frames\":3}")));
+			Assert.False(res.GetProperty("matched").GetBoolean());
+			Assert.True(res.GetProperty("timed_out").GetBoolean());
+			Assert.Equal(3, res.GetProperty("frames").GetInt32());
+
+			// non-gpgx cores (no memory callbacks) get a clear error
+			var noWp = new FakeApis();
+			var ex = Assert.Throws<JsonRpc.Error>(() => noWp.Toolset().Call("run_to", TestHelpers.Js("{\"address\":16776142}")));
+			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
+		}
+
+		[Fact]
 		public void Watchpoint_wait_without_any_registered_errors()
 		{
 			_apis.EnableWatchpoints();
@@ -2024,7 +2092,37 @@ namespace BizHawkMcp.Tests
 			var path = res.GetProperty("path").GetString();
 			Assert.Contains("bizhawk-mcp", path);
 			Assert.StartsWith("bizhawk://", res.GetProperty("resource").GetString());
+			// wsl_path only exists on Windows hosts — the test host is Linux
+			Assert.False(res.TryGetProperty("wsl_path", out _));
 			Assert.Single(_apis.EmuClientApi.Screenshots);
+		}
+
+		[Fact]
+		public void Fixture_csv_is_registered_as_an_artifact()
+		{
+			_apis.EmuClientApi.Paused = true;
+			var frames = 0;
+			_apis.EmuClientApi.OnFrameAdvance = () => { frames++; _apis.MemoryApi.Bytes[0] = (byte)frames; };
+			var res = Parse(_ts.Call("start_fixture", TestHelpers.Js("{\"frames\":3,\"samples\":[{\"address\":0,\"width\":8}]}")));
+			var uri = res.GetProperty("resource").GetString()!;
+			Assert.StartsWith("bizhawk://", uri);
+			Assert.False(res.TryGetProperty("wsl_path", out _)); // Windows-host only
+			Assert.True(res.TryGetProperty("size", out _));
+			Assert.Equal(3, res.GetProperty("row_count").GetInt32());
+
+			// listed with host path, readable back as CSV
+			var listDoc = JsonDocument.Parse(JsonSerializer.Serialize(_ts.ListResources()));
+			var artifacts = listDoc.RootElement.GetProperty("resources");
+			var entry = artifacts.EnumerateArray().First(r => r.GetProperty("uri").GetString() == uri);
+			Assert.Equal("text/csv", entry.GetProperty("mimeType").GetString());
+			Assert.True(entry.TryGetProperty("path", out _));
+			Assert.False(entry.TryGetProperty("wsl_path", out _)); // Windows-host only
+
+			var readDoc = JsonDocument.Parse(JsonSerializer.Serialize(_ts.ReadResource(uri)));
+			var contents = readDoc.RootElement.GetProperty("contents")[0];
+			var csv = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(contents.GetProperty("blob").GetString()!));
+			Assert.StartsWith("frame,", csv);
+			Assert.Equal("2,3", csv.Split('\n')[3]);
 		}
 
 		[Fact]
@@ -2592,6 +2690,21 @@ namespace BizHawkMcp.Tests
 			Assert.Equal("roms/kid.md", McpToolset.NormalizeHostPath("roms/kid.md", windowsHost: false));
 			Assert.Equal("/tmp/x.bin", McpToolset.NormalizeHostPath("/tmp/x.bin", windowsHost: true));
 			Assert.Null(McpToolset.NormalizeHostPath(null, windowsHost: true));
+		}
+
+		[Fact]
+		public void Wsl_path_converts_windows_output_paths_to_mnt_form()
+		{
+			// EmuHawk wrote C:\Users\... on a Windows host — the WSL agent
+			// gets the /mnt/... form to read the file directly
+			Assert.Equal("/mnt/c/Users/stealthc/AppData/Local/Temp/bizhawk-mcp/fixture-1.csv", McpToolset.WslPath(@"C:\Users\stealthc\AppData\Local\Temp\bizhawk-mcp\fixture-1.csv"));
+			Assert.Equal("/mnt/f/temp/shot.png", McpToolset.WslPath(@"F:/temp/shot.png"));
+			// already an agent-form path (Linux host) — unchanged
+			Assert.Equal("/tmp/bizhawk-mcp/dump.bin", McpToolset.WslPath("/tmp/bizhawk-mcp/dump.bin"));
+			// UNC and relative paths untouched, null passes through
+			Assert.Equal(@"\\server\share\x.bin", McpToolset.WslPath(@"\\server\share\x.bin"));
+			Assert.Equal("roms/kid.md", McpToolset.WslPath("roms/kid.md"));
+			Assert.Null(McpToolset.WslPath(null));
 		}
 
 		[Fact]

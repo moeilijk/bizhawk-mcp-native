@@ -149,9 +149,38 @@ on explicit request — otherwise changes accumulate under `## [Unreleased]`.
 
 ## [Unreleased]
 
+### Added
+- **Every file the server writes is now reachable three ways** — tools that
+  produce host-side files (`screenshot`, `frame_hash`, `dump_memory`,
+  `genesis_read_plane`, `cdl_export`, `start_fixture`) return `path`
+  (host-native), `wsl_path` (the same file in WSL form, `/mnt/c/...`, so
+  agents read it directly without converting — present only when the host
+  is Windows) and `resource` (a `bizhawk://` URI, fetchable via
+  `resources/read` or raw `GET /mcp/artifacts/{id}`). `resources/list`
+  reports `wsl_path` per artifact too.
+- **`start_fixture` CSV is now an MCP artifact** (was host-file only): the
+  result gains `resource` + `wsl_path` + `size`, and the tool description
+  tells agents to read the CSV directly instead of re-capturing via Lua.
+- `get_info` adds `paths_wsl`: `paths` mirrored in WSL form
+  (`/mnt/c/...`) when the host is Windows.
+- **`run_to`**: debugger-style run-to-address for the 68K (Genesis gpgx
+  only) — advances frames until the instruction at a bus address executes
+  via a one-shot execute watchpoint (auto-removed). Accepts bus addresses
+  (24-bit masked, symbols translated by domain bus base); returns early
+  when PC already equals the target. Described as a coarse step (one frame
+  each), NOT a true instruction step — the callback fires mid-frame but
+  state is reported at the end of the frame.
+
 ### Fixed
 - CI: `upload-artifact`/`download-artifact` bumped to v6 (Node 24) —
   removes the Node 20 deprecation warnings on every build/release job.
+
+### Changed
+- `genesis_trace_z80` description now states explicitly that sampling is
+  tied to the M68K frame (one Z80 register snapshot after each frame), NOT
+  the Z80 clock — it is not a true step (gpgx has no Z80 stepping or Z80
+  memory callbacks; the Z80 executes thousands of instructions between
+  samples).
 
 ## [v0.2.0] - 2026-08-03
 

@@ -181,7 +181,7 @@ namespace BizHawkMcp
 		public IReadOnlyList<Dictionary<string, object?>> ToolSchemas { get; } =
 		[
 			Tool("ping", "Ping the tool. Returns \"pong\" if the plugin and server are alive.", []),
-			Tool("get_info", "ROM info, framecount, pause state, current endianness, active memory domain and host paths (JSON). \"paths\" reports where the emulator runs: install_dir (EmuHawk's folder), working_dir, temp_dir (the bizhawk-mcp dir where screenshot/dump_memory/start_fixture save by default) and the loaded ROM's rom_path/rom_dir — so relative paths can always be resolved against the right base.", []),
+			Tool("get_info", "ROM info, framecount, pause state, current endianness, active memory domain and host paths (JSON). \"paths\" reports where the emulator runs: install_dir (EmuHawk's folder), working_dir, temp_dir (the bizhawk-mcp dir where screenshot/dump_memory/start_fixture save by default) and the loaded ROM's rom_path/rom_dir — so relative paths can always be resolved against the right base. When the host is Windows, \"paths_wsl\" mirrors every path in WSL form (/mnt/c/...) so agents can read files directly without converting.", []),
 			Tool("get_board_info", "Board info: board name, display type (NTSC/PAL), and game options — helps identify the game revision.", []),
 			Tool("read_memory", "Read u8/u16/u32 from a memory domain. Optional \"endianness\": \"big\" | \"little\" | \"auto\" (default \"auto\" = the domain's native endianness, e.g. big on 68K RAM/M68K BUS but little on Z80 RAM on Genesis). Returns {\"value\": N, \"endianness\": \"big\"|\"little\"} so the interpretation is never ambiguous. On 68K-family bus domains only (GEN/SMD/32X/SAT) 32-bit disassembly addresses are masked by the 24-bit bus, e.g. 0xFFFFF832 == 0xFFF832; other cores/domains reject out-of-range addresses. Either \"address\" or a symbol \"name\" (from symbols_set) is required.", [
 				Param("address", "integer", "Offset in the domain, 0-based. For bus domains (e.g. M68K BUS) use the raw bus address (e.g. 0xFFFBCA); 32-bit forms (0xFFFFFBCA) are masked like the hardware."),
@@ -274,7 +274,7 @@ namespace BizHawkMcp
 			Tool("write_many", "Write several values in one call (up to 256; non-contiguous). Each item accepts \"address\" or symbol \"name\", width, value and optional \"endianness\" as read_memory (default \"auto\" = each item's domain), and optional \"freeze\": true to also register that address as a freeze. Bad items (unknown symbol, out-of-range address, value too wide) fail only themselves: returns {wrote, failed, failures: [{index, address, reason}]} and valid items still write.", [
 				Param("items", "array", "Array of {\"address\": int | \"name\": string, \"width\"?: 8|16|32, \"value\": int, \"domain\"?: string, \"endianness\"?: \"big\"|\"little\"|\"auto\", \"freeze\"?: bool}."),
 			]),
-			Tool("start_fixture", "Scripted fixture capture: advance N frames (optionally after a \"delay\" to skip title screens) with an input timeline, sampling a set of addresses/symbols each frame, and write the result as CSV to a host-side path (default: temp dir). Replaces the manual capture_fixture.lua flow. SAMPLING SEMANTICS: every row is the state AFTER the frame just ran — the pre-existing \"current frame\" at call time is never sampled (the fixture is NOT inclusive of it), so chaining calls with \"delay\": 0 resumes exactly at the next frame (no overlap, no gap); a positive \"delay\" advances unsampled frames, creating a gap. CSV rows restart at 0 per file — map to global frames as chunk * frames + row (+ delay of earlier chunks).", [
+			Tool("start_fixture", "Scripted fixture capture: advance N frames (optionally after a \"delay\" to skip title screens) with an input timeline, sampling a set of addresses/symbols each frame, and write the result as CSV to a host-side file (default: temp dir). Replaces the manual capture_fixture.lua flow — do NOT re-read the data via Lua: the CSV is returned three ways, use the easiest: \"path\" (host-native), \"wsl_path\" (same file in WSL /mnt/... form, present only when the host is Windows), or \"resource\" (bizhawk:// URI, fetch via resources/read or raw GET /mcp/artifacts/{id}). SAMPLING SEMANTICS: every row is the state AFTER the frame just ran — the pre-existing \"current frame\" at call time is never sampled (the fixture is NOT inclusive of it), so chaining calls with \"delay\": 0 resumes exactly at the next frame (no overlap, no gap); a positive \"delay\" advances unsampled frames, creating a gap. CSV rows restart at 0 per file — map to global frames as chunk * frames + row (+ delay of earlier chunks).", [
 				Param("frames", "integer", "Frames to run and sample, 1..600."),
 				Param("samples", "array", "Array of {\"address\": int | \"name\": string, \"width\"?: 8|16|32, \"domain\"?: string} to sample each frame."),
 				Param("inputs", "array", "Optional input timeline: [{\"frame\": int, \"buttons\": {button: bool}, \"controller\"?: int}]. Applied for the NEXT frame. An empty buttons object at a frame releases that controller's buttons (both modes)."),
@@ -288,7 +288,7 @@ namespace BizHawkMcp
 				Param("fields", "array", "Array of {\"name\": string, \"offset\": int, \"width\"?: 8|16|32, \"endianness\"?: \"big\"|\"little\"|\"auto\"}."),
 				Param("domain", "string", "Optional domain override (defaults to the base's domain or current)."),
 			]),
-			Tool("dump_memory", "Dump a memory domain (or a sub-range with \"range_start\"/\"range_length\") to a host-side file (also exposed as a bizhawk:// resource; resources/list reports the file's host path so shell-capable agents can read it directly, e.g. /mnt/c/... from WSL). Omit \"path\" to save into the host temp dir (bizhawk-mcp).", [
+			Tool("dump_memory", "Dump a memory domain (or a sub-range with \"range_start\"/\"range_length\") to a host-side file. Returns {\"path\" (host-native), \"wsl_path\" (same file in WSL /mnt/... form — shell-capable agents read it directly; only when the host is Windows), \"resource\" (bizhawk:// URI, fetch via resources/read)}; resources/list reports the same per artifact. Omit \"path\" to save into the host temp dir (bizhawk-mcp).", [
 				Param("domain", "string", "Domain name to dump (defaults to current)."),
 				Param("range_start", "integer", "First offset to dump (default 0).", 0),
 				Param("range_length", "integer", "Bytes to dump (default: the rest of the domain)."),
@@ -314,7 +314,7 @@ namespace BizHawkMcp
 				Param("count", "integer", "Number of colors to read, 1..256.", 64),
 				Param("domain", "string", "Optional palette domain (defaults to CRAM on GEN, CGRAM on SNES)."),
 			]),
-			Tool("genesis_read_plane", "Decode a Genesis background nametable (plane A/B) from VRAM into a PNG (also exposed as a bizhawk:// resource). Genesis gpgx core only; other cores error. Plane base auto-detected from the core's VDP view (Kid Chameleon uses plane A at 0x0000, not the typical 0xC000); override with \"base\". \"columns\"/\"rows\" select the region, \"offset_x\"/\"offset_y\" (tiles) crop to a camera window, \"scale\" zooms. Uses the CRAM palette.", [
+			Tool("genesis_read_plane", "Decode a Genesis background nametable (plane A/B) from VRAM into a PNG (returns {\"path\" (host-native), \"wsl_path\" (WSL /mnt/... form, only when the host is Windows), \"resource\" (bizhawk:// URI); also in resources/list)). Genesis gpgx core only; other cores error. Plane base auto-detected from the core's VDP view (Kid Chameleon uses plane A at 0x0000, not the typical 0xC000); override with \"base\". \"columns\"/\"rows\" select the region, \"offset_x\"/\"offset_y\" (tiles) crop to a camera window, \"scale\" zooms. Uses the CRAM palette.", [
 				Param("plane", "string", "\"A\" or \"B\".", "A"),
 				Param("base", "integer", "VRAM offset of the nametable (default: auto-detect from the core)."),
 				Param("columns", "integer", "Tile columns to render, 1..128.", 64),
@@ -330,7 +330,7 @@ namespace BizHawkMcp
 				Param("address", "integer", "Z80 bus address to start at (0x0000-0xFFFF)."),
 				Param("count", "integer", "Instructions to disassemble, 1..64.", 8),
 			]),
-			Tool("genesis_trace_z80", "Advance N frames sampling the Z80 sound CPU each step: PC, SP and the disassembled instruction at PC — shows the sound driver's main loop, busy-waits (e.g. polling the 68K handshake port) and where it spends each frame. \"stack_words\": N > 0 also dumps that many 16-bit words from the Z80 stack (SP lives in Z80 RAM at bus 0x0000-0x1FFF, little-endian). Z80 bus reads are synthesized from the Z80 RAM domain on GEN (0x0000-0x3FFF, aliased) or use the native Z80 BUS domain on SMS/GG. Genesis gpgx core only; other cores error.", [
+			Tool("genesis_trace_z80", "Advance N frames sampling the Z80 sound CPU each step: PC, SP and the disassembled instruction at PC — shows the sound driver's main loop, busy-waits (e.g. polling the 68K handshake port) and where it spends each frame. IMPORTANT: NOT a true step — sampling is tied to the M68K FRAME, not the Z80 clock: the core runs both CPUs interleaved per 68K frame, one sample is taken after each frame (every \"step\" frames), and the Z80 executes thousands of instructions between samples (gpgx has no Z80 stepping — CanStep=false — and no Z80 memory callbacks, so per-instruction Z80 tracing is impossible). \"stack_words\": N > 0 also dumps that many 16-bit words from the Z80 stack (SP lives in Z80 RAM at bus 0x0000-0x1FFF, little-endian). Z80 bus reads are synthesized from the Z80 RAM domain on GEN (0x0000-0x3FFF, aliased) or use the native Z80 BUS domain on SMS/GG. Genesis gpgx core only; other cores error.", [
 				Param("count", "integer", "Frames to trace, 1..600.", 60),
 				Param("step", "integer", "Sample every step frames.", 1),
 				Param("stack_words", "integer", "16-bit stack words to dump per sample (0..32; 0 = off).", 0),
@@ -379,11 +379,11 @@ namespace BizHawkMcp
 				Param("name", "string", "Optional disassembler name (defaults to the core's)."),
 			]),
 			Tool("lag_count", "Lag status: is the current frame lagging and the total lag count.", []),
-			Tool("screenshot", "Save a PNG of the current frame. Omit \"path\" to save into the host temp dir (bizhawk-mcp). Paths are host-side: when EmuHawk runs on Windows they must be Windows paths (e.g. F:/temp/shot.png). Set \"include_overlays\": true to also compose the overlay/OSD layer (overlay_text/rect/line, OSD messages) into the PNG. Returns the effective absolute path and an MCP resource URI to fetch the image bytes.", [
+			Tool("screenshot", "Save a PNG of the current frame. Omit \"path\" to save into the host temp dir (bizhawk-mcp). Paths are host-side: when EmuHawk runs on Windows they must be Windows paths (e.g. F:/temp/shot.png). Set \"include_overlays\": true to also compose the overlay/OSD layer (overlay_text/rect/line, OSD messages) into the PNG. Returns {\"path\" (host-native), \"wsl_path\" (same file in WSL /mnt/... form, only when the host is Windows), \"resource\" (bizhawk:// URI)} — fetch the bytes via resources/read or read wsl_path directly; resources/list also lists it.", [
 				Param("path", "string", "Optional absolute path writable by EmuHawk, e.g. C:/temp/snap.png. Defaults to a temp file."),
 				Param("include_overlays", "boolean", "Compose the overlay/OSD layer into the PNG (default false = bare core framebuffer).", false),
 			]),
-			Tool("frame_hash", "SHA1 hash of the current rendered frame (screenshot → hash of the PNG bytes). Identical rendered output produces the same hash (BizHawk's PNG save is deterministic), so this is a cheap screen-change detector: hash once, advance, hash again — equal hashes = same screen, no pixel transfer. Returns {sha1, frame, path, resource} (path/resource to fetch the hashed PNG). Same host-path and overlay semantics as screenshot.", [
+			Tool("frame_hash", "SHA1 hash of the current rendered frame (screenshot → hash of the PNG bytes). Identical rendered output produces the same hash (BizHawk's PNG save is deterministic), so this is a cheap screen-change detector: hash once, advance, hash again — equal hashes = same screen, no pixel transfer. Returns {sha1, frame, path, wsl_path, resource} (wsl_path only when the host is Windows — read the PNG directly, or fetch via resources/read). Same host-path and overlay semantics as screenshot.", [
 				Param("path", "string", "Optional absolute path writable by EmuHawk, e.g. C:/temp/hash.png. Defaults to a temp file."),
 				Param("include_overlays", "boolean", "Compose the overlay/OSD layer into the PNG before hashing (default false).", false),
 			]),
@@ -413,7 +413,7 @@ namespace BizHawkMcp
 				Param("max_ranges", "integer", "Cap on ranges reported per block (1..8192; beyond it only the count is returned).", 512),
 				Param("block", "string", "Optional: only this block/domain (e.g. \"68K RAM\")."),
 			]),
-			Tool("cdl_export", "Export the code/data log to a host-side file (also exposed as a bizhawk:// resource). Default format \"cdl\" writes the real BizHawk CDL binary (BIZHAWK-CDL-2 — loadable by EmuHawk's CDL tool and by Ghidra scripts that consume BizHawk CDL exports); \"text\" writes a human-readable executed-ranges listing. Stop the logger first for a stable snapshot. Omit \"path\" to save into the host temp dir.", [
+			Tool("cdl_export", "Export the code/data log to a host-side file (returns {\"path\" (host-native), \"wsl_path\" (WSL /mnt/... form, only when the host is Windows), \"resource\" (bizhawk:// URI); also in resources/list)). Default format \"cdl\" writes the real BizHawk CDL binary (BIZHAWK-CDL-2 — loadable by EmuHawk's CDL tool and by Ghidra scripts that consume BizHawk CDL exports); \"text\" writes a human-readable executed-ranges listing. Stop the logger first for a stable snapshot. Omit \"path\" to save into the host temp dir.", [
 				Param("path", "string", "Optional absolute path writable by EmuHawk, e.g. C:/temp/game.cdl."),
 				Param("format", "string", "\"cdl\" (binary, Ghidra/EmuHawk-importable) or \"text\" (ranges listing).", "cdl"),
 			]),
@@ -553,6 +553,11 @@ namespace BizHawkMcp
 			Tool("watchpoint_wait", "Advance frames until a registered watchpoint fires (or timeout). Pauses when done. On a hit with \"context_bytes\": N > 0, also returns full registers, the PC + disassembled instruction, and N raw bytes around the hit address (context.start/bytes/hit_offset). Returns the hit: watchpoint name, type, address and value.", [
 				Param("timeout_frames", "integer", "Max frames to advance, 1..600.", 600),
 				Param("context_bytes", "integer", "Bytes of RAM to include around the hit address (0..512; 0 = no context).", 0),
+			]),
+			Tool("run_to", "Advance frames until the 68K executes the instruction at a bus address (or symbol \"name\") — debugger-style run-to. NOT a true single-instruction step: the frame runs as one unit (gpgx CanStep=false), the execute callback fires MID-frame but the result is reported at the END of that frame, and the sampled \"pc\" may have advanced past the target unless the code loops there. Use it to find WHICH frame reaches a routine, or chain disassemble → run_to(PC+len) → disassemble as a coarse step that costs one frame each. \"address\" is a 24-bit bus address (0xFFFFFBCA is masked to 0xFFFBCA like read_memory); symbols registered on a RAM domain are translated by the domain's bus base (68K RAM offset 0xFBCA → 0xFFFBCA). If PC already equals the address, returns immediately (already at target). The watchpoint is one-shot: registered for the call and removed after. Genesis gpgx core only (execute watchpoints); other cores error.", [
+				Param("address", "integer", "Bus address of the instruction to run to (or use a symbol \"name\" instead)."),
+				Param("name", "string", "Symbol name registered via symbols_set (overrides address)."),
+				Param("timeout_frames", "integer", "Max frames to advance, 1..600.", 600),
 			]),
 			Tool("trace", "Advance N frames and sample the CPU each step: frame, PC, and disassembly at PC (JSON).", [
 				Param("count", "integer", "Frames to trace, 1..600.", 60),
@@ -695,6 +700,7 @@ namespace BizHawkMcp
 				"watchpoint_remove" => _ui.Invoke(() => WatchpointRemove(args)),
 				"watchpoint_list" => _ui.Invoke(WatchpointList),
 				"watchpoint_wait" => _ui.Invoke(() => WatchpointWait(args)),
+				"run_to" => _ui.Invoke(() => RunTo(args)),
 				"trace" => _ui.Invoke(() => Trace(args)),
 				_ => throw new JsonRpc.Error(JsonRpc.Error.METHOD_NOT_FOUND, $"unknown tool: {name}"),
 				};
@@ -727,11 +733,13 @@ namespace BizHawkMcp
 		// Where the emulator runs and where host-side files land by default,
 		// so agents can resolve relative paths against a known base. All
 		// paths are on the host that EmuHawk runs on (Windows when the agent
-		// sees C:\..., Linux/Mono otherwise).
+		// sees C:\..., Linux/Mono otherwise). When the host is Windows,
+		// "paths_wsl" mirrors the same keys in WSL form (/mnt/c/...) so
+		// agents can read files directly without converting.
 		private Dictionary<string, object?> GetPaths()
 		{
 			string? romPath = ResolveCurrentRomPath(_tool);
-			return new Dictionary<string, object?>
+			var paths = new Dictionary<string, object?>
 			{
 				["install_dir"] = AppDomain.CurrentDomain.BaseDirectory,
 				["working_dir"] = Environment.CurrentDirectory,
@@ -740,6 +748,19 @@ namespace BizHawkMcp
 				["rom_dir"] = string.IsNullOrEmpty(romPath) ? null : System.IO.Path.GetDirectoryName(romPath),
 				["host_is_windows"] = IsWindowsHost(),
 			};
+			if (IsWindowsHost())
+			{
+				var wsl = new Dictionary<string, object?>
+				{
+					["install_dir"] = WslPath((string?)paths["install_dir"]),
+					["working_dir"] = WslPath((string?)paths["working_dir"]),
+					["temp_dir"] = WslPath((string?)paths["temp_dir"]),
+					["rom_path"] = WslPath((string?)paths["rom_path"]),
+					["rom_dir"] = WslPath((string?)paths["rom_dir"]),
+				};
+				paths["paths_wsl"] = wsl;
+			}
+			return paths;
 		}
 
 		// MainForm.CurrentlyOpenRom (the loaded ROM's path), via the same
@@ -918,14 +939,16 @@ namespace BizHawkMcp
 			}
 
 			string uri = RegisterArtifact(path!, "application/octet-stream", $"memory dump {domain ?? _tool.Memory!.GetCurrentMemoryDomain()} ({len} bytes)");
-			return JsonRpc.Pretty(new Dictionary<string, object?>
+			var result = new Dictionary<string, object?>
 			{
 				["path"] = path,
 				["size"] = len,
 				["domain"] = domain ?? _tool.Memory!.GetCurrentMemoryDomain(),
 				["range_start"] = rangeLen == null ? null : rangeStart,
 				["resource"] = uri,
-			});
+			};
+			AddWslPath(result, path);
+			return JsonRpc.Pretty(result);
 		}
 
 		// ── RAM snapshots / diffs ─────────────────────────────────────────────
@@ -1777,13 +1800,18 @@ namespace BizHawkMcp
 				}
 
 				System.IO.File.WriteAllText(path, lines.ToString());
-				return JsonRpc.Pretty(new Dictionary<string, object?>
+				string uri = RegisterArtifact(path, "text/csv", $"fixture {System.IO.Path.GetFileName(path)} ({frames} frames, {resolved.Count} samples)");
+				var result = new Dictionary<string, object?>
 				{
 					["path"] = path,
+					["resource"] = uri,
 					["frames"] = frames,
 					["samples"] = resolved.Count,
 					["row_count"] = frames,
-				});
+					["size"] = new System.IO.FileInfo(path).Length,
+				};
+				AddWslPath(result, path);
+				return JsonRpc.Pretty(result);
 			}
 			finally
 			{
@@ -2246,7 +2274,7 @@ namespace BizHawkMcp
 				WritePng(path, px, py, img);
 			}
 			string uri = RegisterArtifact(path!, "image/png", $"plane {plane} ({cols}x{rows} tiles @0x{baseAddr:X})");
-			return JsonRpc.Pretty(new Dictionary<string, object?>
+			var result = new Dictionary<string, object?>
 			{
 				["plane"] = plane,
 				["base"] = baseAddr,
@@ -2256,7 +2284,9 @@ namespace BizHawkMcp
 				["height"] = py,
 				["path"] = path,
 				["resource"] = uri,
-			});
+			};
+			AddWslPath(result, path);
+			return JsonRpc.Pretty(result);
 		}
 
 		// Minimal PNG encoder (24-bit RGB, zlib via DeflateStream) so the tool
@@ -2532,12 +2562,14 @@ namespace BizHawkMcp
 		{
 			string path = CapturePng(args, "shot", out bool includeOverlays);
 			string uri = RegisterArtifact(path, "image/png", $"screenshot {System.IO.Path.GetFileName(path)}");
-			return JsonRpc.Pretty(new Dictionary<string, object?>
+			var result = new Dictionary<string, object?>
 			{
 				["path"] = path,
 				["include_overlays"] = includeOverlays,
 				["resource"] = uri,
-			});
+			};
+			AddWslPath(result, path);
+			return JsonRpc.Pretty(result);
 		}
 
 		// Screenshot to a PNG file — explicit path or the temp dir default —
@@ -2597,14 +2629,16 @@ namespace BizHawkMcp
 			using (var sha = System.Security.Cryptography.SHA1.Create())
 				sha1 = BitConverter.ToString(sha.ComputeHash(fs)).Replace("-", "").ToLowerInvariant();
 			string uri = RegisterArtifact(path, "image/png", $"frame hash {System.IO.Path.GetFileName(path)}");
-			return JsonRpc.Pretty(new Dictionary<string, object?>
+			var result = new Dictionary<string, object?>
 			{
 				["sha1"] = sha1,
 				["frame"] = _tool.Emulation!.FrameCount(),
 				["path"] = path,
 				["include_overlays"] = includeOverlays,
 				["resource"] = uri,
-			});
+			};
+			AddWslPath(result, path);
+			return JsonRpc.Pretty(result);
 		}
 
 		private string SaveState(JsonElement? args)
@@ -2956,14 +2990,16 @@ namespace BizHawkMcp
 
 			long size = new System.IO.FileInfo(path).Length;
 			string uri = RegisterArtifact(path!, format == "text" ? "text/plain" : "application/octet-stream", $"code/data log ({format})");
-			return JsonRpc.Pretty(new Dictionary<string, object?>
+			var result = new Dictionary<string, object?>
 			{
 				["path"] = path,
 				["size"] = size,
 				["format"] = format,
 				["resource"] = uri,
 				["blocks"] = CdlBlocksSummary(log),
-			});
+			};
+			AddWslPath(result, path);
+			return JsonRpc.Pretty(result);
 		}
 
 		// ── freeze (emulator cheat engine) ────────────────────────────────────
@@ -3250,6 +3286,25 @@ namespace BizHawkMcp
 		}
 
 		private static bool IsWindowsHost() => Environment.OSVersion.Platform == PlatformID.Win32NT;
+
+		// Reverse view of NormalizeHostPath for OUTPUT paths: EmuHawk writes
+		// files with host-native paths (C:\... on Windows). Convert to the
+		// form an agent can read directly from WSL (/mnt/c/...), leaving
+		// Linux-host paths untouched. Only meaningful on Windows hosts — a
+		// Linux host's paths are already agent-readable.
+		public static string? WslPath(string? path)
+		{
+			if (string.IsNullOrEmpty(path)) return path;
+			return NormalizeHostPath(path, false);
+		}
+
+		// Adds "wsl_path" to a result dict when the host is Windows; the key
+		// is omitted entirely on Linux hosts (where "path" is already
+		// agent-readable) so results never carry a useless /mnt/... mirror.
+		public static void AddWslPath(Dictionary<string, object?> result, string? path)
+		{
+			if (IsWindowsHost()) result["wsl_path"] = WslPath(path);
+		}
 
 		private string LuaExec(JsonElement? args)
 		{
@@ -4043,6 +4098,152 @@ namespace BizHawkMcp
 			return JsonRpc.Pretty(result);
 		}
 
+		// Resolve a run_to target to a raw 68K bus address — the address
+		// space the execute callbacks report. Raw addresses are masked to
+		// the 24-bit bus like read_memory on M68K BUS (0xFFFFFBCA ==
+		// 0xFFFBCA); symbols registered against a RAM domain are translated
+		// by that domain's known bus base (68K RAM offset 0xFBCA → bus
+		// 0xFFFBCA), so symbols work regardless of which domain they were
+		// defined on.
+		private long ResolveBusAddress(JsonElement a, out long requested)
+		{
+			long address;
+			string? domain;
+			string? name = OptionalString(a, "name");
+			if (name != null)
+			{
+				if (!_symbols.TryGetValue(name, out var s))
+					throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"unknown symbol: {name}");
+				address = s.Address;
+				domain = s.Domain;
+			}
+			else
+			{
+				address = RequireLong(a, "address");
+				domain = OptionalString(a, "domain");
+			}
+			requested = address;
+			if (domain != null && KnownBusBases.TryGetValue(_tool.Emulation!.GetSystemId(), out var bases) && bases.TryGetValue(domain, out var busBase))
+				address += busBase;
+			return address & 0xFFFFFF;
+		}
+
+		// Run-to-address for the main CPU, debugger-style, via a one-shot
+		// execute watchpoint. NOT a true single-instruction step: the whole
+		// frame runs as one unit (gpgx CanStep=false), the callback fires
+		// mid-frame and the result is reported at the end of that frame, so
+		// the sampled PC may have moved past the target.
+		private string RunTo(JsonElement? args)
+		{
+			var a = Required(args);
+			int timeout = RequireInt(a, "timeout_frames", 600);
+			if (timeout is < 1 or > 600) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "timeout_frames must be 1..600");
+
+			var mcs = TryGetMemoryCallbacks();
+			if (mcs == null)
+				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "run_to unsupported: this core does not expose memory callbacks (only the Genesis gpgx core does)");
+			if (!mcs.ExecuteCallbacksAvailable)
+				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "execute callbacks not available on this core");
+			string? scope = mcs.AvailableScopes.Length > 0 ? mcs.AvailableScopes[0] : null;
+			if (scope == null) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "core exposes no callback scopes");
+
+			long address = ResolveBusAddress(a, out long requested);
+
+			string? targetDisasm = null;
+			try { (targetDisasm, _) = _tool.Emulation!.Disassemble((uint)address); }
+			catch { /* odd address — keep null */ }
+
+			// already there: the instruction at PC is the target — report
+			// immediately instead of burning a frame
+			var regs = _tool.Emulation!.GetRegisters();
+			uint pc = (uint)FindRegister(regs, "PC");
+			if (pc == address)
+			{
+				return JsonRpc.Pretty(new Dictionary<string, object?>
+				{
+					["matched"] = true,
+					["already_at_target"] = true,
+					["frames"] = 0,
+					["address"] = address,
+					["requested"] = requested,
+					["pc"] = pc,
+					["instruction"] = targetDisasm,
+					["framecount"] = _tool.Emulation!.FrameCount(),
+				});
+			}
+
+			// one-shot execute watchpoint: registered here, removed in the
+			// finally so run_to never leaves state behind (watchpoint_list
+			// stays clean)
+			string name = $"run_to_{Guid.NewGuid():N}";
+			var cb = new MemoryCallbackImpl
+			{
+				Name = name,
+				Type = MemoryCallbackType.Execute,
+				Address = (uint)address,
+				Scope = scope,
+				Callback = (addr, value, flags) =>
+				{
+					_wpFired = true;
+					_wpAddr = addr;
+					_wpValue = value;
+					_wpName = name;
+					return null; // don't override the access
+				},
+			};
+			mcs.Add(cb);
+			try
+			{
+				_wpFired = false;
+				bool wasPaused = _tool.EmuClient!.IsPaused();
+				if (wasPaused) _tool.EmuClient!.Unpause();
+
+				int frames = 0;
+				try
+				{
+					for (; frames < timeout; frames++)
+					{
+						AdvanceFrame();
+						if (_wpFired) break;
+					}
+				}
+				finally
+				{
+					if (wasPaused) _tool.EmuClient!.Pause();
+				}
+
+				bool matched = _wpFired;
+				var result = new Dictionary<string, object?>
+				{
+					["matched"] = matched,
+					["timed_out"] = !matched,
+					["frames"] = matched ? frames + 1 : frames,
+					["address"] = address,
+					["requested"] = requested,
+					["instruction"] = targetDisasm,
+					["framecount"] = _tool.Emulation!.FrameCount(),
+				};
+				if (matched)
+				{
+					// state at the END of the frame that executed the target —
+					// NOT at the target instruction (frame runs as one unit)
+					var regsAfter = _tool.Emulation!.GetRegisters();
+					uint pcAfter = (uint)FindRegister(regsAfter, "PC");
+					string? cur = null;
+					try { (cur, _) = _tool.Emulation!.Disassemble(pcAfter); }
+					catch { /* odd address — keep null */ }
+					result["value"] = _wpValue;
+					result["pc"] = pcAfter;
+					result["pc_instruction"] = cur;
+				}
+				return JsonRpc.Pretty(result);
+			}
+			finally
+			{
+				mcs.Remove(cb.Callback);
+			}
+		}
+
 		private sealed class MemoryCallbackImpl : IMemoryCallback
 		{
 			public MemoryCallbackType Type { get; init; }
@@ -4440,14 +4641,16 @@ namespace BizHawkMcp
 				long size = 0;
 				try { size = new System.IO.FileInfo(a.Path).Length; }
 				catch { /* file gone — still list the URI */ }
-				resources.Add(new Dictionary<string, object?>
+				var entry = new Dictionary<string, object?>
 				{
-				["uri"] = a.Uri,
-				["name"] = a.Name,
-				["mimeType"] = a.Mime,
-				["size"] = size,
-				["path"] = a.Path,
-			});
+					["uri"] = a.Uri,
+					["name"] = a.Name,
+					["mimeType"] = a.Mime,
+					["size"] = size,
+					["path"] = a.Path,
+				};
+				AddWslPath(entry, a.Path);
+				resources.Add(entry);
 			}
 			resources.Add(new Dictionary<string, object?>
 			{

@@ -82,7 +82,7 @@ Every tool returns a **single text blob** as `content[0].text`. Structured data 
 
 ## Resources
 
-The server advertises the `resources` capability. Tools can register artifacts (files the server wrote on the host) — e.g. `screenshot`, `frame_hash`, `dump_memory`, `genesis_read_plane` — saving into `<temp>/bizhawk-mcp/` (or the caller-provided path) and returning `{ path, resource }`. Fetch the bytes with:
+The server advertises the `resources` capability. Tools can register artifacts (files the server wrote on the host) — `screenshot`, `frame_hash`, `dump_memory`, `genesis_read_plane`, `cdl_export`, `start_fixture` (CSV) — saving into `<temp>/bizhawk-mcp/` (or the caller-provided path) and returning **three ways to get the same file**: `path` (host-native), `wsl_path` (the same file in WSL form, `/mnt/c/...`, so shell-capable agents read it directly without converting — **present only when the host is Windows**; on Linux hosts `path` is already agent-readable) and `resource` (the `bizhawk://` URI below). Fetch the bytes with:
 
 ```bash
 curl -s -X POST http://127.0.0.1:8767/mcp/ -H 'Content-Type: application/json' \
@@ -90,9 +90,10 @@ curl -s -X POST http://127.0.0.1:8767/mcp/ -H 'Content-Type: application/json' \
 # → { contents: [ { uri, mimeType: "image/png", blob: "<base64>" } ] }
 ```
 
-`resources/list` also reports each artifact's host `path`, so shell-capable
-agents (WSL: `/mnt/c/...`) can read the file directly instead of pulling
-base64 into context.
+`resources/list` reports each artifact's host `path` **and** `wsl_path`
+(Windows hosts only), so shell-capable agents can read the file directly
+instead of pulling base64 into context; `get_info`'s `paths_wsl` mirrors
+`paths` in WSL form when the host is Windows.
 
 ## Script endpoints (no MCP client, no JSON)
 
