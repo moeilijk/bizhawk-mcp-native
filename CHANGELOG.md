@@ -80,6 +80,12 @@ on explicit request — otherwise changes accumulate under `## [Unreleased]`.
   the current domain when a requested name doesn't exist (reads mislabeled
   data with the wrong endianness) — the toolset now rejects unknown domain
   names up front (INVALID_PARAMS) across all memory tools.
+- `bizhawk_start_fixture` description now documents the sampling semantics:
+  rows are the post-frame state (the pre-existing current frame is never
+  sampled), chaining calls with `"delay": 0` resumes seamlessly at the next
+  frame (no overlap/gap) while a positive delay creates an unsampled gap, and
+  CSV rows restart at 0 per file (global frame = chunk * frames + row + delay
+  of earlier chunks).
 
 ### Fixed
 - Zero compiler warnings: nullable-annotated the ApiHawk stubs/fakes
@@ -89,6 +95,36 @@ on explicit request — otherwise changes accumulate under `## [Unreleased]`.
   facade unification (MSB3277), and null-hardened the path/JSON call sites.
 - CI: actions bumped to v5 (Node 24 — removes the Node 20 deprecation
   warning).
+
+### Added
+- **Dual-era MCP protocol** (`2025-11-25` legacy + `2026-07-28` modern):
+  - `server/discover` RPC advertising `supportedVersions`, capabilities,
+    server identity and instructions (required by the 2026-07-28 spec;
+    served in both eras).
+  - Modern (stateless) mode: a request that declares its protocol version in
+    `params._meta["io.modelcontextprotocol/protocolVersion"]` (or the
+    `MCP-Protocol-Version` header) is served without the `initialize`
+    handshake; results carry `resultType: "complete"` and
+    `_meta["io.modelcontextprotocol/serverInfo"]`.
+  - Version negotiation: unsupported declared versions → `-32022`
+    `UnsupportedProtocolVersionError` with `data: { supported, requested }`
+    (HTTP `400`); header/body conflicts (`MCP-Protocol-Version`,
+    `Mcp-Method`, `Mcp-Name`, with `=?base64?...?=` decoding) → `-32020`
+    `HeaderMismatch` (HTTP `400`); unknown modern methods → HTTP `404`.
+    Legacy requests keep `200` + JSON-RPC error, and `initialize` still
+    answers the latest legacy revision.
+- **Cacheable list results** (SEP-2549): `ttlMs` + `cacheScope` on
+  `tools/list`, `prompts/list`, `resources/templates/list` and
+  `server/discover` (1 h, `"public"` — the tool list is static per process,
+  so clients can cache it instead of polling ~17ms + 94 schemas per refresh),
+  `resources/list` (30 s) and `resources/read` (10 s) as `"private"`.
+
+### Changed
+- Legacy protocol version bumped `2025-06-18` → `2025-11-25` (last legacy
+  revision).
+- `serverInfo.version` now comes from the assembly's `<Version>` (csproj,
+  single source of truth) instead of a hardcoded string, so it can never
+  drift from the packaged release.
 
 ## [v0.2.0] - 2026-08-03
 

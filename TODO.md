@@ -17,6 +17,39 @@ Legend: `[~]` partially done / covered by another tool · `[ ]` open · `[x]` do
 - [ ] **Server-initiated SSE messages**: push framecount/state changes to a
   subscribed client (needs sessions + a client that keeps GET SSE open).
 - [ ] **HTTP `PUT`/`DELETE` session endpoints** for full Streamable HTTP parity.
+- [x] **Dual-era protocol (2026-07-28 + legacy)**: spec (2026-07-28) made MCP
+  stateless — no `initialize`, per-request `_meta` (`io.modelcontextprotocol/
+  protocolVersion`/`clientCapabilities`/`clientInfo`). Our server is already
+  stateless, so: implement modern mode (per-request version check +
+  `UnsupportedProtocolVersionError` `-32022` with `supported` list) + required
+  `server/discover` RPC; keep `initialize` for legacy clients; accept
+  `MCP-Protocol-Version`/`Mcp-Method`/`Mcp-Name` POST headers (don't require —
+  dual-era). Add `resultType: "complete"` to results in modern mode only.
+  Bump the legacy-announced version 2025-06-18 → 2025-11-25 (last legacy
+  revision). 2026-07-28 also removed `ping` (keep for legacy), replaced
+  `resources/subscribe` with `subscriptions/listen` POST stream (we don't
+  implement either), and deprecated Roots/Sampling/Logging (we implement none —
+  fine). Done: modern + legacy served per request; header validation with
+  `-32020` + HTTP 400/404 mapping; `initialize` answers 2025-11-25 in both eras.
+- [x] **CacheableResult (`ttlMs` + `cacheScope`)**: required by 2026-07-28 on
+  `tools/list`, `prompts/list`, `resources/list`, `resources/templates/list`
+  and `resources/read` (SEP-2549). `tools/list` is static per process → long
+  TTL; each client poll costs ~17ms + context tokens (94 schemas), so caching
+  directly attacks the fixed per-call latency. `resources/list` changes as
+  artifacts appear → short TTL / `"private"` scope. `tools/list` order is
+  already deterministic (static list) — spec SHOULD for cache hit rates.
+  Done: 1 h `"public"` for the static lists (incl. `server/discover`), 30 s /
+  10 s `"private"` for resources list/read.
+- [x] **`serverInfo.version` hardcoded `"0.2.0"`** (`McpHttpServer.cs`
+  initialize response) — read from the assembly version / single source so it
+  never drifts from the packaged release. Done: `<Version>0.2.0</Version>` in
+  the csproj; `JsonRpc.ServerVersion` reads the informational version (strips
+  SourceLink metadata).
+- [ ] **Tasks extension (`io.modelcontextprotocol/tasks`, official)**: long
+  calls (`wait_until`, `start_fixture` up to 600 frames, watchpoint_wait)
+  block the POST response for seconds. Tasks returns a handle immediately +
+  `tasks/get` polling; also gives unsolicited task handles. Bigger effort —
+  good next iteration once dual-era lands.
 
 ## Tools / API surface
 

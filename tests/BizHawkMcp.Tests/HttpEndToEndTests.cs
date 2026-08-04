@@ -32,6 +32,20 @@ namespace BizHawkMcp.Tests
 			return (resp.StatusCode, await resp.Content.ReadAsStringAsync());
 		}
 
+		private static async Task<(HttpStatusCode status, string body)> PostModern(string url, string json, string? version = null, string? method = null, string? name = null)
+		{
+			using var client = new HttpClient();
+			using var req = new HttpRequestMessage(HttpMethod.Post, url)
+			{
+				Content = new StringContent(json, Encoding.UTF8, "application/json"),
+			};
+			req.Headers.Add("MCP-Protocol-Version", version ?? "2026-07-28");
+			if (method != null) req.Headers.Add("Mcp-Method", method);
+			if (name != null) req.Headers.Add("Mcp-Name", name);
+			var resp = await client.SendAsync(req);
+			return (resp.StatusCode, await resp.Content.ReadAsStringAsync());
+		}
+
 		[Fact]
 		public async Task Initialize_tools_list_and_ping_over_real_http()
 		{
@@ -236,6 +250,77 @@ namespace BizHawkMcp.Tests
 				Assert.Equal((ulong)165, value.RootElement.GetProperty("value").GetUInt64());
 				// unknown method → per-element error, batch survives
 				Assert.Equal(-32601, doc.RootElement[2].GetProperty("error").GetProperty("code").GetInt32());
+			}
+			finally
+			{
+				server.Stop();
+				Environment.SetEnvironmentVariable("BIZHAWK_MCP_PORT", null);
+			}
+		}
+
+		[Fact]
+		public async Task Modern_discover_and_requests_over_real_http()
+		{
+			int port = FindFreePort();
+			Environment.SetEnvironmentVariable("BIZHAWK_MCP_PORT", port.ToString());
+			var server = new McpHttpServer(new FakeApis(), new InlineDispatcher(), _ => { });
+			server.Start();
+			try
+			{
+				var url = server.BaseUrl;
+
+				// server/discover (modern headers) — 200 + full result
+				var (status, body) = await PostModern(url,
+					"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"server/discover\",\"params\":{\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\",\"clientInfo\":{\"name\":\"test\",\"version\":\"0\"}}}}");
+				Assert.Equal(HttpStatusCode.OK, status);
+				using var discover = JsonDocument.Parse(body);
+				var dResult = discover.RootElement.GetProperty("result");
+				Assert.Equal("complete", dResult.GetProperty("resultType").GetString());
+				Assert.Equal("2026-07-28", dResult.GetProperty("supportedVersions")[0].GetString());
+				Assert.Equal("bizhawk-mcp-native", dResult.GetProperty("_meta").GetProperty("io.modelcontextprotocol/serverInfo").GetProperty("name").GetString());
+
+				// modern tools/list via headers only (no _meta in body)
+				(status, body) = await PostModern(url, "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}");
+				Assert.Equal(HttpStatusCode.OK, status);
+				using var tools = JsonDocument.Parse(body);
+				Assert.Equal("complete", tools.RootElement.GetProperty("result").GetProperty("resultType").GetString());
+				Assert.True(tools.RootElement.GetProperty("result").GetProperty("tools").GetArrayLength() > 50);
+
+				// modern tools/call with full headers, matching name
+				(status, body) = await PostModern(url,
+					"{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":\"bizhawk_ping\",\"arguments\":{},\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\"}}}",
+					method: "tools/call", name: "bizhawk_ping");
+				Assert.Equal(HttpStatusCode.OK, status);
+				using var pong = JsonDocument.Parse(body);
+				Assert.Equal("pong", pong.RootElement.GetProperty("result").GetProperty("content")[0].GetProperty("text").GetString());
+
+				// unsupported version → 400 + -32022 with supported list
+				(status, body) = await PostModern(url,
+					"{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/list\",\"params\":{\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"1900-01-01\"}}}",
+					version: "1900-01-01");
+				Assert.Equal(HttpStatusCode.BadRequest, status);
+				using var badVersion = JsonDocument.Parse(body);
+				Assert.Equal(-32022, badVersion.RootElement.GetProperty("error").GetProperty("code").GetInt32());
+
+				// header/body version conflict → 400 + -32020
+				(status, body) = await PostModern(url,
+					"{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"tools/list\",\"params\":{\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\"}}}",
+					version: "2025-11-25");
+				Assert.Equal(HttpStatusCode.BadRequest, status);
+				using var conflict = JsonDocument.Parse(body);
+				Assert.Equal(-32020, conflict.RootElement.GetProperty("error").GetProperty("code").GetInt32());
+
+				// unknown modern method → 404 + -32601
+				(status, body) = await PostModern(url, "{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"nope\",\"params\":{\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\"}}}");
+				Assert.Equal(HttpStatusCode.NotFound, status);
+				using var notFound = JsonDocument.Parse(body);
+				Assert.Equal(-32601, notFound.RootElement.GetProperty("error").GetProperty("code").GetInt32());
+
+				// legacy initialize still answers over the same endpoint
+				(status, body) = await Post(url, "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{},\"clientInfo\":{\"name\":\"t\",\"version\":\"0\"}}}");
+				Assert.Equal(HttpStatusCode.OK, status);
+				using var init = JsonDocument.Parse(body);
+				Assert.Equal("2025-11-25", init.RootElement.GetProperty("result").GetProperty("protocolVersion").GetString());
 			}
 			finally
 			{

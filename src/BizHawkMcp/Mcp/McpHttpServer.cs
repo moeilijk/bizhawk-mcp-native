@@ -13,15 +13,22 @@ namespace BizHawkMcp.Mcp
 	/// Minimal MCP "Streamable HTTP" server hosted in-process via HttpListener
 	/// (no ASP.NET Core dependency — net48 + Mono friendly).
 	///
-	/// Implemented subset of the 2025-06-18 spec:
-	///   POST /mcp  → JSON-RPC request/response (stateless, no sessions)
-	///   GET  /mcp  → SSE stream (endpoint event + keepalive) when the client
-	///                asks for text/event-stream; the first stream of each
-	///                server lifetime carries a tools/list_changed notification
+	/// Dual-era subset:
+	///   POST /mcp  → JSON-RPC request/response (stateless, no sessions).
+	///                Legacy (2025-11-25): initialize handshake, as before.
+	///                Modern (2026-07-28): per-request version in
+	///                params._meta + MCP-Protocol-Version header; results get
+	///                resultType/_meta.serverInfo; cacheable results get
+	///                ttlMs/cacheScope; version/header mismatches → -32022/-32020
+	///                with 400; unknown modern methods → 404.
+	///   GET  /mcp  → SSE stream (endpoint event + keepalive) for LEGACY clients
+	///                only (2026-07-28 removed the GET stream; we keep it for
+	///                dual-era compatibility); the first stream of each server
+	///                lifetime carries a tools/list_changed notification
 	///                (the tool list is fixed per process, so a fresh connection
 	///                after a restart may serve a different list)
 	/// Not implemented: sessions, server-initiated messages beyond the above,
-	/// resources subscribe.
+	/// resources subscribe, subscriptions/listen.
 	/// </summary>
 	public sealed class McpHttpServer
 	{		private readonly IHostApis _tool;
@@ -184,7 +191,13 @@ namespace BizHawkMcp.Mcp
 		private async Task HandlePost(HttpListenerContext ctx)
 		{
 			var body = await ReadBodyAsync(ctx.Request);
-			var (id, responseBytes, isNotification) = Dispatch(body);
+			// Modern (2026-07-28) clients mirror the protocol version + method +
+			// name into headers; legacy clients don't send them. We never
+			// require them (dual-era), but validate them when present.
+			string? hdrVersion = TrimOrNull(ctx.Request.Headers["MCP-Protocol-Version"]);
+			string? hdrMethod = TrimOrNull(ctx.Request.Headers["Mcp-Method"]);
+			string? hdrName = TrimOrNull(ctx.Request.Headers["Mcp-Name"]);
+			var (id, responseBytes, isNotification, httpStatus) = Dispatch(body, hdrVersion, hdrMethod, hdrName);
 			if (isNotification)
 			{
 				ctx.Response.StatusCode = 202;
@@ -192,14 +205,17 @@ namespace BizHawkMcp.Mcp
 				return;
 			}
 
-			ctx.Response.StatusCode = 200;
+			ctx.Response.StatusCode = httpStatus == 0 ? 200 : httpStatus;
 			ctx.Response.ContentType = "application/json";
 			ctx.Response.ContentEncoding = Encoding.UTF8;
 			await ctx.Response.OutputStream.WriteAsync(responseBytes, 0, responseBytes.Length, _cts.Token);
 			ctx.Response.Close();
 		}
 
-		internal (object? id, byte[] bytes, bool isNotification) Dispatch(string body)
+		private static string? TrimOrNull(string? v) =>
+			string.IsNullOrWhiteSpace(v) ? null : v.Trim();
+
+		internal (object? id, byte[] bytes, bool isNotification, int httpStatus) Dispatch(string body, string? hdrVersion = null, string? hdrMethod = null, string? hdrName = null)
 		{
 			JsonElement root;
 			try
@@ -208,7 +224,7 @@ namespace BizHawkMcp.Mcp
 			}
 			catch (JsonException e)
 			{
-				return (null, JsonRpc.ParseError(null, $"parse error: {e.Message}"), false);
+				return (null, JsonRpc.ParseError(null, $"parse error: {e.Message}"), false, 0);
 			}
 
 			// JSON-RPC batch: an array of requests → an array of responses
@@ -220,11 +236,11 @@ namespace BizHawkMcp.Mcp
 				var results = new List<byte[]>();
 				foreach (var el in root.EnumerateArray())
 				{
-					var (_, bytes, isNotification) = DispatchOne(el);
+					var (_, bytes, isNotification, _) = DispatchOne(el, hdrVersion, hdrMethod, hdrName);
 					if (!isNotification) results.Add(bytes);
 				}
 				if (results.Count == 0)
-					return (null, JsonRpc.ParseError(null, "batch contained no requests"), false);
+					return (null, JsonRpc.ParseError(null, "batch contained no requests"), false, 0);
 				var sb = new StringBuilder();
 				sb.Append('[');
 				for (var i = 0; i < results.Count; i++)
@@ -233,17 +249,17 @@ namespace BizHawkMcp.Mcp
 					sb.Append(Encoding.UTF8.GetString(results[i]));
 				}
 				sb.Append(']');
-				return (null, Encoding.UTF8.GetBytes(sb.ToString()), false);
+				return (null, Encoding.UTF8.GetBytes(sb.ToString()), false, 0);
 			}
 
-			return DispatchOne(root);
+			return DispatchOne(root, hdrVersion, hdrMethod, hdrName);
 		}
 
-		private (object? id, byte[] bytes, bool isNotification) DispatchOne(JsonElement root)
+		private (object? id, byte[] bytes, bool isNotification, int httpStatus) DispatchOne(JsonElement root, string? hdrVersion = null, string? hdrMethod = null, string? hdrName = null)
 		{
 			object? id = null;
 			if (root.ValueKind != JsonValueKind.Object)
-				return (null, JsonRpc.ParseError(null, "expected a JSON object"), false);
+				return (null, JsonRpc.ParseError(null, "expected a JSON object"), false, 0);
 
 			if (root.TryGetProperty("id", out var idEl)) id = idEl.ValueKind == JsonValueKind.Null ? null : (object?)idEl.GetRawText();
 
@@ -253,27 +269,59 @@ namespace BizHawkMcp.Mcp
 			if (id == null)
 			{
 				// notification — fire and forget
-				return (null, Array.Empty<byte>(), true);
+				return (null, Array.Empty<byte>(), true, 0);
 			}
 
 			if (string.IsNullOrEmpty(method))
-				return (id, JsonRpc.ParseError(id, "missing method"), false);
+				return (id, JsonRpc.ParseError(id, "missing method"), false, 0);
+
+			// ── era detection (2026-07-28) ──────────────────────────────────
+			// Modern requests declare their protocol version in
+			// params._meta["io.modelcontextprotocol/protocolVersion"] and, on
+			// HTTP, in the MCP-Protocol-Version header. No declaration → legacy
+			// (initialize handshake era). A declared version outside the
+			// supported set → UnsupportedProtocolVersionError (-32022, 400);
+			// conflicting header/body declarations → HeaderMismatch (-32020, 400).
+			string? metaVersion = null;
+			if (args is { } metaArgs && metaArgs.TryGetProperty("_meta", out var meta) && meta.ValueKind == JsonValueKind.Object
+				&& meta.TryGetProperty("io.modelcontextprotocol/protocolVersion", out var pv) && pv.ValueKind == JsonValueKind.String)
+			{
+				metaVersion = pv.GetString();
+			}
+
+			if (metaVersion != null && hdrVersion != null && !string.Equals(metaVersion, hdrVersion, StringComparison.Ordinal))
+				return (id, JsonRpc.Failure(id, JsonRpc.Error.HeaderMismatch($"MCP-Protocol-Version header '{hdrVersion}' does not match _meta protocolVersion '{metaVersion}'")), false, 400);
+
+			string? declared = metaVersion ?? hdrVersion;
+			if (declared != null && !JsonRpc.SupportsVersion(declared))
+				return (id, JsonRpc.Failure(id, JsonRpc.Error.UnsupportedProtocolVersion(declared)), false, 400);
+
+			bool modern = declared != null && JsonRpc.IsModern(declared);
+
+			// Modern clients mirror method/name into headers; validate they
+			// match the body so an intermediary can't be routed on one source
+			// of truth while the server executes on another.
+			if (modern && !string.IsNullOrEmpty(hdrMethod) && !string.Equals(hdrMethod, method, StringComparison.Ordinal))
+				return (id, JsonRpc.Failure(id, JsonRpc.Error.HeaderMismatch($"Mcp-Method header '{hdrMethod}' does not match body method '{method}'")), false, 400);
+			if (modern && !string.IsNullOrEmpty(hdrName))
+			{
+				string? bodyName = null;
+				if (args is { } nameArgs)
+				{
+					if (nameArgs.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String) bodyName = n.GetString();
+					else if (nameArgs.TryGetProperty("uri", out var u) && u.ValueKind == JsonValueKind.String) bodyName = u.GetString();
+				}
+
+				if (bodyName == null || JsonRpc.DecodeHeaderValue(hdrName) != bodyName)
+					return (id, JsonRpc.Failure(id, JsonRpc.Error.HeaderMismatch($"Mcp-Name header '{hdrName}' does not match body name '{(bodyName ?? "<none>")}'")), false, 400);
+			}
 
 			try
 			{
 				object? result = method switch
 				{
-					"initialize" => new Dictionary<string, object?>
-					{
-						["protocolVersion"] = JsonRpc.MCP_PROTOCOL_VERSION,
-						["capabilities"] = new Dictionary<string, object?>
-						{
-							["tools"] = new Dictionary<string, object?> { ["listChanged"] = true },
-							["resources"] = new Dictionary<string, object?> { ["listChanged"] = false, ["subscribe"] = false },
-							["prompts"] = new Dictionary<string, object?>(),
-						},
-						["serverInfo"] = new Dictionary<string, object?> { ["name"] = "bizhawk-mcp-native", ["version"] = "0.2.0" },
-					},
+					"initialize" => LegacyInitialize(),
+					"server/discover" => Discover(),
 					"ping" => new Dictionary<string, object?>(),
 					"tools/list" => new Dictionary<string, object?> { ["tools"] = _toolset!.ToolSchemas },
 					"tools/call" => CallTool(args),
@@ -284,17 +332,66 @@ namespace BizHawkMcp.Mcp
 					"resources/read" => _ui.Invoke(() => ReadResource(args)),
 					_ => throw new JsonRpc.Error(JsonRpc.Error.METHOD_NOT_FOUND, $"unknown method: {method}"),
 				};
-				return (id, JsonRpc.Success(id, result), false);
+				var (ttlMs, cacheScope) = CachePolicy(method);
+				return (id, JsonRpc.Success(id, result, modern, ttlMs, cacheScope), false, 0);
 			}
 			catch (JsonRpc.Error e)
 			{
-				return (id, JsonRpc.Failure(id, e), false);
+				// modern transport maps version/header errors to 400 and
+				// unknown methods to 404; legacy clients keep 200 + error body
+				int status = 0;
+				if (modern)
+				{
+					if (e.Code == JsonRpc.Error.METHOD_NOT_FOUND) status = 404;
+					else if (e.Code == JsonRpc.Error.HEADER_MISMATCH || e.Code == JsonRpc.Error.UNSUPPORTED_PROTOCOL_VERSION) status = 400;
+				}
+
+				return (id, JsonRpc.Failure(id, e), false, status);
 			}
 			catch (Exception e)
 			{
-				return (id, JsonRpc.Failure(id, new JsonRpc.Error(JsonRpc.Error.INTERNAL_ERROR, $"{e.GetType().Name}: {e.Message}")), false);
+				return (id, JsonRpc.Failure(id, new JsonRpc.Error(JsonRpc.Error.INTERNAL_ERROR, $"{e.GetType().Name}: {e.Message}")), false, 0);
 			}
 		}
+
+		// ── capabilities / identity ─────────────────────────────────────────
+		private static Dictionary<string, object?> Capabilities() => new()
+		{
+			["tools"] = new Dictionary<string, object?> { ["listChanged"] = true },
+			["resources"] = new Dictionary<string, object?> { ["listChanged"] = false, ["subscribe"] = false },
+			["prompts"] = new Dictionary<string, object?>(),
+		};
+
+		private Dictionary<string, object?> LegacyInitialize() => new()
+		{
+			["protocolVersion"] = JsonRpc.MCP_PROTOCOL_VERSION,
+			["capabilities"] = Capabilities(),
+			["serverInfo"] = JsonRpc.ServerInfo(),
+		};
+
+		// server/discover (required by 2026-07-28): advertises supported
+		// versions + capabilities + identity so a client can pick a version
+		// before any other request. Served in both eras (harmless, and handy
+		// for curl smoke tests); the modern envelope (resultType/_meta/ttlMs)
+		// is added by JsonRpc.Success in modern mode.
+		private Dictionary<string, object?> Discover() => new()
+		{
+			["supportedVersions"] = JsonRpc.SUPPORTED_VERSIONS,
+			["capabilities"] = Capabilities(),
+			["instructions"] = (string)JsonRpc.ServerInfo()["instructions"]!,
+		};
+
+		// CacheableResult (SEP-2549): static lists are public with a long TTL
+		// (tools never change in a process lifetime — an agent can cache and
+		// stop polling, saving ~17ms + the 94-schema payload per refresh);
+		// artifact lists/reads change as tools run, so short TTL + private.
+		private static (long? ttlMs, string? cacheScope) CachePolicy(string method) => method switch
+		{
+			"server/discover" or "tools/list" or "prompts/list" or "resources/templates/list" => (3600000, "public"),
+			"resources/list" => (30000, "private"),
+			"resources/read" => (10000, "private"),
+			_ => (null, null),
+		};
 
 		private Dictionary<string, object?> ReadResource(JsonElement? args)
 		{
