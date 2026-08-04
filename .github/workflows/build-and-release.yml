@@ -145,7 +145,7 @@ jobs:
           EOF
           (cd "$STAGE" && zip -r "../BizHawkMcp-${{ matrix.flavor }}-${{ matrix.platform }}-${{ steps.resolve.outputs.bizhawk_label }}.zip" .)
 
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v6
         with:
           name: BizHawkMcp-${{ matrix.flavor }}-${{ matrix.platform }}
           path: BizHawkMcp-${{ matrix.flavor }}-${{ matrix.platform }}-*.zip
@@ -160,7 +160,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v6
         with:
           path: artifacts
 

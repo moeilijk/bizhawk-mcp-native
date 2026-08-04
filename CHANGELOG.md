@@ -148,6 +148,11 @@ on explicit request — otherwise changes accumulate under `## [Unreleased]`.
   drift from the packaged release.
 
 ## [Unreleased]
+
+### Fixed
+- CI: `upload-artifact`/`download-artifact` bumped to v6 (Node 24) —
+  removes the Node 20 deprecation warnings on every build/release job.
+
 ## [v0.2.0] - 2026-08-03
 
 ### Added
