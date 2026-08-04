@@ -9,9 +9,44 @@ and uses it as the GitHub release notes; if no section exists it falls back to
 auto-generated notes. A versioned section is only created when a release is cut
 on explicit request — otherwise changes accumulate under `## [Unreleased]`.
 
-## [Unreleased]
+## [v0.3.0] - 2026-08-03
 
 ### Added
+- **Dual-era MCP protocol** (`2025-11-25` legacy + `2026-07-28` modern):
+  - `server/discover` RPC advertising `supportedVersions`, capabilities,
+    server identity and instructions (required by the 2026-07-28 spec;
+    served in both eras).
+  - Modern (stateless) mode: a request that declares its protocol version in
+    `params._meta["io.modelcontextprotocol/protocolVersion"]` (or the
+    `MCP-Protocol-Version` header) is served without the `initialize`
+    handshake; results carry `resultType: "complete"` and
+    `_meta["io.modelcontextprotocol/serverInfo"]`.
+  - Version negotiation: unsupported declared versions → `-32022`
+    `UnsupportedProtocolVersionError` with `data: { supported, requested }`
+    (HTTP `400`); header/body conflicts (`MCP-Protocol-Version`,
+    `Mcp-Method`, `Mcp-Name`, with `=?base64?...?=` decoding) → `-32020`
+    `HeaderMismatch` (HTTP `400`); unknown modern methods → HTTP `404`.
+    Legacy requests keep `200` + JSON-RPC error, and `initialize` still
+    answers the latest legacy revision.
+- **Cacheable list results** (SEP-2549): `ttlMs` + `cacheScope` on
+  `tools/list`, `prompts/list`, `resources/templates/list` and
+  `server/discover` (1 h, `"public"` — the tool list is static per process,
+  so clients can cache it instead of polling ~17ms + 94 schemas per refresh),
+  `resources/list` (30 s) and `resources/read` (10 s) as `"private"`.
+- **Code/Data Logger tools** (`cdl_*`): drives the core's real
+  `ICodeDataLogger` service (the same one EmuHawk's Code Data Logger tool
+  uses, reached via reflection like watchpoints) — the core ORs access flags
+  into a per-domain bitmap (1 byte per address) as it runs. `cdl_start`
+  blanks + installs a fresh log (gpgx blocks: "MD CART"/"68K RAM"/"Z80 RAM",
+  flag bits: 0x01 Exec68k, 0x04 Data68k, 0x08/0x10 ExecZ80First/Operand,
+  0x20 DataZ80, 0x40 DMASource), `cdl_stop` keeps the data,
+  `cdl_get` returns per-block executed/touched byte counts, coverage
+  %, flag counts and the executed address ranges (mask `"exec"`/`"any"`,
+  block filter, capped ranges), `cdl_export` writes the real
+  BIZHAWK-CDL-2 binary (loadable by EmuHawk's CDL tool and Ghidra scripts) or
+  a text ranges listing to a host file + `bizhawk://` resource. Dead-code /
+  coverage analysis for the Ghidra workflow; cores without the service get a
+  clear error.
 - **Agent/script optimizations** (token + round-trip savings):
   - JSON responses are now compact (no indentation — ~30-40% fewer tokens on
     every call).
@@ -96,43 +131,6 @@ on explicit request — otherwise changes accumulate under `## [Unreleased]`.
 - CI: actions bumped to v5 (Node 24 — removes the Node 20 deprecation
   warning).
 
-### Added
-- **Dual-era MCP protocol** (`2025-11-25` legacy + `2026-07-28` modern):
-  - `server/discover` RPC advertising `supportedVersions`, capabilities,
-    server identity and instructions (required by the 2026-07-28 spec;
-    served in both eras).
-  - Modern (stateless) mode: a request that declares its protocol version in
-    `params._meta["io.modelcontextprotocol/protocolVersion"]` (or the
-    `MCP-Protocol-Version` header) is served without the `initialize`
-    handshake; results carry `resultType: "complete"` and
-    `_meta["io.modelcontextprotocol/serverInfo"]`.
-  - Version negotiation: unsupported declared versions → `-32022`
-    `UnsupportedProtocolVersionError` with `data: { supported, requested }`
-    (HTTP `400`); header/body conflicts (`MCP-Protocol-Version`,
-    `Mcp-Method`, `Mcp-Name`, with `=?base64?...?=` decoding) → `-32020`
-    `HeaderMismatch` (HTTP `400`); unknown modern methods → HTTP `404`.
-    Legacy requests keep `200` + JSON-RPC error, and `initialize` still
-    answers the latest legacy revision.
-- **Cacheable list results** (SEP-2549): `ttlMs` + `cacheScope` on
-  `tools/list`, `prompts/list`, `resources/templates/list` and
-  `server/discover` (1 h, `"public"` — the tool list is static per process,
-  so clients can cache it instead of polling ~17ms + 94 schemas per refresh),
-  `resources/list` (30 s) and `resources/read` (10 s) as `"private"`.
-- **Code/Data Logger tools** (`cdl_*`): drives the core's real
-  `ICodeDataLogger` service (the same one EmuHawk's Code Data Logger tool
-  uses, reached via reflection like watchpoints) — the core ORs access flags
-  into a per-domain bitmap (1 byte per address) as it runs. `cdl_start`
-  blanks + installs a fresh log (gpgx blocks: "MD CART"/"68K RAM"/"Z80 RAM",
-  flag bits: 0x01 Exec68k, 0x04 Data68k, 0x08/0x10 ExecZ80First/Operand,
-  0x20 DataZ80, 0x40 DMASource), `cdl_stop` keeps the data,
-  `cdl_get` returns per-block executed/touched byte counts, coverage
-  %, flag counts and the executed address ranges (mask `"exec"`/`"any"`,
-  block filter, capped ranges), `cdl_export` writes the real
-  BIZHAWK-CDL-2 binary (loadable by EmuHawk's CDL tool and Ghidra scripts) or
-  a text ranges listing to a host file + `bizhawk://` resource. Dead-code /
-  coverage analysis for the Ghidra workflow; cores without the service get a
-  clear error.
-
 ### Changed
 - **Tool names dropped the `bizhawk_` prefix** (per MCP best practices —
   uniqueness is scoped to a single server and disambiguation across servers is
@@ -149,6 +147,7 @@ on explicit request — otherwise changes accumulate under `## [Unreleased]`.
   single source of truth) instead of a hardcoded string, so it can never
   drift from the packaged release.
 
+## [Unreleased]
 ## [v0.2.0] - 2026-08-03
 
 ### Added
