@@ -12,6 +12,29 @@ on explicit request — otherwise changes accumulate under `## [Unreleased]`.
 ## [Unreleased]
 
 ### Added
+- **Agent/script optimizations** (token + round-trip savings):
+  - JSON responses are now compact (no indentation — ~30-40% fewer tokens on
+    every call).
+  - `bizhawk_read_many`/`bizhawk_watch_read`/`bizhawk_search_memory` accept
+    `"compact": true`: aligned values-only arrays (`read_many`: null per
+    failed item + failures list; `watch_read`: names/values/changed; `search`:
+    addresses only) — ~10x smaller payloads on batch reads.
+  - **JSON-RPC batching**: a POST with an array of requests returns an array
+    of responses in one round trip (the ~17ms fixed per-call cost is paid
+    once); notifications produce no entry; per-element errors don't kill the
+    batch.
+  - **Raw GET endpoints** for shell-capable agents (no MCP client, no JSON):
+    `GET /mcp/read/{domain}/{start}:{end}` streams raw memory bytes
+    (octet-stream, hex range, same 256 KiB cap as the resource template) and
+    `GET /mcp/artifacts/{id}` streams artifact file bytes (404 when unknown;
+    ​400 with the error text on a bad range).
+- `bizhawk_dump_memory` now accepts `range_start`/`range_length` to dump only a
+  sub-range of a domain to a host-side file (whole domain remains the
+  default) — agents can write memory to disk without pulling it into context.
+- `resources/list` now reports each artifact's host `path` alongside
+  `uri`/`name`/`mimeType`/`size`, so shell-capable agents (e.g. WSL) can read
+  the underlying file directly (`/mnt/c/...`) instead of fetching base64 into
+  context.
 - `bizhawk_get_info` now returns a `paths` block exposing where the emulator
   runs: `install_dir` (EmuHawk's folder), `working_dir`, `temp_dir` (the
   `bizhawk-mcp` dir where `screenshot`/`dump_memory`/`start_fixture` save by

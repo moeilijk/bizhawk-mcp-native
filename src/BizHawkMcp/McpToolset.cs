@@ -224,6 +224,7 @@ namespace BizHawkMcp
 				Param("range_length", "integer", "Bytes to scan (default: whole domain)."),
 				Param("max_results", "integer", "Stop after this many matches, 1..4096.", 256),
 				Param("addresses", "array", "Optional list of addresses to restrict the scan to (up to 4096)."),
+				Param("compact", "boolean", "Return only the matching addresses (no per-match values).", false),
 			]),
 			Tool("bizhawk_set_big_endian", "Toggle big-endian interpretation for u16/u32 reads/writes.", [
 				Param("enabled", "boolean", "True for big-endian.", false),
@@ -260,6 +261,7 @@ namespace BizHawkMcp
 			Tool("bizhawk_read_many", "Read several addresses in one call (up to 256). Returns {reads: [{index, requested, address, width, value, domain, endianness}], read, failed}. Items that fail (unknown symbol, out-of-range address) are reported per-item as {index, requested, error} without killing the batch. \"requested\" echoes the raw address before 24-bit bus masking, which only happens on 68K-family bus domains (GEN/SMD/32X/SAT — e.g. 0x1002024 → requested 0x1002024, address 0x2024); other cores/domains reject out-of-range addresses. Optional per-item \"endianness\" as bizhawk_read_memory (default \"auto\" = each item's domain). Set \"consistent\": true to pause during the batch so all reads come from the same frame.", [
 				Param("items", "array", "Array of {\"address\": int | \"name\": string, \"width\"?: 8|16|32, \"domain\"?: string, \"endianness\"?: \"big\"|\"little\"|\"auto\"}."),
 				Param("consistent", "boolean", "Pause emulation for the duration of the batch so reads are frame-consistent.", false),
+				Param("compact", "boolean", "Return only the values aligned to the items (null = failed) + failures — ~10x smaller payload.", false),
 			]),
 			Tool("bizhawk_write_range", "Write a contiguous byte range from a values array (up to 4096 bytes). \"fill\" + \"length\" mode writes the same byte across the range with a tiny payload (use it for large clears — some MCP clients drop requests above ~1-2 KB, so prefer fill or chunk values into <=1024-byte calls). Returns {\"wrote\", \"address\", \"fill\"} in fill mode. Set \"freeze\": true to also register the whole range as a freeze (re-written every frame — see bizhawk_freeze_add).", [
 				Param("address", "integer", "Start offset in the domain, 0-based."),
@@ -286,8 +288,10 @@ namespace BizHawkMcp
 				Param("fields", "array", "Array of {\"name\": string, \"offset\": int, \"width\"?: 8|16|32, \"endianness\"?: \"big\"|\"little\"|\"auto\"}."),
 				Param("domain", "string", "Optional domain override (defaults to the base's domain or current)."),
 			]),
-			Tool("bizhawk_dump_memory", "Dump an entire memory domain to a host-side file (also exposed as a bizhawk:// resource). Omit \"path\" to save into the host temp dir (bizhawk-mcp).", [
+			Tool("bizhawk_dump_memory", "Dump a memory domain (or a sub-range with \"range_start\"/\"range_length\") to a host-side file (also exposed as a bizhawk:// resource; resources/list reports the file's host path so shell-capable agents can read it directly, e.g. /mnt/c/... from WSL). Omit \"path\" to save into the host temp dir (bizhawk-mcp).", [
 				Param("domain", "string", "Domain name to dump (defaults to current)."),
+				Param("range_start", "integer", "First offset to dump (default 0).", 0),
+				Param("range_length", "integer", "Bytes to dump (default: the rest of the domain)."),
 				Param("path", "string", "Optional absolute path writable by EmuHawk, e.g. C:/temp/ram.bin."),
 			]),
 			Tool("bizhawk_ram_snapshot", "Capture the full contents of a memory domain as a snapshot for later diffing (bizhawk_ram_diff). One snapshot per domain is kept.", [
@@ -503,7 +507,9 @@ namespace BizHawkMcp
 				Param("name", "string", "Watcher name."),
 			]),
 			Tool("bizhawk_watch_list", "List registered watchers with their current values (JSON).", []),
-			Tool("bizhawk_watch_read", "Read all watcher values in one call (JSON). Each entry has \"value\" and \"changed\" (true when it differs from the previous read).", []),
+			Tool("bizhawk_watch_read", "Read all watcher values in one call (JSON). Each entry has \"value\" and \"changed\" (true when it differs from the previous read). With \"compact\": true, returns three aligned arrays (names/values/changed) — smaller payload.", [
+				Param("compact", "boolean", "Return aligned names/values/changed arrays instead of objects.", false),
+			]),
 			Tool("bizhawk_wait_until", "Advance frames until a memory condition holds (or timeout). Pauses when done. Single mode: \"address\" (or symbol \"name\") + \"op\" (eq|ne|lt|gt|le|ge) + \"value\", optional width/domain/endianness. Multi mode: pass \"conditions\": [{address|name, op, value, width?, domain?, endianness?}, ...] — advances until ALL conditions hold on the SAME frame (AND), so nested single waits are no longer needed; returns per-condition results. Optional \"endianness\" as bizhawk_read_memory (default \"auto\").", [
 				Param("address", "integer", "Offset in the domain, or use a symbol \"name\" instead."),
 				Param("name", "string", "Symbol name registered via bizhawk_symbols_set (overrides address/domain)."),
@@ -667,7 +673,7 @@ namespace BizHawkMcp
 				"bizhawk_watch_add" => _ui.Invoke(() => WatchAdd(args)),
 				"bizhawk_watch_remove" => _ui.Invoke(() => WatchRemove(args)),
 				"bizhawk_watch_list" => _ui.Invoke(() => WatchList()),
-				"bizhawk_watch_read" => _ui.Invoke(() => WatchRead()),
+				"bizhawk_watch_read" => _ui.Invoke(() => WatchRead(args)),
 				"bizhawk_wait_until" => _ui.Invoke(() => WaitUntil(args)),
 				"bizhawk_watch_change" => _ui.Invoke(() => WatchChange(args)),
 				"bizhawk_watchpoint_add" => _ui.Invoke(() => WatchpointAdd(args)),
@@ -856,9 +862,21 @@ namespace BizHawkMcp
 		private string DumpMemory(JsonElement? args)
 		{
 			string? domain = null;
-			if (args is { } a && a.ValueKind == JsonValueKind.Object) domain = OptionalString(a, "domain");
+			long rangeStart = 0;
+			long? rangeLen = null;
+			if (args is { } a && a.ValueKind == JsonValueKind.Object)
+			{
+				domain = OptionalString(a, "domain");
+				if (a.TryGetProperty("range_start", out var rs) && rs.ValueKind == JsonValueKind.Number) rangeStart = rs.GetInt64();
+				if (a.TryGetProperty("range_length", out var rl) && rl.ValueKind == JsonValueKind.Number) rangeLen = rl.GetInt64();
+			}
 			EnsureKnownDomain(domain);
 			uint size = _tool.Memory!.GetMemoryDomainSize(domain ?? "");
+			if (rangeStart < 0) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "range_start must be >= 0");
+			long len = rangeLen ?? (size - rangeStart);
+			if (len < 1) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "range_length must be >= 1");
+			if (rangeStart + len > size)
+				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"range {rangeStart}:{rangeStart + len} outside domain \"{domain ?? _tool.Memory!.GetCurrentMemoryDomain()}\" (size {size})");
 
 			string? path = null;
 			if (args is { } b && b.ValueKind == JsonValueKind.Object) path = OptionalString(b, "path");
@@ -866,29 +884,31 @@ namespace BizHawkMcp
 			{
 				var dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "bizhawk-mcp");
 				System.IO.Directory.CreateDirectory(dir);
-				path = System.IO.Path.Combine(dir, $"dump-{domain ?? _tool.Memory!.GetCurrentMemoryDomain()}-{DateTime.Now:yyyyMMdd-HHmmss}.bin");
+				string rangePart = rangeLen == null ? "" : $"-{rangeStart:X}";
+				path = System.IO.Path.Combine(dir, $"dump-{domain ?? _tool.Memory!.GetCurrentMemoryDomain()}{rangePart}-{DateTime.Now:yyyyMMdd-HHmmss}.bin");
 			}
 
-			// read the whole domain in chunks via ReadByteRange and write to disk
+			// read the range in chunks via ReadByteRange and write to disk
 			using (var fs = new System.IO.FileStream(path, System.IO.FileMode.Create, System.IO.FileAccess.Write))
 			{
 				const int chunk = 0x10000;
-				for (long off = 0; off < size; off += chunk)
+				for (long off = 0; off < len; off += chunk)
 				{
-					int len = (int)Math.Min(chunk, size - off);
-					var bytes = _tool.Memory!.ReadByteRange(off, len, domain);
-					var buf = new byte[len];
-					for (var i = 0; i < len; i++) buf[i] = bytes[i];
-					fs.Write(buf, 0, len);
+					int c = (int)Math.Min(chunk, len - off);
+					var bytes = _tool.Memory!.ReadByteRange(rangeStart + off, c, domain);
+					var buf = new byte[c];
+					for (var i = 0; i < c; i++) buf[i] = bytes[i];
+					fs.Write(buf, 0, c);
 				}
 			}
 
-			string uri = RegisterArtifact(path!, "application/octet-stream", $"memory dump {domain ?? _tool.Memory!.GetCurrentMemoryDomain()} ({size} bytes)");
+			string uri = RegisterArtifact(path!, "application/octet-stream", $"memory dump {domain ?? _tool.Memory!.GetCurrentMemoryDomain()} ({len} bytes)");
 			return JsonRpc.Pretty(new Dictionary<string, object?>
 			{
 				["path"] = path,
-				["size"] = size,
+				["size"] = len,
 				["domain"] = domain ?? _tool.Memory!.GetCurrentMemoryDomain(),
+				["range_start"] = rangeLen == null ? null : rangeStart,
 				["resource"] = uri,
 			});
 		}
@@ -1150,6 +1170,20 @@ namespace BizHawkMcp
 				_searchPrev[domName] = ReadDomainBytes(domain);
 			}
 
+			if (a.TryGetProperty("compact", out var compEl) && compEl.ValueKind == JsonValueKind.True)
+			{
+				// addresses only — the caller can re-read the few interesting
+				// ones; a large match set would otherwise be mostly value noise
+				var addresses = matches.ConvertAll(m => ((Dictionary<string, object?>)m!)["address"]);
+				return JsonRpc.Pretty(new Dictionary<string, object?>
+				{
+					["count"] = matches.Count,
+					["addresses"] = addresses,
+					["op"] = op,
+					["baseline"] = false,
+				});
+			}
+
 			return JsonRpc.Pretty(new Dictionary<string, object?>
 			{
 				["count"] = matches.Count,
@@ -1321,6 +1355,7 @@ namespace BizHawkMcp
 				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "items must contain 1..256 entries");
 
 			bool consistent = a.TryGetProperty("consistent", out var c) && c.ValueKind == JsonValueKind.True;
+			bool compact = a.TryGetProperty("compact", out var cmp) && cmp.ValueKind == JsonValueKind.True;
 			bool wasPaused = _tool.EmuClient!.IsPaused();
 			if (consistent && !wasPaused) _tool.EmuClient!.Pause();
 			try
@@ -1330,6 +1365,8 @@ namespace BizHawkMcp
 				// "requested" echoes the raw address before 68K bus masking so
 				// clients can spot their own arithmetic mistakes.
 				var results = new List<object?>();
+				var values = new List<object?>();
+				var failures = new List<object?>();
 				int read = 0, failed = 0;
 				var index = 0;
 				foreach (var item in items.EnumerateArray())
@@ -1337,7 +1374,8 @@ namespace BizHawkMcp
 					if (item.ValueKind != JsonValueKind.Object)
 					{
 						failed++;
-						results.Add(new Dictionary<string, object?> { ["index"] = index, ["requested"] = null, ["error"] = "each item must be an object" });
+						values.Add(null);
+						failures.Add(new Dictionary<string, object?> { ["index"] = index, ["error"] = "each item must be an object" });
 						index++;
 						continue;
 					}
@@ -1354,6 +1392,7 @@ namespace BizHawkMcp
 							16 or 32 => ReadValue(address, width, domain, bigEndian),
 							_ => throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "width must be 8, 16 or 32"),
 						};
+						values.Add(value);
 						results.Add(new Dictionary<string, object?>
 						{
 							["index"] = index,
@@ -1369,6 +1408,8 @@ namespace BizHawkMcp
 					catch (JsonRpc.Error ex)
 					{
 						failed++;
+						values.Add(null);
+						failures.Add(new Dictionary<string, object?> { ["index"] = index, ["error"] = ex.Message });
 						results.Add(new Dictionary<string, object?>
 						{
 							["index"] = index,
@@ -1378,6 +1419,18 @@ namespace BizHawkMcp
 						});
 					}
 					index++;
+				}
+				if (compact)
+				{
+					// aligned with the items array (null = failed); the caller
+					// knows the addresses it asked for — ~10x smaller payload
+					return JsonRpc.Pretty(new Dictionary<string, object?>
+					{
+						["values"] = values,
+						["read"] = read,
+						["failed"] = failed,
+						["failures"] = failures,
+					});
 				}
 				return JsonRpc.Pretty(new Dictionary<string, object?>
 				{
@@ -3476,19 +3529,37 @@ namespace BizHawkMcp
 			return JsonRpc.Pretty(new Dictionary<string, object?> { ["watchers"] = watches });
 		}
 
-		private string WatchRead()
+		private string WatchRead(JsonElement? args)
 		{
+			bool compact = args is { } a && a.TryGetProperty("compact", out var c) && c.ValueKind == JsonValueKind.True;
 			var watches = new List<object?>();
+			var names = new List<object?>();
+			var values = new List<object?>();
+			var changed = new List<object?>();
 			foreach (var w in _watches)
 			{
 				ulong value = ReadWatchValue(w);
-				bool changed = w.Last != null && w.Last != value;
+				bool isChanged = w.Last != null && w.Last != value;
 				w.Last = value;
+				names.Add(w.Name);
+				values.Add(value);
+				changed.Add(isChanged);
 				watches.Add(new Dictionary<string, object?>
 				{
 					["name"] = w.Name,
 					["value"] = value,
 					["endianness"] = EndianName(w.BigEndian),
+					["changed"] = isChanged,
+				});
+			}
+			if (compact)
+			{
+				// three aligned arrays (names, values, changed) — the caller
+				// knows the watchers; avoids per-entry object overhead
+				return JsonRpc.Pretty(new Dictionary<string, object?>
+				{
+					["names"] = names,
+					["values"] = values,
 					["changed"] = changed,
 				});
 			}
@@ -4099,11 +4170,12 @@ namespace BizHawkMcp
 				catch { /* file gone — still list the URI */ }
 				resources.Add(new Dictionary<string, object?>
 				{
-					["uri"] = a.Uri,
-					["name"] = a.Name,
-					["mimeType"] = a.Mime,
-					["size"] = size,
-				});
+				["uri"] = a.Uri,
+				["name"] = a.Name,
+				["mimeType"] = a.Mime,
+				["size"] = size,
+				["path"] = a.Path,
+			});
 			}
 			resources.Add(new Dictionary<string, object?>
 			{
@@ -4166,6 +4238,27 @@ namespace BizHawkMcp
 
 		private Dictionary<string, object?> ReadResourceTemplate(string uri)
 		{
+			byte[] bytes = ReadRangeBytes(uri);
+			return new Dictionary<string, object?>
+			{
+				["contents"] = new List<object?>
+				{
+					new Dictionary<string, object?>
+					{
+						["uri"] = uri,
+						["mimeType"] = "application/octet-stream",
+						["blob"] = Convert.ToBase64String(bytes),
+					},
+				},
+			};
+		}
+
+		// Shared by resources/read (base64 JSON) and the raw GET
+		// /mcp/read/{domain}/{start}:{end} endpoint (octet-stream bytes).
+		public byte[] ReadRangeRaw(string uri) => ReadRangeBytes(uri);
+
+		private byte[] ReadRangeBytes(string uri)
+		{
 			// uri = bizhawk://read/{domain}/{start}:{end}
 			string rest = uri.Substring("bizhawk://read/".Length);
 			int slash = rest.IndexOf('/');
@@ -4186,7 +4279,7 @@ namespace BizHawkMcp
 			if (len > MaxTemplateBytes) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"read URI too large ({len} bytes; max {MaxTemplateBytes})");
 
 			// read via the UI thread (memory API is not thread-safe off it)
-			byte[] bytes = _ui.Invoke(() =>
+			return _ui.Invoke(() =>
 			{
 				EnsureEndianness();
 				start = ValidateAddress(start, 1, domain);
@@ -4198,19 +4291,22 @@ namespace BizHawkMcp
 				for (var i = 0; i < len; i++) buf[i] = raw[i];
 				return buf;
 			});
+		}
 
-			return new Dictionary<string, object?>
+		// Artifact bytes + mime for the raw GET /mcp/artifacts/{id} endpoint;
+		// null when the URI isn't a registered artifact (404 upstream).
+		public (byte[] Bytes, string Mime, string Name)? ReadArtifactFile(string uri)
+		{
+			var artifact = _artifacts.Find(a => a.Uri == uri);
+			if (artifact == null) return null;
+			try
 			{
-				["contents"] = new List<object?>
-				{
-					new Dictionary<string, object?>
-					{
-						["uri"] = uri,
-						["mimeType"] = "application/octet-stream",
-						["blob"] = Convert.ToBase64String(bytes),
-					},
-				},
-			};
+				return (System.IO.File.ReadAllBytes(artifact.Path), artifact.Mime, artifact.Name);
+			}
+			catch (Exception e)
+			{
+				throw new JsonRpc.Error(JsonRpc.Error.INTERNAL_ERROR, $"cannot read resource: {e.Message}");
+			}
 		}
 
 		public Dictionary<string, object?> ListResourceTemplates() =>

@@ -55,7 +55,7 @@ Every tool returns a **single text blob** as `content[0].text`. Structured data 
 
 ## Resources
 
-The server advertises the `resources` capability. Tools can register artifacts (files the server wrote on the host) — currently only `bizhawk_screenshot`, which saves a PNG into `<temp>/bizhawk-mcp/` (or the caller-provided path) and returns `{ path, resource }`. Fetch the bytes with:
+The server advertises the `resources` capability. Tools can register artifacts (files the server wrote on the host) — e.g. `bizhawk_screenshot`, `bizhawk_frame_hash`, `bizhawk_dump_memory`, `bizhawk_genesis_read_plane` — saving into `<temp>/bizhawk-mcp/` (or the caller-provided path) and returning `{ path, resource }`. Fetch the bytes with:
 
 ```bash
 curl -s -X POST http://127.0.0.1:8767/mcp/ -H 'Content-Type: application/json' \
@@ -63,15 +63,38 @@ curl -s -X POST http://127.0.0.1:8767/mcp/ -H 'Content-Type: application/json' \
 # → { contents: [ { uri, mimeType: "image/png", blob: "<base64>" } ] }
 ```
 
-Resources are session-local (the list resets when the server restarts) and are only registrations, not a filesystem view.
+`resources/list` also reports each artifact's host `path`, so shell-capable
+agents (WSL: `/mnt/c/...`) can read the file directly instead of pulling
+base64 into context.
+
+## Script endpoints (no MCP client, no JSON)
+
+- `GET /mcp/read/{domain}/{start}:{end}` — raw memory bytes as
+  `application/octet-stream` (hex range, 256 KiB cap, same validation as the
+  `bizhawk://read` template):
+  ```bash
+  curl -s "http://127.0.0.1:8767/mcp/read/68K%20RAM/F800:FFFF" -o ram.bin
+  ```
+- `GET /mcp/artifacts/{id}` — streams an artifact file's bytes (the same
+  `bizhawk://<id>` resources), 404 for unknown ids.
+
+## JSON-RPC batching
+
+A POST with an array of requests returns an array of responses in one round
+trip (the fixed ~17ms per-call overhead is paid once); notifications produce
+no entry; per-element errors don't kill the batch:
+
+```bash
+curl -s -X POST http://127.0.0.1:8767/mcp/ -H 'Content-Type: application/json' \
+  -d '[{"jsonrpc":"2.0","id":1,"method":"ping"},{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"bizhawk_get_info","arguments":{}}}]'
+# → [ { jsonrpc, id:1, result: {} }, { jsonrpc, id:2, result: {...} } ]
+```
 
 ## Not implemented (deliberately)
 
 - Sessions / `mcp-session-id`
 - Server-initiated messages (SSE push to client)
 - Resource subscriptions / change notifications
-- Prompts (`capabilities` only advertises `tools` and `resources`)
-- `tools/list` change notifications
 - HTTP `PUT`/`DELETE` session endpoints
 
 If the host MCP client requires sessions, the dispatch layer needs a session map keyed by an `mcp-session-id` header with per-session JSON-RPC batching — the POST path is already structured for it (`Dispatch(body)` is pure).

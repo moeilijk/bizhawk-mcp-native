@@ -51,9 +51,12 @@ namespace BizHawkMcp.Mcp
 			return Failure(id, new Error(Error.PARSE_ERROR, message));
 		}
 
+		// Compact JSON (no indentation): every response is agent-consumed, and
+		// pretty-printed whitespace costs ~30-40% extra tokens on every call.
+		// Human debugging is easier with a JSON formatter on the client side.
 		public static string Pretty(object? value)
 		{
-			return JsonSerializer.Serialize(value, new JsonSerializerOptions { WriteIndented = true });
+			return JsonSerializer.Serialize(value);
 		}
 	}
 }

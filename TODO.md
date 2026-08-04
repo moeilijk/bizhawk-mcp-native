@@ -10,6 +10,10 @@ Legend: `[~]` partially done / covered by another tool · `[ ]` open · `[x]` do
 - [ ] **Sessions (`mcp-session-id`)**: the dispatch layer is already structured
   for it (`Dispatch` is pure) — add a session map keyed by the header so hosts
   that require sessions (e.g. some clients) work. Also enables JSON-RPC batching.
+- [x] **JSON-RPC batching**: a POST with an array of requests returns an array
+  of responses in one round trip (the fixed ~17ms per-call overhead is paid
+  once); notifications skipped; per-element errors don't kill the batch.
+  (Sessions still open — batching did not need them since Dispatch is pure.)
 - [ ] **Server-initiated SSE messages**: push framecount/state changes to a
   subscribed client (needs sessions + a client that keeps GET SSE open).
 - [ ] **HTTP `PUT`/`DELETE` session endpoints** for full Streamable HTTP parity.

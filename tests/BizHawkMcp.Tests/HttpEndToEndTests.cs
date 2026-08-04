@@ -211,5 +211,106 @@ namespace BizHawkMcp.Tests
 				Environment.SetEnvironmentVariable("BIZHAWK_MCP_PORT", null);
 			}
 		}
+		[Fact]
+		public async Task Jsonrpc_batch_serves_each_request_in_one_roundtrip()
+		{
+			int port = FindFreePort();
+			Environment.SetEnvironmentVariable("BIZHAWK_MCP_PORT", port.ToString());
+			var server = new McpHttpServer(new FakeApis(), new InlineDispatcher(), _ => { });
+			server.Start();
+			try
+			{
+				// write + read + an error, all in ONE POST (array → array)
+				var batch = "[{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"bizhawk_write_memory\",\"arguments\":{\"address\":100,\"width\":8,\"value\":165}}},"
+					+ "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"bizhawk_read_memory\",\"arguments\":{\"address\":100,\"width\":8}}},"
+					+ "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"nope\"}]";
+				var (status, body) = await Post(server.BaseUrl, batch);
+				Assert.Equal(HttpStatusCode.OK, status);
+				using var doc = JsonDocument.Parse(body);
+				Assert.Equal(JsonValueKind.Array, doc.RootElement.ValueKind);
+				Assert.Equal(3, doc.RootElement.GetArrayLength());
+				Assert.True(doc.RootElement[0].TryGetProperty("result", out _));
+				// the read call: result → content[0].text → JSON with value 165
+				var text = doc.RootElement[1].GetProperty("result").GetProperty("content")[0].GetProperty("text").GetString()!;
+				using var value = JsonDocument.Parse(text);
+				Assert.Equal((ulong)165, value.RootElement.GetProperty("value").GetUInt64());
+				// unknown method → per-element error, batch survives
+				Assert.Equal(-32601, doc.RootElement[2].GetProperty("error").GetProperty("code").GetInt32());
+			}
+			finally
+			{
+				server.Stop();
+				Environment.SetEnvironmentVariable("BIZHAWK_MCP_PORT", null);
+			}
+		}
+
+		[Fact]
+		public async Task Raw_get_read_returns_memory_bytes_directly()
+		{
+			int port = FindFreePort();
+			Environment.SetEnvironmentVariable("BIZHAWK_MCP_PORT", port.ToString());
+			var apis = new FakeApis();
+			var server = new McpHttpServer(apis, new InlineDispatcher(), _ => { });
+			server.Start();
+			try
+			{
+				apis.MemoryApi.Bytes[0] = 0xDE;
+				apis.MemoryApi.Bytes[99] = 0xAD;
+				using var client = new HttpClient();
+				// range is HEX: 0:64 = 0x64 = 100 bytes
+				var resp = await client.GetAsync($"{server.BaseUrl}read/68K%20RAM/0:64");
+				Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+				Assert.Equal("application/octet-stream", resp.Content.Headers.ContentType?.MediaType);
+				var bytes = await resp.Content.ReadAsByteArrayAsync();
+				Assert.Equal(100, bytes.Length);
+				Assert.Equal((byte)0xDE, bytes[0]);
+				Assert.Equal((byte)0xAD, bytes[99]);
+
+				// out-of-domain range → 400, not a crash
+				var bad = await client.GetAsync($"{server.BaseUrl}read/68K%20RAM/0:100000");
+				Assert.Equal(HttpStatusCode.BadRequest, bad.StatusCode);
+			}
+			finally
+			{
+				server.Stop();
+				Environment.SetEnvironmentVariable("BIZHAWK_MCP_PORT", null);
+			}
+		}
+
+		[Fact]
+		public async Task Raw_get_artifact_serves_file_bytes()
+		{
+			int port = FindFreePort();
+			Environment.SetEnvironmentVariable("BIZHAWK_MCP_PORT", port.ToString());
+			var apis = new FakeApis();
+			var server = new McpHttpServer(apis, new InlineDispatcher(), _ => { });
+			server.Start();
+			try
+			{
+				// create an artifact (dump_memory) via the JSON-RPC endpoint
+				var (_, body) = await Post(server.BaseUrl, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"bizhawk_dump_memory\",\"arguments\":{\"domain\":\"68K RAM\"}}}");
+				using var doc = JsonDocument.Parse(body);
+				var text = doc.RootElement.GetProperty("result").GetProperty("content")[0].GetProperty("text").GetString()!;
+				using var result = JsonDocument.Parse(text);
+				string uri = result.RootElement.GetProperty("resource").GetString()!;
+				Assert.StartsWith("bizhawk://", uri);
+
+				using var client = new HttpClient();
+				var resp = await client.GetAsync($"{server.BaseUrl}artifacts/{uri["bizhawk://".Length..]}");
+				Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+				Assert.Equal("application/octet-stream", resp.Content.Headers.ContentType?.MediaType);
+				var bytes = await resp.Content.ReadAsByteArrayAsync();
+				Assert.Equal(65536, bytes.Length);
+
+				// unknown artifact → 404
+				var missing = await client.GetAsync($"{server.BaseUrl}artifacts/deadbeef");
+				Assert.Equal(HttpStatusCode.NotFound, missing.StatusCode);
+			}
+			finally
+			{
+				server.Stop();
+				Environment.SetEnvironmentVariable("BIZHAWK_MCP_PORT", null);
+			}
+		}
 	}
 }

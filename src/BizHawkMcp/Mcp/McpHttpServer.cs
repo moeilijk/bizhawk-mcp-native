@@ -102,6 +102,13 @@ namespace BizHawkMcp.Mcp
 				{
 					await HandleSse(ctx);
 				}
+				else if (ctx.Request.HttpMethod == "GET")
+				{
+					// script-friendly raw endpoints (no MCP client, no JSON):
+					//   GET /mcp/read/{domain}/{start}:{end} → raw bytes
+					//   GET /mcp/artifacts/{id}              → artifact bytes
+					HandleRawGet(ctx);
+				}
 				else
 				{
 					ctx.Response.StatusCode = 405;
@@ -121,6 +128,51 @@ namespace BizHawkMcp.Mcp
 					// ignore
 				}
 			}
+		}
+
+		private void HandleRawGet(HttpListenerContext ctx)
+		{
+			string path = Uri.UnescapeDataString(ctx.Request.Url!.AbsolutePath);
+			try
+			{
+				if (path.StartsWith("/mcp/read/", StringComparison.Ordinal))
+				{
+					// same cap + validation as the bizhawk://read resource template
+					string uri = "bizhawk://read/" + path.Substring("/mcp/read/".Length);
+					byte[] bytes = _ui.Invoke(() => _toolset!.ReadRangeRaw(uri));
+					WriteBytes(ctx, 200, bytes, "application/octet-stream");
+					return;
+				}
+				if (path.StartsWith("/mcp/artifacts/", StringComparison.Ordinal))
+				{
+					string uri = "bizhawk://" + path.Substring("/mcp/artifacts/".Length);
+					var artifact = _ui.Invoke(() => _toolset!.ReadArtifactFile(uri));
+					if (artifact == null)
+					{
+						ctx.Response.StatusCode = 404;
+						ctx.Response.Close();
+						return;
+					}
+					WriteBytes(ctx, 200, artifact.Value.Bytes, artifact.Value.Mime);
+					return;
+				}
+			}
+			catch (JsonRpc.Error e)
+			{
+				WriteBytes(ctx, 400, Encoding.UTF8.GetBytes(e.Message), "text/plain");
+				return;
+			}
+			ctx.Response.StatusCode = 405;
+			ctx.Response.Close();
+		}
+
+		private static void WriteBytes(HttpListenerContext ctx, int status, byte[] bytes, string mime)
+		{
+			ctx.Response.StatusCode = status;
+			ctx.Response.ContentType = mime;
+			ctx.Response.ContentLength64 = bytes.Length;
+			ctx.Response.OutputStream.Write(bytes, 0, bytes.Length);
+			ctx.Response.Close();
 		}
 
 		private static async Task<string> ReadBodyAsync(HttpListenerRequest request)
@@ -149,7 +201,6 @@ namespace BizHawkMcp.Mcp
 
 		internal (object? id, byte[] bytes, bool isNotification) Dispatch(string body)
 		{
-			object? id = null;
 			JsonElement root;
 			try
 			{
@@ -160,6 +211,37 @@ namespace BizHawkMcp.Mcp
 				return (null, JsonRpc.ParseError(null, $"parse error: {e.Message}"), false);
 			}
 
+			// JSON-RPC batch: an array of requests → an array of responses
+			// (notifications produce no entry). Dispatch is stateless, so a
+			// single HTTP round trip serves N calls — the fixed ~17ms per-call
+			// overhead is paid once.
+			if (root.ValueKind == JsonValueKind.Array)
+			{
+				var results = new List<byte[]>();
+				foreach (var el in root.EnumerateArray())
+				{
+					var (_, bytes, isNotification) = DispatchOne(el);
+					if (!isNotification) results.Add(bytes);
+				}
+				if (results.Count == 0)
+					return (null, JsonRpc.ParseError(null, "batch contained no requests"), false);
+				var sb = new StringBuilder();
+				sb.Append('[');
+				for (var i = 0; i < results.Count; i++)
+				{
+					if (i > 0) sb.Append(',');
+					sb.Append(Encoding.UTF8.GetString(results[i]));
+				}
+				sb.Append(']');
+				return (null, Encoding.UTF8.GetBytes(sb.ToString()), false);
+			}
+
+			return DispatchOne(root);
+		}
+
+		private (object? id, byte[] bytes, bool isNotification) DispatchOne(JsonElement root)
+		{
+			object? id = null;
 			if (root.ValueKind != JsonValueKind.Object)
 				return (null, JsonRpc.ParseError(null, "expected a JSON object"), false);
 

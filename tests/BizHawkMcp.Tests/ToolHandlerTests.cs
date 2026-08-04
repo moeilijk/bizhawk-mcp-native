@@ -1179,6 +1179,71 @@ namespace BizHawkMcp.Tests
 		}
 
 		[Fact]
+		public void Dump_memory_range_writes_subrange_file()
+		{
+			_apis.MemoryApi.Bytes[100] = 0xAA;
+			_apis.MemoryApi.Bytes[199] = 0xBB;
+			var res = Parse(_ts.Call("bizhawk_dump_memory", TestHelpers.Js("{\"domain\":\"68K RAM\",\"range_start\":100,\"range_length\":100}")));
+			Assert.Equal(100L, res.GetProperty("size").GetInt64());
+			Assert.Equal(100L, res.GetProperty("range_start").GetInt64());
+			var fileBytes = System.IO.File.ReadAllBytes(res.GetProperty("path").GetString()!);
+			Assert.Equal(100, fileBytes.Length);
+			Assert.Equal((byte)0xAA, fileBytes[0]);
+			Assert.Equal((byte)0xBB, fileBytes[99]);
+			System.IO.File.Delete(res.GetProperty("path").GetString()!);
+		}
+
+		[Fact]
+		public void Dump_memory_rejects_out_of_range()
+		{
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_dump_memory", TestHelpers.Js("{\"domain\":\"68K RAM\",\"range_start\":65500,\"range_length\":100}")));
+			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
+		}
+
+		[Fact]
+		public void Resources_list_reports_host_path()
+		{
+			var res = Parse(_ts.Call("bizhawk_dump_memory", TestHelpers.Js("{\"domain\":\"68K RAM\"}")));
+			var uri = res.GetProperty("resource").GetString();
+			var listed = _ts.ListResources();
+			var listDoc = JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize(listed));
+			var entry = listDoc.RootElement.GetProperty("resources").EnumerateArray().First(r => r.GetProperty("uri").GetString() == uri);
+			var path = entry.GetProperty("path").GetString();
+			Assert.False(string.IsNullOrEmpty(path));
+			Assert.True(System.IO.File.Exists(path));
+			System.IO.File.Delete(path!);
+		}
+
+		[Fact]
+		public void Read_many_compact_returns_aligned_values()
+		{
+			_apis.MemoryApi.Bytes[100] = 0x42;
+			_apis.MemoryApi.Bytes[101] = 0x24;
+			var res = Parse(_ts.Call("bizhawk_read_many", TestHelpers.Js("{\"items\":[{\"address\":100},{\"address\":101},{\"address\":999999}],\"compact\":true}")));
+			Assert.Equal(2, res.GetProperty("read").GetInt32());
+			Assert.Equal(1, res.GetProperty("failed").GetInt32());
+			// aligned with items: 0x42, 0x24, null (failed)
+			Assert.Equal((ulong)0x42, res.GetProperty("values")[0].GetUInt64());
+			Assert.Equal((ulong)0x24, res.GetProperty("values")[1].GetUInt64());
+			Assert.Equal(JsonValueKind.Null, res.GetProperty("values")[2].ValueKind);
+			Assert.Equal(2, res.GetProperty("failures")[0].GetProperty("index").GetInt32());
+		}
+
+		[Fact]
+		public void Search_compact_returns_addresses_only()
+		{
+			_apis.MemoryApi.Bytes[10] = 0x42;
+			_apis.MemoryApi.Bytes[100] = 0x42;
+			var res = Parse(_ts.Call("bizhawk_search_memory", TestHelpers.Js("{\"value\":66,\"width\":8,\"compact\":true}")));
+			Assert.Equal(2, res.GetProperty("count").GetInt32());
+			var addresses = res.GetProperty("addresses");
+			Assert.Equal(2, addresses.GetArrayLength());
+			Assert.Equal((long)10, addresses[0].GetInt64());
+			Assert.Equal((long)100, addresses[1].GetInt64());
+			Assert.False(res.TryGetProperty("matches", out _));
+		}
+
+		[Fact]
 		public void Read_many_consistent_pauses_and_resumes()
 		{
 			_apis.EmuClientApi.Paused = false;
@@ -1363,6 +1428,19 @@ namespace BizHawkMcp.Tests
 			var read = Parse(_ts.Call("bizhawk_watch_read", null));
 			Assert.Equal((ulong)0x99, read.GetProperty("watchers")[0].GetProperty("value").GetUInt64());
 			Assert.True(read.GetProperty("watchers")[0].GetProperty("changed").GetBoolean());
+		}
+
+		[Fact]
+		public void Watch_read_compact_returns_aligned_arrays()
+		{
+			_apis.MemoryApi.Bytes[100] = 0x42;
+			_ts.Call("bizhawk_watch_add", TestHelpers.Js("{\"name\":\"hp\",\"address\":100,\"width\":8}"));
+			_ts.Call("bizhawk_watch_add", TestHelpers.Js("{\"name\":\"lives\",\"address\":200,\"width\":8}"));
+			var read = Parse(_ts.Call("bizhawk_watch_read", TestHelpers.Js("{\"compact\":true}")));
+			Assert.Equal(new[] { "hp", "lives" }, read.GetProperty("names").EnumerateArray().Select(e => e.GetString()).ToArray());
+			Assert.Equal((ulong)0x42, read.GetProperty("values")[0].GetUInt64());
+			Assert.Equal((ulong)0, read.GetProperty("values")[1].GetUInt64());
+			Assert.False(read.GetProperty("changed")[0].GetBoolean());
 		}
 
 		[Fact]
