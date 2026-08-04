@@ -2531,18 +2531,26 @@ namespace BizHawkMcp
 		// by screenshot and frame_hash. Returns the effective absolute path.
 		private string CapturePng(JsonElement? args, string prefix, out bool includeOverlays)
 		{
-			string? path = null;
+			string? requestedPath = null;
 			includeOverlays = false;
 			if (args is { } a && a.ValueKind == JsonValueKind.Object)
 			{
-				path = NormalizeHostPath(OptionalString(a, "path"), IsWindowsHost());
+				requestedPath = NormalizeHostPath(OptionalString(a, "path"), IsWindowsHost());
 				includeOverlays = a.TryGetProperty("include_overlays", out var io) && io.ValueKind == JsonValueKind.True;
 			}
-			if (string.IsNullOrEmpty(path))
+
+			// net48's IsNullOrEmpty carries no [NotNullWhen] annotation, so
+			// resolve to a non-null local instead of narrowing requestedPath
+			string path;
+			if (string.IsNullOrEmpty(requestedPath))
 			{
 				var dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "bizhawk-mcp");
 				System.IO.Directory.CreateDirectory(dir);
 				path = System.IO.Path.Combine(dir, $"{prefix}-{DateTime.Now:yyyyMMdd-HHmmss-fff}.png");
+			}
+			else
+			{
+				path = requestedPath!; // non-null: IsNullOrEmpty was false
 			}
 
 			// ScreenshotCaptureOsd=true makes EmuHawk's CaptureOSD() compose the

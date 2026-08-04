@@ -212,8 +212,13 @@ namespace BizHawkMcp.Mcp
 			ctx.Response.Close();
 		}
 
-		private static string? TrimOrNull(string? v) =>
-			string.IsNullOrWhiteSpace(v) ? null : v.Trim();
+		private static string? TrimOrNull(string? v)
+		{
+			// net48's IsNullOrWhiteSpace carries no [NotNullWhen] annotation,
+			// so trim first and re-check instead of narrowing v
+			string? trimmed = v?.Trim();
+			return string.IsNullOrEmpty(trimmed) ? null : trimmed;
+		}
 
 		internal (object? id, byte[] bytes, bool isNotification, int httpStatus) Dispatch(string body, string? hdrVersion = null, string? hdrMethod = null, string? hdrName = null)
 		{
@@ -312,7 +317,7 @@ namespace BizHawkMcp.Mcp
 					else if (nameArgs.TryGetProperty("uri", out var u) && u.ValueKind == JsonValueKind.String) bodyName = u.GetString();
 				}
 
-				if (bodyName == null || JsonRpc.DecodeHeaderValue(hdrName) != bodyName)
+				if (bodyName == null || JsonRpc.DecodeHeaderValue(hdrName!) != bodyName)
 					return (id, JsonRpc.Failure(id, JsonRpc.Error.HeaderMismatch($"Mcp-Name header '{hdrName}' does not match body name '{(bodyName ?? "<none>")}'")), false, 400);
 			}
 
