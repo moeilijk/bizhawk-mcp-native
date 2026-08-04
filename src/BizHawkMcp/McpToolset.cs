@@ -1800,7 +1800,7 @@ namespace BizHawkMcp
 				}
 
 				System.IO.File.WriteAllText(path, lines.ToString());
-				string uri = RegisterArtifact(path, "text/csv", $"fixture {System.IO.Path.GetFileName(path)} ({frames} frames, {resolved.Count} samples)");
+				string uri = RegisterArtifact(path!, "text/csv", $"fixture {System.IO.Path.GetFileName(path)} ({frames} frames, {resolved.Count} samples)");
 				var result = new Dictionary<string, object?>
 				{
 					["path"] = path,
