@@ -38,13 +38,13 @@ The Release build's `CopyToExternalTools` target copies the tool + NuGet deps in
 
 1. In `McpToolset`, add a descriptor to `ToolSchemas`:
    ```csharp
-   Tool("bizhawk_my_tool", "What it does.", [
+   Tool("my_tool", "What it does.", [
        Param("foo", "integer", "Meaning of foo.", 1),   // name, JSON type, description, optional default
    ]),
    ```
 2. Add the dispatch arm in `Call(string name, JsonElement? args)`:
    ```csharp
-   "bizhawk_my_tool" => _ui.Invoke(() => MyTool(args)),
+   "my_tool" => _ui.Invoke(() => MyTool(args)),
    ```
 3. Implement the handler (always on the UI thread — see the `_ui.Invoke` pattern; never touch `Memory`/`EmuClient`/etc. directly in a handler body without it):
    ```csharp
@@ -64,7 +64,7 @@ Param helpers available: `Required`, `RequireLong`, `RequireInt`, `RequireULong`
 
 - **Primary surface:** the tool form's log TextBox — every HTTP error and handler exception is appended there (`ExternalToolEntry.Log`). Keep messages short and greppable.
 - **Silent load failure:** if the menu item is disabled (red exclamation icon), hover it: EmuHawk prints the reason (`ExternalToolManager.GenerateToolTipFromFileName` → e.g. "doesn't contain a class implementing IExternalToolForm"). Common causes: missing `[ExternalTool]` attribute, or a `[RequiredApi]` type the provider doesn't register (never use it on `ApiContainer`).
-- **Watchpoint reflection:** `bizhawk_watchpoint_*` reach `IDebuggable.MemoryCallbacks` via reflection on `EmulationApi.DebuggableCore`. If a BizHawk bump renames that private property, watchpoints fail with a clear error, not a crash. `MemoryCallbackSystem` is also where the core activates its native hooks (`ActiveChanged` → `gpgx_set_mem_callback`).
+- **Watchpoint reflection:** `watchpoint_*` reach `IDebuggable.MemoryCallbacks` via reflection on `EmulationApi.DebuggableCore`. If a BizHawk bump renames that private property, watchpoints fail with a clear error, not a crash. `MemoryCallbackSystem` is also where the core activates its native hooks (`ActiveChanged` → `gpgx_set_mem_callback`).
 - **Address semantics on Genesis:** a "bug" report of domains disagreeing is usually the bus-vs-offset convention (see AGENTS.md "Domain & address conventions"). Always pass `domain` explicitly and convert Ghidra's 32-bit addresses to the 24-bit bus before reading.
 - **First load on Release builds** shows a trust prompt (checksum stored in `config.ini`); Debug builds skip it.
 - **Redeploy while loaded:** Windows locks assemblies in use — if the tool form is open in EmuHawk, the copy to `ExternalTools` fails (MSB3021, non-fatal warning in the csproj). Close the form (or EmuHawk) and rebuild.
@@ -81,9 +81,9 @@ Param helpers available: `Required`, `RequireLong`, `RequireInt`, `RequireULong`
 ## Known issues
 
 - **`MSB3277` System.Memory conflict warning** (ours 4.0.1.2 vs BizHawk's 4.0.5.0): benign — the CLR unifies to the higher version at runtime; the code only uses basic `JsonSerializer` surfaces.
-- **No memory domain enumeration:** ApiHawk has no domain-list API; `bizhawk_get_info` reports current domain + size, `bizhawk_use_memory_domain` switches. Enumerating all domains would require reaching into the core's `MemoryDomains` via reflection (out of scope so far).
-- **Paths are host-side:** `bizhawk_screenshot`/`save_state`/`load_state` take paths on the machine running EmuHawk (e.g. `C:/temp/...` from a WSL-driven agent).
-- **`bizhawk_frame_advance` cap:** 600 frames per call (UI responsiveness + request timeout sanity).
+- **No memory domain enumeration:** ApiHawk has no domain-list API; `get_info` reports current domain + size, `use_memory_domain` switches. Enumerating all domains would require reaching into the core's `MemoryDomains` via reflection (out of scope so far).
+- **Paths are host-side:** `screenshot`/`save_state`/`load_state` take paths on the machine running EmuHawk (e.g. `C:/temp/...` from a WSL-driven agent).
+- **`frame_advance` cap:** 600 frames per call (UI responsiveness + request timeout sanity).
 
 ## CI / releases
 

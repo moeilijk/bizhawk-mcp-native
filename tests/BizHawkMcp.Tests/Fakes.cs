@@ -591,24 +591,66 @@ namespace BizHawkMcp.Tests
 
 	public sealed class FakeEmulator : IEmulator
 	{
-		public FakeEmulator(IStatable statable) => Statable = statable;
+		public FakeEmulator(IStatable? statable = null, ICodeDataLogger? cdl = null)
+		{
+			Statable = statable;
+			Cdl = cdl;
+		}
 
-		public IStatable Statable { get; }
+		public IStatable? Statable { get; }
+		public ICodeDataLogger? Cdl { get; set; }
 
-		public IEmulatorServiceProvider ServiceProvider => new FakeServiceProvider(Statable);
+		public IEmulatorServiceProvider ServiceProvider => new FakeServiceProvider(Statable, Cdl);
 
 		public void Dispose() { }
 	}
 
 	public sealed class FakeServiceProvider : IEmulatorServiceProvider
 	{
-		private readonly IStatable _statable;
+		private readonly IStatable? _statable;
+		private readonly ICodeDataLogger? _cdl;
 
-		public FakeServiceProvider(IStatable statable) => _statable = statable;
+		public FakeServiceProvider(IStatable? statable, ICodeDataLogger? cdl = null)
+		{
+			_statable = statable;
+			_cdl = cdl;
+		}
 
-		public T GetService<T>() where T : IEmulatorService => (T)(object)_statable;
+		public T GetService<T>() where T : IEmulatorService
+		{
+			if (typeof(T) == typeof(ICodeDataLogger)) return (T)(object)_cdl!;
+			return (T)(object)_statable!;
+		}
 
-		public object? GetService(Type t) => t.IsInstanceOfType(_statable) ? _statable : null;
+		public object? GetService(Type t) =>
+			_cdl != null && t.IsInstanceOfType(_cdl) ? _cdl
+			: _statable != null && t.IsInstanceOfType(_statable) ? _statable
+			: null;
+	}
+
+	// Simulates a core with the ICodeDataLogger service (like GPGX): NewCDL
+	// fills the passed log with per-domain bitmaps; SetCDL installs it; Exec()
+	// ORs access flags in from the "core thread" (mirrors GPGX.CDCallbackProc).
+	public sealed class FakeCdl : ICodeDataLogger
+	{
+		public ICodeDataLog? Installed { get; private set; }
+		public int NewCdlCalls;
+
+		public void NewCDL(ICodeDataLog cdl)
+		{
+			NewCdlCalls++;
+			cdl["MD CART"] = new byte[1024 * 1024];
+			cdl["68K RAM"] = new byte[65536];
+			cdl["Z80 RAM"] = new byte[8192];
+			cdl.SubType = "GEN";
+			cdl.SubVer = 0;
+		}
+
+		public void SetCDL(ICodeDataLog? cdl) => Installed = cdl;
+
+		public void DisassembleCDL(System.IO.Stream s, ICodeDataLog cdl) { }
+
+		public void Exec(string domain, long addr, byte flags) => Installed![domain][addr] |= flags;
 	}
 
 	public sealed class FakeLuaLibraries : LuaLibraries
@@ -678,6 +720,21 @@ namespace BizHawkMcp.Tests
 			var emu = new FakeEmulator(statable);
 			EmulationApi.Emulator = emu;
 			return emu;
+		}
+
+		/// <summary>Wires up ICodeDataLogger support like the gpgx core would.
+		/// Keeps any existing emulator (e.g. from EnableMemStates) and just
+		/// attaches the CDL service to it.</summary>
+		public FakeCdl EnableCdl()
+		{
+			var cdl = new FakeCdl();
+			if (EmulationApi.Emulator is not FakeEmulator emu)
+			{
+				emu = new FakeEmulator();
+				EmulationApi.Emulator = emu;
+			}
+			emu.Cdl = cdl;
+			return cdl;
 		}
 
 		/// <summary>Wires up the emulator cheat list like MainForm would (the

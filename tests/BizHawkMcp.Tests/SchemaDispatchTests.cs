@@ -73,7 +73,7 @@ namespace BizHawkMcp.Tests
 		[Fact]
 		public void Read_memory_schema_has_defaults()
 		{
-			var read = Schemas().First(s => (string)s["name"]! == "bizhawk_read_memory");
+			var read = Schemas().First(s => (string)s["name"]! == "read_memory");
 			var props = Assert.IsType<Dictionary<string, object?>>(
 				Assert.IsType<Dictionary<string, object?>>(read["inputSchema"])["properties"]);
 			var width = Assert.IsType<Dictionary<string, object?>>(props["width"]);
@@ -131,7 +131,7 @@ namespace BizHawkMcp.Tests
 		[Fact]
 		public void Tools_call_returns_text_content()
 		{
-			var r = _server.Dispatch("{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\",\"params\":{\"name\":\"bizhawk_ping\",\"arguments\":{}}}");
+			var r = _server.Dispatch("{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\",\"params\":{\"name\":\"ping\",\"arguments\":{}}}");
 			using var doc = ParseResult(r);
 			var content = doc.RootElement.GetProperty("result").GetProperty("content");
 			Assert.Equal("text", content[0].GetProperty("type").GetString());
@@ -249,7 +249,7 @@ namespace BizHawkMcp.Tests
 		[Fact]
 		public void Modern_tool_call_gets_resultType_but_no_cache_fields()
 		{
-			var r = _server.Dispatch("{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\",\"params\":{\"name\":\"bizhawk_ping\",\"arguments\":{},\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\"}}}");
+			var r = _server.Dispatch("{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\",\"params\":{\"name\":\"ping\",\"arguments\":{},\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\"}}}");
 			using var doc = ParseResult(r);
 			var result = doc.RootElement.GetProperty("result");
 			Assert.Equal("complete", result.GetProperty("resultType").GetString());
@@ -293,7 +293,7 @@ namespace BizHawkMcp.Tests
 		public void Modern_header_name_mismatch_returns_32020()
 		{
 			var r = _server.Dispatch(
-				"{\"jsonrpc\":\"2.0\",\"id\":8,\"method\":\"tools/call\",\"params\":{\"name\":\"bizhawk_ping\",\"arguments\":{},\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\"}}}",
+				"{\"jsonrpc\":\"2.0\",\"id\":8,\"method\":\"tools/call\",\"params\":{\"name\":\"ping\",\"arguments\":{},\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\"}}}",
 				hdrVersion: "2026-07-28", hdrName: "bogus");
 			using var doc = ParseResult(r);
 			Assert.Equal(-32020, doc.RootElement.GetProperty("error").GetProperty("code").GetInt32());
@@ -303,8 +303,8 @@ namespace BizHawkMcp.Tests
 		public void Matching_modern_headers_are_accepted()
 		{
 			var r = _server.Dispatch(
-				"{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"tools/call\",\"params\":{\"name\":\"bizhawk_ping\",\"arguments\":{},\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\"}}}",
-				hdrVersion: "2026-07-28", hdrMethod: "tools/call", hdrName: "bizhawk_ping");
+				"{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"tools/call\",\"params\":{\"name\":\"ping\",\"arguments\":{},\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\"}}}",
+				hdrVersion: "2026-07-28", hdrMethod: "tools/call", hdrName: "ping");
 			using var doc = ParseResult(r);
 			Assert.Equal("pong", doc.RootElement.GetProperty("result").GetProperty("content")[0].GetProperty("text").GetString());
 		}

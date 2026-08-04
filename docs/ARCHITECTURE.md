@@ -56,11 +56,11 @@
 | Event | Behavior |
 |---|---|
 | Tool loaded / form shown | `McpHttpServer.Start()` — binds, starts accept thread |
-| `bizhawk_shutdown` tool | `StopServer()` via UI dispatcher — listener closed, tool stays loaded; the form's "Stop server" button can restart it (re-clicking Start via the form re-binds) |
+| `shutdown` tool | `StopServer()` via UI dispatcher — listener closed, tool stays loaded; the form's "Stop server" button can restart it (re-clicking Start via the form re-binds) |
 | Form closing | `OnFormClosing` → `StopServer()` |
 | ROM change / core restart | `Restart()` (no-op) — server keeps running |
 
-Note: the server currently only starts on `OnShown`; restarting after `bizhawk_shutdown` requires closing and reopening the tool form (or extending the form with a start button — the `StartServer()` method is already reusable).
+Note: the server currently only starts on `OnShown`; restarting after `shutdown` requires closing and reopening the tool form (or extending the form with a start button — the `StartServer()` method is already reusable).
 
 ## Version pinning
 

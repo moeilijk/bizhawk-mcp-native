@@ -98,10 +98,10 @@ namespace BizHawkMcp.Tests
 				var url = server.BaseUrl;
 
 				// write then read via the real HTTP endpoint
-				var (status, body) = await Post(url, "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\",\"params\":{\"name\":\"bizhawk_write_memory\",\"arguments\":{\"address\":100,\"width\":8,\"value\":165}}}");
+				var (status, body) = await Post(url, "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\",\"params\":{\"name\":\"write_memory\",\"arguments\":{\"address\":100,\"width\":8,\"value\":165}}}");
 				Assert.Equal(HttpStatusCode.OK, status);
 
-				(status, body) = await Post(url, "{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"tools/call\",\"params\":{\"name\":\"bizhawk_read_memory\",\"arguments\":{\"address\":100,\"width\":8}}}");
+				(status, body) = await Post(url, "{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"tools/call\",\"params\":{\"name\":\"read_memory\",\"arguments\":{\"address\":100,\"width\":8}}}");
 				using var doc = JsonDocument.Parse(body);
 				var text = doc.RootElement.GetProperty("result").GetProperty("content")[0].GetProperty("text").GetString()!;
 				using var value = JsonDocument.Parse(text);
@@ -163,7 +163,7 @@ namespace BizHawkMcp.Tests
 				Assert.Equal("user", messages[0].GetProperty("role").GetString());
 				var text = messages[0].GetProperty("content").GetProperty("text").GetString();
 				Assert.Contains("jump height", text);
-				Assert.Contains("bizhawk_search_memory", text);
+				Assert.Contains("search_memory", text);
 
 				// initialize advertises the prompts capability
 				(status, body) = await Post(url, "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{},\"clientInfo\":{\"name\":\"t\",\"version\":\"0\"}}}");
@@ -235,8 +235,8 @@ namespace BizHawkMcp.Tests
 			try
 			{
 				// write + read + an error, all in ONE POST (array → array)
-				var batch = "[{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"bizhawk_write_memory\",\"arguments\":{\"address\":100,\"width\":8,\"value\":165}}},"
-					+ "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"bizhawk_read_memory\",\"arguments\":{\"address\":100,\"width\":8}}},"
+				var batch = "[{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"write_memory\",\"arguments\":{\"address\":100,\"width\":8,\"value\":165}}},"
+					+ "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"read_memory\",\"arguments\":{\"address\":100,\"width\":8}}},"
 					+ "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"nope\"}]";
 				var (status, body) = await Post(server.BaseUrl, batch);
 				Assert.Equal(HttpStatusCode.OK, status);
@@ -288,8 +288,8 @@ namespace BizHawkMcp.Tests
 
 				// modern tools/call with full headers, matching name
 				(status, body) = await PostModern(url,
-					"{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":\"bizhawk_ping\",\"arguments\":{},\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\"}}}",
-					method: "tools/call", name: "bizhawk_ping");
+					"{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":\"ping\",\"arguments\":{},\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\"}}}",
+					method: "tools/call", name: "ping");
 				Assert.Equal(HttpStatusCode.OK, status);
 				using var pong = JsonDocument.Parse(body);
 				Assert.Equal("pong", pong.RootElement.GetProperty("result").GetProperty("content")[0].GetProperty("text").GetString());
@@ -373,7 +373,7 @@ namespace BizHawkMcp.Tests
 			try
 			{
 				// create an artifact (dump_memory) via the JSON-RPC endpoint
-				var (_, body) = await Post(server.BaseUrl, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"bizhawk_dump_memory\",\"arguments\":{\"domain\":\"68K RAM\"}}}");
+				var (_, body) = await Post(server.BaseUrl, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"dump_memory\",\"arguments\":{\"domain\":\"68K RAM\"}}}");
 				using var doc = JsonDocument.Parse(body);
 				var text = doc.RootElement.GetProperty("result").GetProperty("content")[0].GetProperty("text").GetString()!;
 				using var result = JsonDocument.Parse(text);

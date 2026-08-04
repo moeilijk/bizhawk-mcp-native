@@ -459,11 +459,11 @@ namespace BizHawkMcp.Mcp
 					string? domain = a.TryGetProperty("arguments", out var da) && da.ValueKind == JsonValueKind.Object && da.TryGetProperty("domain", out var dv) && dv.ValueKind == JsonValueKind.String ? dv.GetString() : null;
 					var sb = new System.Text.StringBuilder();
 					sb.Append("You are analyzing a game running in BizHawk (Genesis gpgx). Goal: research ").Append(target).Append(". Steps:\n");
-					sb.Append("1. Register known addresses as symbols (bizhawk_symbols_set) — import Ghidra exports into a namespace.\n");
-					sb.Append("2. Locate the value: bizhawk_search_memory (try u8/u16/u32, both endianness) in domain ").Append(domain ?? "the current domain").Append(".\n");
-					sb.Append("3. Narrow with bizhawk_wait_until / bizhawk_watch_change to catch dynamic changes across frames.\n");
-					sb.Append("4. Pin down the writer: a bizhawk_watchpoint_add (write) on the address, then bizhawk_watchpoint_wait — or bizhawk_trace to see where the code runs.\n");
-					sb.Append("5. Save the core state (bizhawk_memstate_save) before experiments and restore (bizhawk_memstate_load) between attempts.\n");
+					sb.Append("1. Register known addresses as symbols (symbols_set) — import Ghidra exports into a namespace.\n");
+					sb.Append("2. Locate the value: search_memory (try u8/u16/u32, both endianness) in domain ").Append(domain ?? "the current domain").Append(".\n");
+					sb.Append("3. Narrow with wait_until / watch_change to catch dynamic changes across frames.\n");
+					sb.Append("4. Pin down the writer: a watchpoint_add (write) on the address, then watchpoint_wait — or trace to see where the code runs.\n");
+					sb.Append("5. Save the core state (memstate_save) before experiments and restore (memstate_load) between attempts.\n");
 					sb.Append("Report the address, width, endianness, and the code path that writes it (with the disassembly from the hit context).");
 					return PromptResult(name, target, sb.ToString());
 				}
@@ -474,9 +474,9 @@ namespace BizHawkMcp.Mcp
 						: "the requested sequence";
 					var sb = new System.Text.StringBuilder();
 					sb.Append("You are crafting an input sequence in BizHawk (Genesis gpgx). Goal: ").Append(goal).Append(". Steps:\n");
-					sb.Append("1. Save the starting core state: bizhawk_memstate_save {slot: \"start\"}.\n");
-					sb.Append("2. Use bizhawk_start_fixture with an input timeline (input_mode \"explicit\" releases buttons between entries) and sample position/velocity per frame.\n");
-					sb.Append("3. After each attempt, restore with bizhawk_memstate_load {slot: \"start\"} so the next try starts identical.\n");
+					sb.Append("1. Save the starting core state: memstate_save {slot: \"start\"}.\n");
+					sb.Append("2. Use start_fixture with an input timeline (input_mode \"explicit\" releases buttons between entries) and sample position/velocity per frame.\n");
+					sb.Append("3. After each attempt, restore with memstate_load {slot: \"start\"} so the next try starts identical.\n");
 					sb.Append("4. Iterate: adjust the timeline (frames, buttons, hold/release) until the CSV shows the intended motion.\n");
 					sb.Append("Report the final timeline as JSON inputs and the resulting per-frame CSV rows.");
 					return PromptResult(name, goal, sb.ToString());

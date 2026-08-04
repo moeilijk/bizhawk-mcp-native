@@ -67,42 +67,42 @@ Every tool is registered with a JSON schema, so clients get typed params and des
 
 | Tool | Params | Returns |
 |---|---|---|
-| `bizhawk_ping` | — | `pong` |
-| `bizhawk_get_info` | — | ROM name/hash, system, framecount, pause state, active memory domain + size, server URL |
-| `bizhawk_get_board_info` | — | board name, display type (NTSC/PAL), game options (JSON) |
-| `bizhawk_shutdown` | — | stops the server (plugin stays loaded) |
+| `ping` | — | `pong` |
+| `get_info` | — | ROM name/hash, system, framecount, pause state, active memory domain + size, server URL |
+| `get_board_info` | — | board name, display type (NTSC/PAL), game options (JSON) |
+| `shutdown` | — | stops the server (plugin stays loaded) |
 
 ### Memory
 
 | Tool | Params | Returns |
 |---|---|---|
-| `bizhawk_list_memory_domains` | — | all domains + sizes + known bus bases (JSON) |
-| `bizhawk_use_memory_domain` | `domain` | confirmation |
-| `bizhawk_read_memory` | `address` or `name`, `width` (8/16/32), `domain?`, `endianness?` | unsigned value + endianness used |
-| `bizhawk_write_memory` | `address` or `name`, `width`, `value`, `domain?`, `endianness?`, `freeze?` | `ok` |
-| `bizhawk_read_signed` | `address`, `width` (8/16/24/32), `domain?`, `endianness?` | signed value |
-| `bizhawk_write_signed` | `address`, `width`, `value`, `domain?`, `endianness?` | `ok` |
-| `bizhawk_read_float` / `bizhawk_write_float` | `address`, `domain?`, `endianness?` | float value / `ok` |
-| `bizhawk_read_many` | `items` (addr/name + width/domain), `consistent?` | values (JSON, frame-consistent when `consistent`) |
-| `bizhawk_write_many` | `items` (addr/name + width + value + `freeze?`) | `wrote N value(s)`, per-item failures |
-| `bizhawk_read_range` | `address`, `length` (1–4096), `domain?` | hex dump |
-| `bizhawk_read_bulk` | `address`/`name`, `length` (1–65536), `domain?` | `{address, length, base64}` (JSON) |
-| `bizhawk_write_range` | `address`, `values` or `fill`+`length`, `domain?`, `freeze?` | `wrote N byte(s)` |
-| `bizhawk_search_memory` | `value`, `width`, `domain?`, `range_start?`, `range_length?`, `max_results?`, `addresses?`, `endianness?` | matching addresses (JSON) |
-| `bizhawk_hash_region` | `address`, `length`, `domain?` | SHA1 of region |
-| `bizhawk_dump_memory` | `domain?`, `path?` | `{path, size, resource}` (JSON) |
-| `bizhawk_ram_snapshot` / `bizhawk_ram_diff` | `domain?`, `label?` / `domain?`, `max_results?` | snapshot captured / changed runs with old+new hex (JSON) |
-| `bizhawk_read_palette` | `count?`, `domain?` | hex RGB colors (JSON; GEN/SNES) |
-| `bizhawk_read_struct` | `address`/`name`, `fields` (name/offset/width), `domain?` | fields with address/value/endianness (JSON) |
-| `bizhawk_set_big_endian` | `enabled` | global endianness override for the session |
+| `list_memory_domains` | — | all domains + sizes + known bus bases (JSON) |
+| `use_memory_domain` | `domain` | confirmation |
+| `read_memory` | `address` or `name`, `width` (8/16/32), `domain?`, `endianness?` | unsigned value + endianness used |
+| `write_memory` | `address` or `name`, `width`, `value`, `domain?`, `endianness?`, `freeze?` | `ok` |
+| `read_signed` | `address`, `width` (8/16/24/32), `domain?`, `endianness?` | signed value |
+| `write_signed` | `address`, `width`, `value`, `domain?`, `endianness?` | `ok` |
+| `read_float` / `write_float` | `address`, `domain?`, `endianness?` | float value / `ok` |
+| `read_many` | `items` (addr/name + width/domain), `consistent?` | values (JSON, frame-consistent when `consistent`) |
+| `write_many` | `items` (addr/name + width + value + `freeze?`) | `wrote N value(s)`, per-item failures |
+| `read_range` | `address`, `length` (1–4096), `domain?` | hex dump |
+| `read_bulk` | `address`/`name`, `length` (1–65536), `domain?` | `{address, length, base64}` (JSON) |
+| `write_range` | `address`, `values` or `fill`+`length`, `domain?`, `freeze?` | `wrote N byte(s)` |
+| `search_memory` | `value`, `width`, `domain?`, `range_start?`, `range_length?`, `max_results?`, `addresses?`, `endianness?` | matching addresses (JSON) |
+| `hash_region` | `address`, `length`, `domain?` | SHA1 of region |
+| `dump_memory` | `domain?`, `path?` | `{path, size, resource}` (JSON) |
+| `ram_snapshot` / `ram_diff` | `domain?`, `label?` / `domain?`, `max_results?` | snapshot captured / changed runs with old+new hex (JSON) |
+| `read_palette` | `count?`, `domain?` | hex RGB colors (JSON; GEN/SNES) |
+| `read_struct` | `address`/`name`, `fields` (name/offset/width), `domain?` | fields with address/value/endianness (JSON) |
+| `set_big_endian` | `enabled` | global endianness override for the session |
 
 ### Symbols
 
 | Tool | Params | Returns |
 |---|---|---|
-| `bizhawk_symbols_set` | `symbols` (name/address/width/domain), `namespace?` | `registered N symbol(s) in "<ns>" (persisted)` |
-| `bizhawk_symbols_list` | — | registered symbols + namespaces (JSON) |
-| `bizhawk_symbols_clear` | `namespace?` | `cleared N symbol(s)` |
+| `symbols_set` | `symbols` (name/address/width/domain), `namespace?` | `registered N symbol(s) in "<ns>" (persisted)` |
+| `symbols_list` | — | registered symbols + namespaces (JSON) |
+| `symbols_clear` | `namespace?` | `cleared N symbol(s)` |
 
 Symbols persist across restarts, scoped per ROM hash + namespace — paste Ghidra exports in once and use `"name"` instead of raw addresses everywhere (memory tools, freezes, watchpoints, fixtures).
 
@@ -110,54 +110,54 @@ Symbols persist across restarts, scoped per ROM hash + namespace — paste Ghidr
 
 | Tool | Params | Returns |
 |---|---|---|
-| `bizhawk_frame_advance` | `count` (1–600) | confirmation |
-| `bizhawk_pause` / `unpause` / `toggle_pause` | — | new paused state |
-| `bizhawk_speed_mode` | `percent` | confirmation |
-| `bizhawk_frameskip` | `count` | confirmation |
-| `bizhawk_limit_framerate` | `enabled` | confirmation |
-| `bizhawk_enable_rewind` | `enabled` | confirmation |
-| `bizhawk_get_sound` / `set_sound` | `enabled` | state / confirmation |
-| `bizhawk_open_rom` / `close_rom` / `reboot` | `path` / — / — | confirmation |
+| `frame_advance` | `count` (1–600) | confirmation |
+| `pause` / `unpause` / `toggle_pause` | — | new paused state |
+| `speed_mode` | `percent` | confirmation |
+| `frameskip` | `count` | confirmation |
+| `limit_framerate` | `enabled` | confirmation |
+| `enable_rewind` | `enabled` | confirmation |
+| `get_sound` / `set_sound` | `enabled` | state / confirmation |
+| `open_rom` / `close_rom` / `reboot` | `path` / — / — | confirmation |
 
 ### Input
 
 | Tool | Params | Returns |
 |---|---|---|
-| `bizhawk_press_buttons` | `buttons` (map), `controller?` | confirmation (for the NEXT frame) |
-| `bizhawk_get_joypad` | `controller?` | button map (JSON) |
-| `bizhawk_host_input` | — | host keyboard/mouse (JSON) |
+| `press_buttons` | `buttons` (map), `controller?` | confirmation (for the NEXT frame) |
+| `get_joypad` | `controller?` | button map (JSON) |
+| `host_input` | — | host keyboard/mouse (JSON) |
 
 ### CPU & tracing
 
 | Tool | Params | Returns |
 |---|---|---|
-| `bizhawk_get_registers` | — | CPU registers (JSON, raw core keys) |
-| `bizhawk_set_register` | `register`, `value` | confirmation (some cores don't implement writes) |
-| `bizhawk_disassemble` | `pc`, `name?` | disassembly line |
-| `bizhawk_trace` | `count`, `step?` | per-frame PC + disassembly samples (JSON) |
-| `bizhawk_lag_count` | — | lag state + count (JSON) |
+| `get_registers` | — | CPU registers (JSON, raw core keys) |
+| `set_register` | `register`, `value` | confirmation (some cores don't implement writes) |
+| `disassemble` | `pc`, `name?` | disassembly line |
+| `trace` | `count`, `step?` | per-frame PC + disassembly samples (JSON) |
+| `lag_count` | — | lag state + count (JSON) |
 
 ### Overlays & OSD
 
 | Tool | Params | Returns |
 |---|---|---|
-| `bizhawk_overlay_text` | `x`, `y`, `text`, `color?`, `fontsize?` | draws on video output |
-| `bizhawk_overlay_rect` | `x`, `y`, `width`, `height`, `color?`, `fill?`, `rects?` | rectangle(s) on video output |
-| `bizhawk_overlay_line` | `x1`, `y1`, `x2`, `y2`, `color?`, `lines?` | line(s) on video output |
-| `bizhawk_clear_overlay` | — | clears all overlays |
-| `bizhawk_osd_message` | `message`, `duration?` | OSD message |
+| `overlay_text` | `x`, `y`, `text`, `color?`, `fontsize?` | draws on video output |
+| `overlay_rect` | `x`, `y`, `width`, `height`, `color?`, `fill?`, `rects?` | rectangle(s) on video output |
+| `overlay_line` | `x1`, `y1`, `x2`, `y2`, `color?`, `lines?` | line(s) on video output |
+| `clear_overlay` | — | clears all overlays |
+| `osd_message` | `message`, `duration?` | OSD message |
 
-Overlays **accumulate** until `bizhawk_clear_overlay` — they are re-rendered on every frame advance, so hitboxes/labels stay on screen while the game runs. `include_overlays: true` on `bizhawk_screenshot` composes them into the PNG.
+Overlays **accumulate** until `clear_overlay` — they are re-rendered on every frame advance, so hitboxes/labels stay on screen while the game runs. `include_overlays: true` on `screenshot` composes them into the PNG.
 
 ### Savestates
 
 | Tool | Params | Returns |
 |---|---|---|
-| `bizhawk_save_state` / `load_state` | `path` | confirmation (disk) |
-| `bizhawk_save_slot` / `load_slot` | `slot` (1–10) | confirmation (quick-save slots) |
-| `bizhawk_memstate_save` | `slot` (any name) | `{slot, size, states}` (JSON) |
-| `bizhawk_memstate_load` | `slot` | `{slot, size}` (JSON) |
-| `bizhawk_memstate_list` | — | slots + sizes (JSON) |
+| `save_state` / `load_state` | `path` | confirmation (disk) |
+| `save_slot` / `load_slot` | `slot` (1–10) | confirmation (quick-save slots) |
+| `memstate_save` | `slot` (any name) | `{slot, size, states}` (JSON) |
+| `memstate_load` | `slot` | `{slot, size}` (JSON) |
+| `memstate_list` | — | slots + sizes (JSON) |
 
 `memstate_*` keeps **core state in RAM** (via the real `IStatable` service) — no disk, no slot limit; fast save/restore for search/TAS iteration. Core state only (CPU + memory; framecount/lag count are not restored).
 
@@ -165,16 +165,16 @@ Overlays **accumulate** until `bizhawk_clear_overlay` — they are re-rendered o
 
 | Tool | Params | Returns |
 |---|---|---|
-| `bizhawk_freeze_add` | `address`/`name`, `width?`, `value?`, `length?`, `note?`, `domain?`, `endianness?` | `{address, width, value, domain}` (JSON) |
-| `bizhawk_freeze_remove` | `note` or `address` (+`length?`/`domain?`) | `{removed}` (JSON) |
-| `bizhawk_freeze_list` | — | freezes + count (JSON) |
-| `bizhawk_freeze_clear` | — | `{cleared}` (JSON) |
-| `bizhawk_lua_exec` | `code` | `{executed, result\|error}` (JSON) — REPL path |
-| `bizhawk_lua_load` | `path` | `{path, loaded, enabled}` (JSON) |
-| `bizhawk_lua_unload` | `path` | `{removed}` (JSON) |
-| `bizhawk_lua_enable` / `lua_disable` | `path` | `{path, enabled}` (JSON) |
-| `bizhawk_lua_list` | — | scripts + states (JSON) |
-| `bizhawk_lua_docs` | `library?` | Lua API docs as JSON (signatures + examples) |
+| `freeze_add` | `address`/`name`, `width?`, `value?`, `length?`, `note?`, `domain?`, `endianness?` | `{address, width, value, domain}` (JSON) |
+| `freeze_remove` | `note` or `address` (+`length?`/`domain?`) | `{removed}` (JSON) |
+| `freeze_list` | — | freezes + count (JSON) |
+| `freeze_clear` | — | `{cleared}` (JSON) |
+| `lua_exec` | `code` | `{executed, result\|error}` (JSON) — REPL path |
+| `lua_load` | `path` | `{path, loaded, enabled}` (JSON) |
+| `lua_unload` | `path` | `{removed}` (JSON) |
+| `lua_enable` / `lua_disable` | `path` | `{path, enabled}` (JSON) |
+| `lua_list` | — | scripts + states (JSON) |
+| `lua_docs` | `library?` | Lua API docs as JSON (signatures + examples) |
 
 Freezes drive the emulator's **real cheat engine** (`MainForm.CheatList` — shared with the hex editor's Freeze and the Cheats window): the value is re-written EVERY frame by EmuHawk's main loop, even while emulation runs freely. Lock timers, lives, health for repeated tests. Entries persist on exit; `freeze: true` on any write tool registers on the fly.
 
@@ -182,12 +182,12 @@ Freezes drive the emulator's **real cheat engine** (`MainForm.CheatList` — sha
 
 | Tool | Params | Returns |
 |---|---|---|
-| `bizhawk_watch_add` / `remove` / `list` / `read` | `name`, `address`, `width`, `domain?`, `endianness?` | register / remove / list / values + `changed` flags (JSON) |
-| `bizhawk_wait_until` | `address`/`name`, `op` (eq/ne/lt/gt/le/ge), `value`, `width?`, `domain?`, `timeout_frames?` | matched? + frames + value (JSON) |
-| `bizhawk_watch_change` | `address`/`name`, `width?`, `domain?`, `timeout_frames?` | first change-frame + initial/value (JSON) |
-| `bizhawk_watchpoint_add` | `name`, `type` (read/write/execute), `address?`, `domain?` | registered (Genesis gpgx only) |
-| `bizhawk_watchpoint_remove` / `list` | `name` / — | removed / list (JSON) |
-| `bizhawk_watchpoint_wait` | `timeout_frames?`, `context_bytes?` | hit: name/type/address/value (JSON; + registers/PC/disasm/bytes with `context_bytes`) |
+| `watch_add` / `remove` / `list` / `read` | `name`, `address`, `width`, `domain?`, `endianness?` | register / remove / list / values + `changed` flags (JSON) |
+| `wait_until` | `address`/`name`, `op` (eq/ne/lt/gt/le/ge), `value`, `width?`, `domain?`, `timeout_frames?` | matched? + frames + value (JSON) |
+| `watch_change` | `address`/`name`, `width?`, `domain?`, `timeout_frames?` | first change-frame + initial/value (JSON) |
+| `watchpoint_add` | `name`, `type` (read/write/execute), `address?`, `domain?` | registered (Genesis gpgx only) |
+| `watchpoint_remove` / `list` | `name` / — | removed / list (JSON) |
+| `watchpoint_wait` | `timeout_frames?`, `context_bytes?` | hit: name/type/address/value (JSON; + registers/PC/disasm/bytes with `context_bytes`) |
 
 Watchers are polling-based; **watchpoints are real hardware breakpoints** (`IDebuggable.MemoryCallbacks`) that fire the moment the core touches the address — Genesis gpgx only, every other core returns a clear error. `context_bytes: N` dumps full registers + PC/disasm + N raw bytes around the hit.
 
@@ -195,18 +195,18 @@ Watchers are polling-based; **watchpoints are real hardware breakpoints** (`IDeb
 
 | Tool | Params | Returns |
 |---|---|---|
-| `bizhawk_movie_info` | — | TAS movie info (JSON) |
-| `bizhawk_movie_input` | `frame` | mnemonic input string |
-| `bizhawk_movie_start` | `path?` | load-and-play .bk2 / start recording |
-| `bizhawk_movie_save` | `path?` | save movie |
-| `bizhawk_movie_stop` | — | stop movie |
+| `movie_info` | — | TAS movie info (JSON) |
+| `movie_input` | `frame` | mnemonic input string |
+| `movie_start` | `path?` | load-and-play .bk2 / start recording |
+| `movie_save` | `path?` | save movie |
+| `movie_stop` | — | stop movie |
 
 ### Capture & analysis
 
 | Tool | Params | Returns |
 |---|---|---|
-| `bizhawk_screenshot` | `path?`, `include_overlays?` | `{path, resource}` (JSON) — effective path + `bizhawk://` resource URI |
-| `bizhawk_start_fixture` | `frames`, `samples`, `inputs?`, `delay?`, `input_mode?`, `path?` | fixture CSV on host disk + `{path, frames, samples}` |
+| `screenshot` | `path?`, `include_overlays?` | `{path, resource}` (JSON) — effective path + `bizhawk://` resource URI |
+| `start_fixture` | `frames`, `samples`, `inputs?`, `delay?`, `input_mode?`, `path?` | fixture CSV on host disk + `{path, frames, samples}` |
 
 `start_fixture` is the orchestrated capture: an input timeline (with `hold`/`explicit` modes) advanced frame by frame while sampling a set of addresses/symbols per frame, written straight to CSV — no hand-rolled capture scripts needed.
 
@@ -214,8 +214,8 @@ Watchers are polling-based; **watchpoints are real hardware breakpoints** (`IDeb
 
 | Tool | Params | Returns |
 |---|---|---|
-| `bizhawk_genesis_get_vdp_view` | — | plane A/B nametable bases + dimensions (JSON, via the core) |
-| `bizhawk_genesis_read_plane` | `plane?` (A/B), `base?`, `columns?`, `rows?`, `offset_x?`, `offset_y?`, `scale?`, `path?` | nametable + 4bpp tiles + CRAM → PNG (resource URI) |
+| `genesis_get_vdp_view` | — | plane A/B nametable bases + dimensions (JSON, via the core) |
+| `genesis_read_plane` | `plane?` (A/B), `base?`, `columns?`, `rows?`, `offset_x?`, `offset_y?`, `scale?`, `path?` | nametable + 4bpp tiles + CRAM → PNG (resource URI) |
 
 Core-specific tools are named with a system prefix on purpose; generic tools keep core-neutral behavior.
 
@@ -223,9 +223,9 @@ Core-specific tools are named with a system prefix on purpose; generic tools kee
 
 | Tool | Params | Returns |
 |---|---|---|
-| `bizhawk_userdata_set` | `key`, `value` | `stored <key>` |
-| `bizhawk_userdata_get` | `key` | stored value |
-| `bizhawk_userdata_clear` | `key?` | cleared/removed |
+| `userdata_set` | `key`, `value` | `stored <key>` |
+| `userdata_get` | `key` | stored value |
+| `userdata_clear` | `key?` | cleared/removed |
 
 ## Quick start
 
@@ -300,7 +300,7 @@ Implemented subset of MCP **Streamable HTTP** (protocol version `2025-06-18`):
 - `POST /mcp` — stateless JSON-RPC 2.0 (no sessions); notifications return `202`.
 - `GET /mcp` with `Accept: text/event-stream` — SSE stream with an `endpoint` event + keepalive comments; the first stream of each server lifetime carries a `notifications/tools/list_changed` message (a redeployed DLL may serve a different tool list).
 - Methods: `initialize`, `ping`, `tools/list`, `tools/call`, `resources/list`, `resources/read`, `prompts/list`, `prompts/get` (`memory_research`, `tas_frame`).
-- **Resources** serve binary artifacts back to the client: `bizhawk_screenshot` and `bizhawk_genesis_read_plane` save PNGs on the host (default dir `<temp>/bizhawk-mcp/`) and return a `bizhawk://` URI; `resources/read` returns the bytes as base64 `blob` with the correct mimeType. Resource templates: `bizhawk://read/{domain}/{start}:{end}` (raw memory ranges, up to 256 KiB) and `bizhawk://lua-docs/{library}` (the Lua API reference as JSON — also available as the static `bizhawk://lua-docs` and the `bizhawk_lua_docs` tool).
+- **Resources** serve binary artifacts back to the client: `screenshot` and `genesis_read_plane` save PNGs on the host (default dir `<temp>/bizhawk-mcp/`) and return a `bizhawk://` URI; `resources/read` returns the bytes as base64 `blob` with the correct mimeType. Resource templates: `bizhawk://read/{domain}/{start}:{end}` (raw memory ranges, up to 256 KiB) and `bizhawk://lua-docs/{library}` (the Lua API reference as JSON — also available as the static `bizhawk://lua-docs` and the `lua_docs` tool).
 - Not implemented (yet): sessions (`mcp-session-id`), server-initiated SSE messages, resource subscriptions.
 
 Smoke test with curl:
@@ -310,13 +310,13 @@ curl -s -X POST http://127.0.0.1:8767/mcp/ \
   -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"curl","version":"0"}}}'
 curl -s -X POST http://127.0.0.1:8767/mcp/ -H 'Content-Type: application/json' \
-  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"bizhawk_get_info","arguments":{}}}'
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"get_info","arguments":{}}}'
 ```
 
 ## Memory model & endianness
 
 - **Domains** are the address spaces the core exposes (e.g. `68K RAM`, `M68K BUS`, `Z80 RAM` on Genesis). Offsets are domain-relative; bus domains take raw bus addresses. `list_memory_domains` reports `bus_base` so you can convert (68K RAM offset `0xFBC8` = bus `0xFFFBC8`).
-- **Endianness is per-domain**, not per-system: on Genesis, `68K RAM`/`M68K BUS` are big-endian while `Z80 RAM` (sound CPU) is little. Every memory tool accepts `"endianness": "big" | "little" | "auto"` (default `auto` = the domain's native endianness) and every read echoes the endianness actually used. Precedence: explicit param > global `bizhawk_set_big_endian` override > domain default.
+- **Endianness is per-domain**, not per-system: on Genesis, `68K RAM`/`M68K BUS` are big-endian while `Z80 RAM` (sound CPU) is little. Every memory tool accepts `"endianness": "big" | "little" | "auto"` (default `auto` = the domain's native endianness) and every read echoes the endianness actually used. Precedence: explicit param > global `set_big_endian` override > domain default.
 - **68K bus masking:** on GEN/SMD/32X/SAT bus domains, 32-bit disassembly addresses (e.g. `0xFFFFF832`) are masked to the real 24-bit bus (`0xFFF832`) like the hardware — so Ghidra addresses work as-is. Other cores reject out-of-range addresses strictly. Reads echo the raw `requested` address alongside the effective one.
 
 ## Compatibility & version pinning

@@ -50,6 +50,18 @@ Legend: `[~]` partially done / covered by another tool · `[ ]` open · `[x]` do
   block the POST response for seconds. Tasks returns a handle immediately +
   `tasks/get` polling; also gives unsolicited task handles. Bigger effort —
   good next iteration once dual-era lands.
+- [x] **Code/Data Logger** (`cdl_*`): the core exposes the real
+  `ICodeDataLogger` service (BizHawk.Emulation.Common, `NewCDL`/`SetCDL` —
+  confirmed in the pinned source: gpgx fills "MD CART"/"68K RAM"/"Z80 RAM"
+  bitmaps, 1 byte per address, via `CDCallbackProc` from the core's thread),
+  reached through the same `Emulator.ServiceProvider` reflection as
+  `IStatable`. Shipped start (blank + install)/stop (keep data)/get (per-block
+  exec/touched counts, coverage %, gpgx flag counts, capped address ranges
+  with `"exec"`/`"any"` mask + block filter)/export (real BIZHAWK-CDL-2
+  binary — EmuHawk CDL + Ghidra scripts can load it — or text ranges, as a
+  host file + `bizhawk://` artifact). Generic across cores that expose the
+  service; clear error otherwise. Live QA (gpgx + Kid Chameleon) still
+  pending.
 
 ## Tools / API surface
 
@@ -57,29 +69,29 @@ Legend: `[~]` partially done / covered by another tool · `[ ]` open · `[x]` do
   (`LuaLibraries`/`LuaFile`/`LuaSandbox`) lives in **BizHawk.Client.Common**
   (compile-time) and `ExecuteString` is the public REPL path; only the
   instance (`LuaImp` field on the Lua Console) needs reflection, reached via
-  the registered `IToolApi.GetTool("LuaConsole")`. Shipped `bizhawk_lua_exec`
+  the registered `IToolApi.GetTool("LuaConsole")`. Shipped `lua_exec`
   (inline), `lua_load`/`unload`/`enable`/`disable` (script lifecycle) and
   `lua_list`. Scripts run via EmuHawk's frame events every frame (even
   free-running) and survive core reboots.
 - [x] **Freeze/cheat support**: not in the ApiHawk set, but the emulator's real
   cheat engine (`MainForm.CheatList` + `Cheat`/`Watch`) is reachable via the
-  plugin form's `Owner` (the MainForm): `bizhawk_freeze_add`/`remove`/`list`/
+  plugin form's `Owner` (the MainForm): `freeze_add`/`remove`/`list`/
   `clear` plus an optional `freeze: true` on the write tools. Applies every
   frame via EmuHawk's main loop (even free-running) — freeze timers, lives,
   health for analysis.
 - [~] **`pointer_scan`**: find all RAM words/pointers pointing at address X.
-  Covered by `bizhawk_search_memory` (u16/u32 `value` = target address) —
+  Covered by `search_memory` (u16/u32 `value` = target address) —
   only worth a wrapper if the search tool's `max_results`/domain narrowing is
   not enough.
 - [ ] **Pointer chasing (`read_pointer`)**: `read_struct` covers fixed-offset
   fields, but dereferencing a chain (read ptr → follow → read target) is still
-  N hand-rolled calls. A `bizhawk_read_pointer(address, offsets...)` that
+  N hand-rolled calls. A `read_pointer(address, offsets...)` that
   follows a pointer chain in one frame-consistent pass would kill a whole
   class of agent boilerplate.
 - [~] **`fixture_capture(scenario.json)`**: orchestrate press_buttons +
-  read_many per frame → CSV. Implemented as `bizhawk_start_fixture` (input
+  read_many per frame → CSV. Implemented as `start_fixture` (input
   timeline + per-frame samples → CSV).
-- [x] **Stateful comparative RAM search**: `bizhawk_search_memory` without
+- [x] **Stateful comparative RAM search**: `search_memory` without
   `value` compares against the previous state (baseline snapshot on first
   call, then `ne`/`lt`/`gt`/`le`/`ge`/`changed`/`unchanged`), narrowing with
   `addresses` — the classic RAM-search flow (find what increased when the
@@ -91,28 +103,28 @@ Legend: `[~]` partially done / covered by another tool · `[ ]` open · `[x]` do
   ASCII/UTF-8 text (save names, dialogue) needs a dedicated tool (and the
   write half for name-entry hacks).
 - [ ] **`memstate_diff(a, b)`**: the plugin already holds both slots' raw core
-  state byte arrays in memory (`bizhawk_memstate_*`); comparing two and
+  state byte arrays in memory (`memstate_*`); comparing two and
   listing changed RAM ranges answers "what changed between pre/post state"
   with zero disk round-trips.
-- [ ] **Server-side numeric converter (`bizhawk_convert`)**: agents without a
+- [ ] **Server-side numeric converter (`convert`)**: agents without a
   local shell (pure MCP clients) can't `python3 -c "hex(...)"`; a
   decimal↔hex↔width/sign converter in the toolset would enforce the "never
   hand-convert" rule server-side.
 - [x] **Multi-condition `wait_until`**: "advance until X==N AND Y==M" was nested
-  single waits (fragile); `bizhawk_wait_until` now takes a `conditions` array
+  single waits (fragile); `wait_until` now takes a `conditions` array
   (1..32, each `{address|name, op, value, width?, domain?, endianness?}`) and
   returns only when ALL hold on the same frame, with per-condition results.
 - [ ] **Autofire pattern input**: `start_fixture` has a timeline; an
   "hold A every N frames" pattern mode would cover TAS autofire without
   scripting a per-frame timeline.
-- [x] **Frame hash** (`bizhawk_frame_hash`): SHA1 of the rendered frame's PNG —
+- [x] **Frame hash** (`frame_hash`): SHA1 of the rendered frame's PNG —
   deterministic for identical output, so agents can detect screen changes
   without transferring pixels.
-- [x] **Z80 registers** (`bizhawk_genesis_get_z80_registers`): the gpgx core
+- [x] **Z80 registers** (`genesis_get_z80_registers`): the gpgx core
   reports both CPUs in one register table (`GetCpuFlagsAndRegisters`); the
   tool filters the `Z80 *` half (sound CPU) — other cores error.
-- [x] **Z80 code debugging** (`bizhawk_genesis_disassemble_z80` +
-  `bizhawk_genesis_trace_z80`): disassembles Z80 bus space through BizHawk's
+- [x] **Z80 code debugging** (`genesis_disassemble_z80` +
+  `genesis_trace_z80`): disassembles Z80 bus space through BizHawk's
   static `Z80ADisassembler` (the gpgx core's own disassembler only speaks 68K),
   and traces PC/SP + stack words per frame — the sound driver's main loop and
   busy-waits. The bus is synthesized on GEN (the core has no "Z80 BUS" domain
@@ -132,7 +144,7 @@ Legend: `[~]` partially done / covered by another tool · `[ ]` open · `[x]` do
 - [x] **Latency**: measured live (2026-08-03, 50-100 calls each): ~17ms per call
   FIXED overhead (HTTP + JSON parse + UI-thread marshaling) regardless of
   payload — 1 read == 256 reads == 17ms. read_many of 256 items returns ~76 KB
-  JSON. Shipped `bizhawk_read_bulk` (raw base64, up to 64 KiB, one call —
+  JSON. Shipped `read_bulk` (raw base64, up to 64 KiB, one call —
   4096 contiguous bytes: 1 call instead of 16 read_many calls). Agent advice:
   batch aggressively; contiguous regions → read_bulk; whole domain →
   dump_memory / bizhawk://read resource.

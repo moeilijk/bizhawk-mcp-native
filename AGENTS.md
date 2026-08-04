@@ -3,7 +3,7 @@
 Guidance for AI agents (and humans) working on this repository.
 
 - **Documentation index:** `docs/` — `ARCHITECTURE.md`, `MCP-PROTOCOL.md`, `DEVELOPMENT.md`, `CI-RELEASES.md`. When in doubt, read the relevant doc before editing. Improvement ideas live in `TODO.md`.
-- **Current status (2026-08-03):** 94 tools verified end-to-end against the user's BizHawk dev build (2.11.2, commit `ed78f70a`, Windows via WSL). Server advertises `tools` + `resources` + `prompts` capabilities (incl. `listChanged`) over `http://127.0.0.1:8767/mcp/`, **dual-era protocol** (legacy `2025-11-25` `initialize` + modern `2026-07-28` stateless via `_meta`/`MCP-Protocol-Version`; `server/discover`, `-32020`/`-32022` errors, `ttlMs`/`cacheScope` caching hints — see `docs/MCP-PROTOCOL.md`); 264 unit tests (`./scripts/test.sh`) pass on Linux without BizHawk — including real-HTTP end-to-end tests (HttpEndToEndTests) that boot the real `McpHttpServer` on a random port. Deployed to `F:\projects\kid\emulators\BizHawk-dev-windows\ExternalTools\`. Test loop: an agent tests against Kid Chameleon (UE) on the Genesis gpgx waterbox core.
+- **Current status (2026-08-03):** 102 tools verified end-to-end against the user's BizHawk dev build (2.11.2, commit `ed78f70a`, Windows via WSL). Server advertises `tools` + `resources` + `prompts` capabilities (incl. `listChanged`) over `http://127.0.0.1:8767/mcp/`, **dual-era protocol** (legacy `2025-11-25` `initialize` + modern `2026-07-28` stateless via `_meta`/`MCP-Protocol-Version`; `server/discover`, `-32020`/`-32022` errors, `ttlMs`/`cacheScope` caching hints — see `docs/MCP-PROTOCOL.md`); 272 unit tests (`./scripts/test.sh`) pass on Linux without BizHawk — including real-HTTP end-to-end tests (HttpEndToEndTests) that boot the real `McpHttpServer` on a random port. Deployed to `F:\projects\kid\emulators\BizHawk-dev-windows\ExternalTools\`. Test loop: an agent tests against Kid Chameleon (UE) on the Genesis gpgx waterbox core.
 
 ## What this is
 
@@ -21,7 +21,7 @@ A native [MCP](https://modelcontextprotocol.io) server for BizHawk/EmuHawk imple
 4. **`System.Text.Json` version must match BizHawk's `dll/` folder** (currently 9.0.0) to avoid runtime assembly conflicts in the host process.
 5. **ApiHawk property names come from the pinned BizHawk commit** (`bizhawk.build`). E.g. `IGameInfo` exposes `Name`/`Hash`/`System` (not `RomName`/`RomHash`), `IEmulationApi.GetGameInfo()` returns it, `IMemoryApi` has `ReadByte/ReadU16/ReadU32` + `WriteU8/U16/U32` + signed/float + `HashRegion` + `GetMemoryDomainList`, `IEmuClientApi` has `DoFrameAdvance`/`Screenshot`/`IsPaused`/`Pause`/`Unpause`/`TogglePause`/`SpeedMode`, `IJoypadApi` has `Set(IReadOnlyDictionary<string,bool>, int?)`/`Get(int?)`. Note `IGuiApi.DrawText` has **no `fontsize`** (that's `DrawString`), and `IMovieApi.GetInputAsMnemonic` takes **only `frame`**. Verify against `src/BizHawk.Client.Common/Api/Interfaces/` of the pinned commit before touching tools.
 6. **ALWAYS convert numbers (decimal↔hex, widths, masks, offsets) with a command or script** — e.g. `python3 -c "print(hex(16785444))"` or a one-liner in the shell — **never by hand**. Hand arithmetic has caused real bugs in this repo (a wrong `0xFF2506` vs `0x272F06` sample address during B3 reproduction, and a wrong mask example in a tool description: `0x1000424` was claimed to mask to `0x2024`, it masks to `0x424`). Every hex address in a description, test, or message must be produced/verified by a script before being written down.
-7. **Core-specific tools must say so in their NAME** (`bizhawk_genesis_*` for Genesis-gpgx-only tools like `genesis_read_plane`/`genesis_get_vdp_view`); generic tools (memory read/write, watchpoints, palette, symbols…) must keep core-neutral descriptions — the 68K 24-bit bus masking only exists on GEN/SMD/32X/SAT bus domains, so it must be described as such, never as universal behavior.
+7. **Core-specific tools must say so in their NAME** (`genesis_*` for Genesis-gpgx-only tools like `genesis_read_plane`/`genesis_get_vdp_view`); generic tools (memory read/write, watchpoints, palette, symbols…) must keep core-neutral descriptions — the 68K 24-bit bus masking only exists on GEN/SMD/32X/SAT bus domains, so it must be described as such, never as universal behavior.
 
 ## Building
 
@@ -47,7 +47,7 @@ dotnet build src/BizHawkMcp/BizHawkMcp.csproj -c Release   # build only
      -H 'Content-Type: application/json' \
      -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"curl","version":"0"}}}'
    curl -s -X POST http://127.0.0.1:8767/mcp/ -H 'Content-Type: application/json' \
-     -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"bizhawk_get_info","arguments":{}}}'
+     -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"get_info","arguments":{}}}'
    ```
  4. EmuHawk's form shows request errors in its log box; check it if a call misbehaves.
 
@@ -82,11 +82,11 @@ Recipe with code in `docs/DEVELOPMENT.md`. In short: add a `Tool(...)` descripto
 
 ## Known limitations (skeleton state)
 
-- **Lua docs** (`bizhawk_lua_docs` + `bizhawk://lua-docs[/{library}]`): agent-friendly
+- **Lua docs** (`lua_docs` + `bizhawk://lua-docs[/{library}]`): agent-friendly
   JSON of the Lua API served from the RUNNING emulator — the same `[LuaMethod]`
   → `LuaLibraries.Docs` chain that generates tasvideos.org/Bizhawk/LuaFunctions,
   with examples the wiki omits. Use it instead of fetching the wiki page.
-- **Lua** (`bizhawk_lua_*`): the host is `LuaLibraries` (BizHawk.Client.Common,
+- **Lua** (`lua_*`): the host is `LuaLibraries` (BizHawk.Client.Common,
   compile-time) owned by the Lua Console tool; the plugin reaches it via the
   REGISTERED `IToolApi.GetTool("LuaConsole")` + reflection on the private
   `LuaImp` field (single-field reflection, like watchpoints). `lua_exec` runs
@@ -95,30 +95,31 @@ Recipe with code in `docs/DEVELOPMENT.md`. In short: add a `Tool(...)` descripto
   frame callbacks in the main loop) — they run even when emulation runs
   freely, and survive core reboots (`Restart()` re-enables `Enabled` scripts
   from `ScriptList`). First `lua_*` call opens the Lua Console window.
-- **Freeze** (`bizhawk_freeze_*`): drives the emulator's real cheat engine —
+- **Freeze** (`freeze_*`): drives the emulator's real cheat engine —
   `MainForm.CheatList`, the same list the hex editor's Freeze uses (reached via
   the plugin form's `Owner` = MainForm, or `GlobalWin.MainForm` fallback).
   EmuHawk pulses the list EVERY frame in its main loop, so freezes apply even
   while emulation runs freely (no toolset involvement). Entries are shared with
   the Cheats window and persist on exit; `freeze_clear` wipes the whole list
   including manual cheats. Range freezes create one 8-bit Cheat per byte.
-- In-memory savestates: `IMemorySaveStateApi` is not registered by the provider, so the plugin reaches the core's real **`IStatable` service via reflection** instead (`EmulationApi.Emulator` private property → `ServiceProvider.GetService<IStatable>()` — same pattern as watchpoints): `bizhawk_memstate_save`/`load`/`list` keep session-local core-state byte arrays (no disk, no 10-slot limit; CPU+memory only — framecount/lag count are NOT restored, documented in the tool). Disk-based `bizhawk_save_state`/`load_state` and the emulator's **quick-save slots** (`bizhawk_save_slot`/`load_slot`, 1..10, via `ISaveStateApi.SaveSlot/LoadSlot`) also exist.
-- Movie controls: `bizhawk_movie_start` (with `path` = load-and-play a .bk2; without = start recording for the loaded ROM), `bizhawk_movie_save`, `bizhawk_movie_stop`. `bizhawk_get_board_info` reports board name/display type/game options (game revision).
-- `bizhawk_genesis_get_vdp_view` returns the Genesis nametable bases + dims from the core (Genesis gpgx only; error otherwise).
+- In-memory savestates: `IMemorySaveStateApi` is not registered by the provider, so the plugin reaches the core's real **`IStatable` service via reflection** instead (`EmulationApi.Emulator` private property → `ServiceProvider.GetService<IStatable>()` — same pattern as watchpoints): `memstate_save`/`load`/`list` keep session-local core-state byte arrays (no disk, no 10-slot limit; CPU+memory only — framecount/lag count are NOT restored, documented in the tool). Disk-based `save_state`/`load_state` and the emulator's **quick-save slots** (`save_slot`/`load_slot`, 1..10, via `ISaveStateApi.SaveSlot/LoadSlot`) also exist.
+- Movie controls: `movie_start` (with `path` = load-and-play a .bk2; without = start recording for the loaded ROM), `movie_save`, `movie_stop`. `get_board_info` reports board name/display type/game options (game revision).
+- `genesis_get_vdp_view` returns the Genesis nametable bases + dims from the core (Genesis gpgx only; error otherwise).
 - Symbols persist across EmuHawk restarts via the plugin's user data store, **scoped per ROM hash + namespace** (key `mcp.symbols`, shape `{romHash: {namespace: [symbols]}}`); saved on every `symbols_set`/`symbols_clear`, reloaded automatically when the ROM changes (`get_info`). Default namespace `"default"`; agents on the same ROM partition with explicit namespaces (`"ghidra"`, `"fixture"`, …). `symbols_clear` accepts `namespace` to clear just one. Everything else (watchers, watchpoints, endianness override) is session-local.
-- `bizhawk_start_fixture` is the orchestrated fixture capture: input timeline + per-frame samples + CSV on the host disk. It frame-advances (pausing/unpausing like `frame_advance`) and samples after each frame; max 600 frames. `bizhawk_read_struct` reads relative-offset fields from a base/symbol in one pass.
+- `start_fixture` is the orchestrated fixture capture: input timeline + per-frame samples + CSV on the host disk. It frame-advances (pausing/unpausing like `frame_advance`) and samples after each frame; max 600 frames. `read_struct` reads relative-offset fields from a base/symbol in one pass.
 - **`write_range` bulk path:** ApiHawk's `WriteByteRange` loops `PokeByte` per byte — on gpgx that's one waterbox interop call per byte (slow for hundreds of bytes). `WriteRange` first tries `TryBulkWrite`, which reaches the domain's raw `Data` pointer (via reflection on `MemoryApi.DomainList[name]`, like watchpoints) and does ONE `Marshal.Copy` inside a single `Enter`/`Exit` — up to ~400x fewer crossings — falling back to `WriteByteRange` for domains without a pointer.
-- Watchers/breakpoints are **polling-based** (`bizhawk_watch_*`, `bizhawk_wait_until`, `bizhawk_watch_change`) OR **real watchpoints** (`bizhawk_watchpoint_*`) — the latter use `IDebuggable.MemoryCallbacks` reached via reflection on `EmulationApi.DebuggableCore` (private `[OptionalService]`). **Only the Genesis gpgx waterbox core exposes memory callbacks**; every other core returns a clear `INVALID_PARAMS` error. No per-instruction stepping exists (`CanStep` is false on gpgx) — `bizhawk_trace` samples PC per frame.
-- Watchpoint callbacks fire on the **core's thread**; they only set volatile flags, and `bizhawk_watchpoint_wait` does the frame-advancing on the UI thread. Do NOT call any emulator API from inside a callback. `watchpoint_wait` with `context_bytes: N` (>0) dumps registers + PC/disasm + N raw bytes around the hit on success. Also note `MemoryCallbackImpl.AddressMask` must stay `0xFFFFFFFF` (not null) or address-specific watchpoints silently never fire.
+- Watchers/breakpoints are **polling-based** (`watch_*`, `wait_until`, `watch_change`) OR **real watchpoints** (`watchpoint_*`) — the latter use `IDebuggable.MemoryCallbacks` reached via reflection on `EmulationApi.DebuggableCore` (private `[OptionalService]`). **Only the Genesis gpgx waterbox core exposes memory callbacks**; every other core returns a clear `INVALID_PARAMS` error. No per-instruction stepping exists (`CanStep` is false on gpgx) — `trace` samples PC per frame.
+- Watchpoint callbacks fire on the **core's thread**; they only set volatile flags, and `watchpoint_wait` does the frame-advancing on the UI thread. Do NOT call any emulator API from inside a callback. `watchpoint_wait` with `context_bytes: N` (>0) dumps registers + PC/disasm + N raw bytes around the hit on success. Also note `MemoryCallbackImpl.AddressMask` must stay `0xFFFFFFFF` (not null) or address-specific watchpoints silently never fire.
+- **Code/data logger** (`cdl_*`): drives the core's real `ICodeDataLogger` service (EmuHawk's CDL tool's engine) via the same `Emulator.ServiceProvider` reflection as `IStatable` — the core itself ORs access flags into a per-domain bitmap (1 byte per address) from its own thread while emulation runs (gpgx: "MD CART"/"68K RAM"/"Z80 RAM", bits 0x01 Exec68k / 0x04 Data68k / 0x08+0x10 Z80 exec / 0x20 DataZ80 / 0x40 DMASource). `cdl_get` computes executed/touched counts + coverage + capped address ranges (`"exec"`/`"any"` mask, block filter); `cdl_export` writes the real BIZHAWK-CDL-2 binary (loadable by EmuHawk's CDL tool File→Load and Ghidra scripts) or text ranges. Works on every core exposing the service (gpgx, SMS, GB, PCE, …), clear error otherwise; stop before export for a stable snapshot; a reboot/ROM change needs a fresh `cdl_start`. **Live-QA note (2026-08-03, gpgx + Kid Chameleon):** the plugin reports exactly what the core logs — on this gpgx build only the `Exec68k` flag was observed (Z80 RAM stayed 0 even with the sound CPU running the title music; `Data68k`/`DMASource` never appeared while the game read from the cart) — a zero block is a faithful "core never flagged it", not a plugin bug.
 - Streamable HTTP subset (dual-era): no sessions, no server-initiated messages, `GET` SSE is endpoint + keepalive only (legacy clients). Modern `2026-07-28` requests are stateless: version in `params._meta["io.modelcontextprotocol/protocolVersion"]` or the `MCP-Protocol-Version` header; modern results add `resultType` + `_meta.serverInfo`; cacheable lists carry `ttlMs`/`cacheScope`; unsupported version → `-32022` + HTTP 400, header/body mismatch → `-32020` + HTTP 400, unknown modern method → HTTP 404 (legacy stays 200 + error).
-- `bizhawk_frame_advance` pumps `Application.DoEvents` between frames so the UI stays responsive; long counts (max 600) are intentionally capped.
-- `bizhawk_screenshot`/`save_state`/`load_state` paths are host-side (Windows paths when EmuHawk runs on Windows). `bizhawk_screenshot` returns the effective path plus a `bizhawk://` resource URI; `resources/read` serves the PNG as base64. `include_overlays: true` composes the overlay/OSD layer into the PNG (EmuHawk's `ScreenshotCaptureOsd` → `CaptureOSD()`).
-- **Overlay tools MUST draw on the Client surface** (`DisplaySurfaceID.Client` via `WithSurface`): `GuiApi.Get2DRenderer(null)` throws when no surface is selected, and `EmuCore` draws into the core framebuffer which is not visible in the window. `overlay_text/rect/line` all go through `WithSurface(Client, ...)`; `osd_message` (`AddMessage`) needs no surface. EmuHawk **discards the ApiHawk surface after each rendered frame** (like the Lua scripts that redraw every frame), so overlays keep a toolset-side list and are re-rendered on every frame advance (`AdvanceFrame()` → `RedrawOverlays()`) — they **accumulate** until `bizhawk_clear_overlay`. `overlay_rect`/`overlay_line` also accept a `rects`/`lines` array to draw many shapes in one call.
-- `bizhawk_search_memory` matches via the same endianness semantics as `bizhawk_read_memory` (per-domain default, overridable per call with `"endianness"` or globally with `bizhawk_set_big_endian`).
+- `frame_advance` pumps `Application.DoEvents` between frames so the UI stays responsive; long counts (max 600) are intentionally capped.
+- `screenshot`/`save_state`/`load_state` paths are host-side (Windows paths when EmuHawk runs on Windows). `screenshot` returns the effective path plus a `bizhawk://` resource URI; `resources/read` serves the PNG as base64. `include_overlays: true` composes the overlay/OSD layer into the PNG (EmuHawk's `ScreenshotCaptureOsd` → `CaptureOSD()`).
+- **Overlay tools MUST draw on the Client surface** (`DisplaySurfaceID.Client` via `WithSurface`): `GuiApi.Get2DRenderer(null)` throws when no surface is selected, and `EmuCore` draws into the core framebuffer which is not visible in the window. `overlay_text/rect/line` all go through `WithSurface(Client, ...)`; `osd_message` (`AddMessage`) needs no surface. EmuHawk **discards the ApiHawk surface after each rendered frame** (like the Lua scripts that redraw every frame), so overlays keep a toolset-side list and are re-rendered on every frame advance (`AdvanceFrame()` → `RedrawOverlays()`) — they **accumulate** until `clear_overlay`. `overlay_rect`/`overlay_line` also accept a `rects`/`lines` array to draw many shapes in one call.
+- `search_memory` matches via the same endianness semantics as `read_memory` (per-domain default, overridable per call with `"endianness"` or globally with `set_big_endian`).
 - Endianness defaults are domain-aware: `68K RAM`/`M68K BUS` are big on
   GEN/SMD/32X/SAT while `Z80 RAM` is little (sound CPU), SNES/N64 big. The
   toolset tracks its own state (`_bigEndianOverride`) because ApiHawk's
-  `SetBigEndian` has no getter; `bizhawk_set_big_endian` is the global override.
+  `SetBigEndian` has no getter; `set_big_endian` is the global override.
 
 ## Domain & address conventions (hard-won, Genesis/Kid Chameleon)
 
@@ -128,30 +129,30 @@ before debugging anything on the Genesis core.
 - **RAM base:** 68K work RAM is 64KB at bus `0xFF0000-0xFFFFFF`. In `M68K BUS`,
   use raw bus addresses (`0xFFFBC8`); in `68K RAM`, use 0-based offsets
   (`0xFBC8`). The two domains read the same physical RAM — writes cross-visible.
-  `bizhawk_list_memory_domains` reports `bus_base` (e.g. 68K RAM = 0xFF0000).
+  `list_memory_domains` reports `bus_base` (e.g. 68K RAM = 0xFF0000).
 - **32-bit disassembly addresses:** the game code (and Ghidra, which models the
   68000 as 32-bit) references RAM as `0xFFFFxxxx` (e.g. `move.l (0xfffff832).w`)
   — the real 24-bit bus masks them, so `0xFFFFF832 == 0xFFF832`. `ValidateAddress`
   applies this mask **only on 68K-family systems** (GEN/SMD/32X/SAT bus domains);
   other cores keep strict out-of-range rejection. Agents can copy addresses
-  straight from Ghidra into `bizhawk_read_memory`.
+  straight from Ghidra into `read_memory`.
 - **Register names are prefixed:** the gpgx core names them `M68K PC`, `M68K A0`,
-  `M68K SR`, `M68K SP`, … — NOT `PC`. `bizhawk_get_registers` shows the raw keys;
-  `bizhawk_trace`/`FindRegister` match by suffix. `bizhawk_set_register` needs the
+  `M68K SR`, `M68K SP`, … — NOT `PC`. `get_registers` shows the raw keys;
+  `trace`/`FindRegister` match by suffix. `set_register` needs the
   exact key (e.g. `M68K PC`) — and gpgx does NOT implement register writes at all
   (`SetCpuRegister` throws `NotImplementedException`, swallowed by ApiHawk).
 - **Endianness is per-domain, not just per-system:** every memory tool accepts an
   optional `"endianness": "big" | "little" | "auto"` param (default `"auto"`).
   `auto` = the **domain's** native endianness: `Z80 RAM` is little even on
   big-endian Genesis (68K vs Z80 sound CPU), while `68K RAM`/`M68K BUS` are big.
-  Precedence: explicit param > `bizhawk_set_big_endian` override > domain default.
+  Precedence: explicit param > `set_big_endian` override > domain default.
   All multi-byte reads/writes are byte-level (`ReadValue`/`WriteValue`/
   `ReadFloatRaw`) so the result never depends on ApiHawk's global `SetBigEndian`
   state — a per-call param always wins. Every read tool also returns the
   `"endianness"` actually used, so clients never misread a value.
 - **Palette formats:** Genesis CRAM = 16-bit `0x0RRR0GGG0BBB` (R at bits 1-3,
   G 5-7, B 9-11), big-endian bytes; SNES CGRAM = 16-bit BGR555 (R at bits 0-4),
-  little-endian bytes. `bizhawk_read_palette` handles both. **`bizhawk_genesis_read_plane`**
+  little-endian bytes. `read_palette` handles both. **`genesis_read_plane`**
   decodes a Genesis background nametable (plane A/B) + 8×8 4bpp tiles + CRAM →
   PNG. The plane base is **auto-detected from the core's VDP view** when `base`
   isn't given (`genesis_get_vdp_view` exposes NTA/NTB via reflection on
@@ -179,7 +180,7 @@ before debugging anything on the Genesis core.
 - **Per-call latency is ~17ms FIXED** (HTTP + JSON + UI-thread marshaling),
   independent of payload: one `read_memory` == one `read_many` of 256 items ==
   17ms. Agents should batch aggressively; contiguous regions →
-  `bizhawk_read_bulk` (base64, one call); whole domains → `dump_memory` or the
+  `read_bulk` (base64, one call); whole domains → `dump_memory` or the
   `bizhawk://read/{domain}/{range}` resource.
 - **`MemoryDomainList` has TWO `Item` indexers** (`this[int]` inherited from
   `ReadOnlyCollection<MemoryDomain>` + `this[string]` declared) — `GetProperty("Item")`

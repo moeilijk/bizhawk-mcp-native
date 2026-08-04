@@ -24,7 +24,7 @@ Issues are how the author (and other users) learn about what's broken or
 missing. A good issue is written so it can be understood months later, with no
 back-and-forth:
 
-- **Title**: one line that states the problem or idea (`bizhawk_read_memory
+- **Title**: one line that states the problem or idea (`read_memory
   returns wrong value for u32 on SNES`, not `it's broken`).
 - **Body**:
   - What you did (the exact tool call / command).
@@ -49,7 +49,7 @@ PRs that get merged share these traits:
   - `net48` only — never introduce a dependency that needs .NET 8+.
   - All emulator API calls go through the UI thread (`_ui.Invoke`).
   - Tools are core-neutral unless the feature is core-specific (then the name
-    says so: `bizhawk_genesis_*`).
+    says so: `genesis_*`).
   - Every hex number in a description, test, or message must be produced or
     verified by a script — hand arithmetic has caused real bugs here.
   - Add a unit test for new tools (tests run without BizHawk: `./scripts/test.sh`).

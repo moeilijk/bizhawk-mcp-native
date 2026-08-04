@@ -3,7 +3,7 @@
 # never writes memory, never advances frames, never touches the cheat list.
 #
 # usage: ./scripts/smoke.sh [--url http://127.0.0.1:8767/mcp/] [--with-lua]
-#   --with-lua  also checks bizhawk_lua_docs (opens the Lua Console window —
+#   --with-lua  also checks lua_docs (opens the Lua Console window —
 #               it owns the Lua runtime — so it's opt-in)
 # env: BIZHAWK_MCP_URL overrides the default URL
 set -uo pipefail
@@ -49,15 +49,15 @@ check "ping returns a result" "'result' in d"
 
 post tools/list
 check "tools/list has 90+ tools" "len(d['result']['tools']) >= 90"
-check "tools/list has the core tools" "all(t in [x['name'] for x in d['result']['tools']] for t in ['bizhawk_ping','bizhawk_read_memory','bizhawk_write_memory','bizhawk_freeze_add','bizhawk_memstate_save','bizhawk_lua_exec','bizhawk_read_bulk'])"
+check "tools/list has the core tools" "all(t in [x['name'] for x in d['result']['tools']] for t in ['ping','read_memory','write_memory','freeze_add','memstate_save','lua_exec','read_bulk'])"
 
-post tools/call '{"name":"bizhawk_get_info","arguments":{}}'
+post tools/call '{"name":"get_info","arguments":{}}'
 check "get_info has rom/system/paused" "all(k in d['result']['content'][0]['text'] for k in ['rom_name','system_id','paused'])"
 
-post tools/call '{"name":"bizhawk_read_memory","arguments":{"address":0,"width":8}}'
+post tools/call '{"name":"read_memory","arguments":{"address":0,"width":8}}'
 check "read_memory works" "d['result']['content'][0]['text'].find('\"value\"') >= 0"
 
-post tools/call '{"name":"bizhawk_freeze_list","arguments":{}}'
+post tools/call '{"name":"freeze_list","arguments":{}}'
 check "freeze_list works" "d['result']['content'][0]['text'].find('\"freezes\"') >= 0"
 
 post resources/list
@@ -67,7 +67,7 @@ post resources/templates/list
 check "templates include lua-docs/{library}" "'bizhawk://lua-docs/{library}' in str(d['result']['resourceTemplates'])"
 
 if [ "$WITH_LUA" = "1" ]; then
-  post tools/call '{"name":"bizhawk_lua_docs","arguments":{"library":"memory"}}'
+  post tools/call '{"name":"lua_docs","arguments":{"library":"memory"}}'
   check "lua_docs(memory) has functions" "json.loads(d['result']['content'][0]['text'])['count'] > 0"
 fi
 

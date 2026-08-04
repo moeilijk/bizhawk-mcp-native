@@ -68,7 +68,7 @@ curl -s -X POST http://127.0.0.1:8767/mcp/ -H 'Content-Type: application/json' \
 
 # 3. call a tool
 curl -s -X POST http://127.0.0.1:8767/mcp/ -H 'Content-Type: application/json' \
-  -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"bizhawk_get_info","arguments":{}}}'
+  -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"get_info","arguments":{}}}'
 
 # 4. notification (no reply expected)
 curl -s -i -X POST http://127.0.0.1:8767/mcp/ -H 'Content-Type: application/json' \
@@ -78,11 +78,11 @@ curl -s -i -X POST http://127.0.0.1:8767/mcp/ -H 'Content-Type: application/json
 
 ## Tool result convention
 
-Every tool returns a **single text blob** as `content[0].text`. Structured data (e.g. `bizhawk_get_info`, `bizhawk_read_memory`) is JSON inside the text; simple operations return plain strings (`pong`, `ok`, paths). Agents should `JSON.parse` the text when the tool description says it returns JSON.
+Every tool returns a **single text blob** as `content[0].text`. Structured data (e.g. `get_info`, `read_memory`) is JSON inside the text; simple operations return plain strings (`pong`, `ok`, paths). Agents should `JSON.parse` the text when the tool description says it returns JSON.
 
 ## Resources
 
-The server advertises the `resources` capability. Tools can register artifacts (files the server wrote on the host) — e.g. `bizhawk_screenshot`, `bizhawk_frame_hash`, `bizhawk_dump_memory`, `bizhawk_genesis_read_plane` — saving into `<temp>/bizhawk-mcp/` (or the caller-provided path) and returning `{ path, resource }`. Fetch the bytes with:
+The server advertises the `resources` capability. Tools can register artifacts (files the server wrote on the host) — e.g. `screenshot`, `frame_hash`, `dump_memory`, `genesis_read_plane` — saving into `<temp>/bizhawk-mcp/` (or the caller-provided path) and returning `{ path, resource }`. Fetch the bytes with:
 
 ```bash
 curl -s -X POST http://127.0.0.1:8767/mcp/ -H 'Content-Type: application/json' \
@@ -114,7 +114,7 @@ extension — 2026-07-28 POST bodies must be a single request):
 
 ```bash
 curl -s -X POST http://127.0.0.1:8767/mcp/ -H 'Content-Type: application/json' \
-  -d '[{"jsonrpc":"2.0","id":1,"method":"ping"},{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"bizhawk_get_info","arguments":{}}}]'
+  -d '[{"jsonrpc":"2.0","id":1,"method":"ping"},{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"get_info","arguments":{}}}]'
 # → [ { jsonrpc, id:1, result: {} }, { jsonrpc, id:2, result: {...} } ]
 ```
 

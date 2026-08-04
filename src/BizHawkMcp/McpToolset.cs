@@ -23,7 +23,7 @@ namespace BizHawkMcp
 
 		// endianness state: SetBigEndian() has no getter in ApiHawk, so we track
 		// it ourselves. Defaults are core-aware (big-endian on 68K/SNES/N64-ish
-		// systems), overridable per session via bizhawk_set_big_endian.
+		// systems), overridable per session via set_big_endian.
 		private bool? _bigEndianOverride;
 		private string? _lastSystemId;
 
@@ -180,41 +180,41 @@ namespace BizHawkMcp
 
 		public IReadOnlyList<Dictionary<string, object?>> ToolSchemas { get; } =
 		[
-			Tool("bizhawk_ping", "Ping the tool. Returns \"pong\" if the plugin and server are alive.", []),
-			Tool("bizhawk_get_info", "ROM info, framecount, pause state, current endianness, active memory domain and host paths (JSON). \"paths\" reports where the emulator runs: install_dir (EmuHawk's folder), working_dir, temp_dir (the bizhawk-mcp dir where screenshot/dump_memory/start_fixture save by default) and the loaded ROM's rom_path/rom_dir — so relative paths can always be resolved against the right base.", []),
-			Tool("bizhawk_get_board_info", "Board info: board name, display type (NTSC/PAL), and game options — helps identify the game revision.", []),
-			Tool("bizhawk_read_memory", "Read u8/u16/u32 from a memory domain. Optional \"endianness\": \"big\" | \"little\" | \"auto\" (default \"auto\" = the domain's native endianness, e.g. big on 68K RAM/M68K BUS but little on Z80 RAM on Genesis). Returns {\"value\": N, \"endianness\": \"big\"|\"little\"} so the interpretation is never ambiguous. On 68K-family bus domains only (GEN/SMD/32X/SAT) 32-bit disassembly addresses are masked by the 24-bit bus, e.g. 0xFFFFF832 == 0xFFF832; other cores/domains reject out-of-range addresses. Either \"address\" or a symbol \"name\" (from bizhawk_symbols_set) is required.", [
+			Tool("ping", "Ping the tool. Returns \"pong\" if the plugin and server are alive.", []),
+			Tool("get_info", "ROM info, framecount, pause state, current endianness, active memory domain and host paths (JSON). \"paths\" reports where the emulator runs: install_dir (EmuHawk's folder), working_dir, temp_dir (the bizhawk-mcp dir where screenshot/dump_memory/start_fixture save by default) and the loaded ROM's rom_path/rom_dir — so relative paths can always be resolved against the right base.", []),
+			Tool("get_board_info", "Board info: board name, display type (NTSC/PAL), and game options — helps identify the game revision.", []),
+			Tool("read_memory", "Read u8/u16/u32 from a memory domain. Optional \"endianness\": \"big\" | \"little\" | \"auto\" (default \"auto\" = the domain's native endianness, e.g. big on 68K RAM/M68K BUS but little on Z80 RAM on Genesis). Returns {\"value\": N, \"endianness\": \"big\"|\"little\"} so the interpretation is never ambiguous. On 68K-family bus domains only (GEN/SMD/32X/SAT) 32-bit disassembly addresses are masked by the 24-bit bus, e.g. 0xFFFFF832 == 0xFFF832; other cores/domains reject out-of-range addresses. Either \"address\" or a symbol \"name\" (from symbols_set) is required.", [
 				Param("address", "integer", "Offset in the domain, 0-based. For bus domains (e.g. M68K BUS) use the raw bus address (e.g. 0xFFFBCA); 32-bit forms (0xFFFFFBCA) are masked like the hardware."),
-				Param("name", "string", "Symbol name registered via bizhawk_symbols_set (overrides address/domain)."),
+				Param("name", "string", "Symbol name registered via symbols_set (overrides address/domain)."),
 				Param("width", "integer", "8, 16 or 32.", 8),
 				Param("domain", "string", "Optional domain (defaults to BizHawk's current one)."),
 				Param("endianness", "string", "\"auto\" (domain default), \"big\" or \"little\".", "auto"),
 			]),
-			Tool("bizhawk_write_memory", "Write u8/u16/u32 to a memory domain. Optional \"endianness\" as bizhawk_read_memory (default \"auto\" = domain native). Bus domains mask 32-bit addresses as in read. Either \"address\" or a symbol \"name\" is required. Set \"freeze\": true to also register the written address as a freeze (re-written every frame by the emulator's cheat engine — see bizhawk_freeze_add).", [
+			Tool("write_memory", "Write u8/u16/u32 to a memory domain. Optional \"endianness\" as read_memory (default \"auto\" = domain native). Bus domains mask 32-bit addresses as in read. Either \"address\" or a symbol \"name\" is required. Set \"freeze\": true to also register the written address as a freeze (re-written every frame by the emulator's cheat engine — see freeze_add).", [
 				Param("address", "integer", "Offset in the domain, 0-based. For bus domains use the raw bus address."),
-				Param("name", "string", "Symbol name registered via bizhawk_symbols_set (overrides address/domain)."),
+				Param("name", "string", "Symbol name registered via symbols_set (overrides address/domain)."),
 				Param("width", "integer", "8, 16 or 32.", 8),
 				Param("value", "integer", "Value to write (must fit the width)."),
 				Param("domain", "string", "Optional domain."),
 				Param("endianness", "string", "\"auto\" (domain default), \"big\" or \"little\".", "auto"),
 				Param("freeze", "boolean", "Optional: also freeze the written address with this value.", false),
 			]),
-			Tool("bizhawk_read_range", "Read a contiguous range (up to 4096 bytes) and return it as hex.", [
+			Tool("read_range", "Read a contiguous range (up to 4096 bytes) and return it as hex.", [
 				Param("address", "integer", "Start offset."),
 				Param("length", "integer", "Bytes to read, 1..4096.", 256),
 				Param("domain", "string", "Optional domain."),
 			]),
-			Tool("bizhawk_read_bulk", "Read a contiguous range as raw base64 in ONE call (up to 64 KiB — 16x the read_range cap). Every tool call has ~15-20ms fixed overhead, so batching wins: 4096 bytes via read_many costs 16 calls, via read_bulk costs 1. Returns {address, length, domain, base64}. For whole-domain dumps use bizhawk_dump_memory or the bizhawk://read/{domain}/{range} resource.", [
+			Tool("read_bulk", "Read a contiguous range as raw base64 in ONE call (up to 64 KiB — 16x the read_range cap). Every tool call has ~15-20ms fixed overhead, so batching wins: 4096 bytes via read_many costs 16 calls, via read_bulk costs 1. Returns {address, length, domain, base64}. For whole-domain dumps use dump_memory or the bizhawk://read/{domain}/{range} resource.", [
 				Param("address", "integer", "Start offset in the domain, or use a symbol \"name\" instead."),
-				Param("name", "string", "Symbol name registered via bizhawk_symbols_set (overrides address/domain)."),
+				Param("name", "string", "Symbol name registered via symbols_set (overrides address/domain)."),
 				Param("length", "integer", "Bytes to read, 1..65536.", 256),
 				Param("domain", "string", "Optional domain."),
 			]),
-			Tool("bizhawk_list_memory_domains", "List all memory domains with sizes (JSON). Each entry reports \"size\" and, when known, \"bus_base\" (the domain's location in the raw bus space, e.g. 68K RAM = 0xFF0000 on Genesis). Offsets are domain-relative: RAM offset 0xFBC8 = bus 0xFFFBC8; bus domains take raw bus addresses.", []),
-			Tool("bizhawk_use_memory_domain", "Switch the active memory domain.", [
+			Tool("list_memory_domains", "List all memory domains with sizes (JSON). Each entry reports \"size\" and, when known, \"bus_base\" (the domain's location in the raw bus space, e.g. 68K RAM = 0xFF0000 on Genesis). Offsets are domain-relative: RAM offset 0xFBC8 = bus 0xFFFBC8; bus domains take raw bus addresses.", []),
+			Tool("use_memory_domain", "Switch the active memory domain.", [
 				Param("domain", "string", "Domain name, e.g. \"WRAM\"."),
 			]),
-			Tool("bizhawk_search_memory", "Scan a memory domain. With \"value\": one-shot match (\"op\" eq default | ne | lt | gt | le | ge against that constant). WITHOUT \"value\", \"op\" compares against the PREVIOUS state of the domain (ne/lt/gt/le/ge/changed/unchanged — the classic RAM-search flow): the first call only takes a baseline snapshot (returns \"baseline\": true, 0 matches), then advance frames and call again to find what changed; pass previous hits in \"addresses\" to narrow down across calls. The reference is updated after every stateful call. Keep width/endianness/domain constant between calls; unsigned comparison. Optional \"endianness\" as bizhawk_read_memory (default \"auto\" = domain native). Returns {\"count\", \"endianness\", \"matches\": [{address, value}], \"op\", \"baseline\"}.", [
+			Tool("search_memory", "Scan a memory domain. With \"value\": one-shot match (\"op\" eq default | ne | lt | gt | le | ge against that constant). WITHOUT \"value\", \"op\" compares against the PREVIOUS state of the domain (ne/lt/gt/le/ge/changed/unchanged — the classic RAM-search flow): the first call only takes a baseline snapshot (returns \"baseline\": true, 0 matches), then advance frames and call again to find what changed; pass previous hits in \"addresses\" to narrow down across calls. The reference is updated after every stateful call. Keep width/endianness/domain constant between calls; unsigned comparison. Optional \"endianness\" as read_memory (default \"auto\" = domain native). Returns {\"count\", \"endianness\", \"matches\": [{address, value}], \"op\", \"baseline\"}.", [
 				Param("value", "integer", "Value to match (must fit the width; omit for stateful compare ops)."),
 				Param("op", "string", "eq | ne | lt | gt | le | ge (vs value, or vs previous state without value) | changed | unchanged (vs previous state).", "eq"),
 				Param("width", "integer", "8, 16 or 32.", 8),
@@ -226,44 +226,44 @@ namespace BizHawkMcp
 				Param("addresses", "array", "Optional list of addresses to restrict the scan to (up to 4096)."),
 				Param("compact", "boolean", "Return only the matching addresses (no per-match values).", false),
 			]),
-			Tool("bizhawk_set_big_endian", "Toggle big-endian interpretation for u16/u32 reads/writes.", [
+			Tool("set_big_endian", "Toggle big-endian interpretation for u16/u32 reads/writes.", [
 				Param("enabled", "boolean", "True for big-endian.", false),
 			]),
-			Tool("bizhawk_hash_region", "SHA1 hash of a memory region (useful to detect changes).", [
+			Tool("hash_region", "SHA1 hash of a memory region (useful to detect changes).", [
 				Param("address", "integer", "Start offset."),
 				Param("length", "integer", "Bytes to hash, 1..1048576.", 256),
 				Param("domain", "string", "Optional domain."),
 			]),
-			Tool("bizhawk_read_signed", "Read s8/s16/s24/s32 from a memory domain. Optional \"endianness\" as bizhawk_read_memory (default \"auto\"). Returns {\"value\", \"endianness\"}.", [
+			Tool("read_signed", "Read s8/s16/s24/s32 from a memory domain. Optional \"endianness\" as read_memory (default \"auto\"). Returns {\"value\", \"endianness\"}.", [
 				Param("address", "integer", "Offset in the domain, 0-based."),
 				Param("width", "integer", "8, 16, 24 or 32.", 8),
 				Param("domain", "string", "Optional domain."),
 				Param("endianness", "string", "\"auto\" (domain default), \"big\" or \"little\".", "auto"),
 			]),
-			Tool("bizhawk_write_signed", "Write s8/s16/s24/s32 to a memory domain. Optional \"endianness\" as bizhawk_read_memory (default \"auto\").", [
+			Tool("write_signed", "Write s8/s16/s24/s32 to a memory domain. Optional \"endianness\" as read_memory (default \"auto\").", [
 				Param("address", "integer", "Offset in the domain, 0-based."),
 				Param("width", "integer", "8, 16, 24 or 32.", 8),
 				Param("value", "integer", "Value to write (must fit the width)."),
 				Param("domain", "string", "Optional domain."),
 				Param("endianness", "string", "\"auto\" (domain default), \"big\" or \"little\".", "auto"),
 			]),
-			Tool("bizhawk_read_float", "Read a 32-bit float from a memory domain. Optional \"endianness\" as bizhawk_read_memory (default \"auto\"). Returns {\"value\", \"endianness\"}.", [
+			Tool("read_float", "Read a 32-bit float from a memory domain. Optional \"endianness\" as read_memory (default \"auto\"). Returns {\"value\", \"endianness\"}.", [
 				Param("address", "integer", "Offset in the domain, 0-based."),
 				Param("domain", "string", "Optional domain."),
 				Param("endianness", "string", "\"auto\" (domain default), \"big\" or \"little\".", "auto"),
 			]),
-			Tool("bizhawk_write_float", "Write a 32-bit float to a memory domain. Optional \"endianness\" as bizhawk_read_memory (default \"auto\").", [
+			Tool("write_float", "Write a 32-bit float to a memory domain. Optional \"endianness\" as read_memory (default \"auto\").", [
 				Param("address", "integer", "Offset in the domain, 0-based."),
 				Param("value", "number", "Float value to write."),
 				Param("domain", "string", "Optional domain."),
 				Param("endianness", "string", "\"auto\" (domain default), \"big\" or \"little\".", "auto"),
 			]),
-			Tool("bizhawk_read_many", "Read several addresses in one call (up to 256). Returns {reads: [{index, requested, address, width, value, domain, endianness}], read, failed}. Items that fail (unknown symbol, out-of-range address) are reported per-item as {index, requested, error} without killing the batch. \"requested\" echoes the raw address before 24-bit bus masking, which only happens on 68K-family bus domains (GEN/SMD/32X/SAT — e.g. 0x1002024 → requested 0x1002024, address 0x2024); other cores/domains reject out-of-range addresses. Optional per-item \"endianness\" as bizhawk_read_memory (default \"auto\" = each item's domain). Set \"consistent\": true to pause during the batch so all reads come from the same frame.", [
+			Tool("read_many", "Read several addresses in one call (up to 256). Returns {reads: [{index, requested, address, width, value, domain, endianness}], read, failed}. Items that fail (unknown symbol, out-of-range address) are reported per-item as {index, requested, error} without killing the batch. \"requested\" echoes the raw address before 24-bit bus masking, which only happens on 68K-family bus domains (GEN/SMD/32X/SAT — e.g. 0x1002024 → requested 0x1002024, address 0x2024); other cores/domains reject out-of-range addresses. Optional per-item \"endianness\" as read_memory (default \"auto\" = each item's domain). Set \"consistent\": true to pause during the batch so all reads come from the same frame.", [
 				Param("items", "array", "Array of {\"address\": int | \"name\": string, \"width\"?: 8|16|32, \"domain\"?: string, \"endianness\"?: \"big\"|\"little\"|\"auto\"}."),
 				Param("consistent", "boolean", "Pause emulation for the duration of the batch so reads are frame-consistent.", false),
 				Param("compact", "boolean", "Return only the values aligned to the items (null = failed) + failures — ~10x smaller payload.", false),
 			]),
-			Tool("bizhawk_write_range", "Write a contiguous byte range from a values array (up to 4096 bytes). \"fill\" + \"length\" mode writes the same byte across the range with a tiny payload (use it for large clears — some MCP clients drop requests above ~1-2 KB, so prefer fill or chunk values into <=1024-byte calls). Returns {\"wrote\", \"address\", \"fill\"} in fill mode. Set \"freeze\": true to also register the whole range as a freeze (re-written every frame — see bizhawk_freeze_add).", [
+			Tool("write_range", "Write a contiguous byte range from a values array (up to 4096 bytes). \"fill\" + \"length\" mode writes the same byte across the range with a tiny payload (use it for large clears — some MCP clients drop requests above ~1-2 KB, so prefer fill or chunk values into <=1024-byte calls). Returns {\"wrote\", \"address\", \"fill\"} in fill mode. Set \"freeze\": true to also register the whole range as a freeze (re-written every frame — see freeze_add).", [
 				Param("address", "integer", "Start offset in the domain, 0-based."),
 				Param("values", "array", "Byte values (0..255) to write in order."),
 				Param("fill", "integer", "Optional: write this byte value across the whole range (use with \"length\"; values must be absent).", null),
@@ -271,10 +271,10 @@ namespace BizHawkMcp
 				Param("domain", "string", "Optional domain."),
 				Param("freeze", "boolean", "Optional: also freeze the written range with the written bytes.", false),
 			]),
-			Tool("bizhawk_write_many", "Write several values in one call (up to 256; non-contiguous). Each item accepts \"address\" or symbol \"name\", width, value and optional \"endianness\" as bizhawk_read_memory (default \"auto\" = each item's domain), and optional \"freeze\": true to also register that address as a freeze. Bad items (unknown symbol, out-of-range address, value too wide) fail only themselves: returns {wrote, failed, failures: [{index, address, reason}]} and valid items still write.", [
+			Tool("write_many", "Write several values in one call (up to 256; non-contiguous). Each item accepts \"address\" or symbol \"name\", width, value and optional \"endianness\" as read_memory (default \"auto\" = each item's domain), and optional \"freeze\": true to also register that address as a freeze. Bad items (unknown symbol, out-of-range address, value too wide) fail only themselves: returns {wrote, failed, failures: [{index, address, reason}]} and valid items still write.", [
 				Param("items", "array", "Array of {\"address\": int | \"name\": string, \"width\"?: 8|16|32, \"value\": int, \"domain\"?: string, \"endianness\"?: \"big\"|\"little\"|\"auto\", \"freeze\"?: bool}."),
 			]),
-			Tool("bizhawk_start_fixture", "Scripted fixture capture: advance N frames (optionally after a \"delay\" to skip title screens) with an input timeline, sampling a set of addresses/symbols each frame, and write the result as CSV to a host-side path (default: temp dir). Replaces the manual capture_fixture.lua flow. SAMPLING SEMANTICS: every row is the state AFTER the frame just ran — the pre-existing \"current frame\" at call time is never sampled (the fixture is NOT inclusive of it), so chaining calls with \"delay\": 0 resumes exactly at the next frame (no overlap, no gap); a positive \"delay\" advances unsampled frames, creating a gap. CSV rows restart at 0 per file — map to global frames as chunk * frames + row (+ delay of earlier chunks).", [
+			Tool("start_fixture", "Scripted fixture capture: advance N frames (optionally after a \"delay\" to skip title screens) with an input timeline, sampling a set of addresses/symbols each frame, and write the result as CSV to a host-side path (default: temp dir). Replaces the manual capture_fixture.lua flow. SAMPLING SEMANTICS: every row is the state AFTER the frame just ran — the pre-existing \"current frame\" at call time is never sampled (the fixture is NOT inclusive of it), so chaining calls with \"delay\": 0 resumes exactly at the next frame (no overlap, no gap); a positive \"delay\" advances unsampled frames, creating a gap. CSV rows restart at 0 per file — map to global frames as chunk * frames + row (+ delay of earlier chunks).", [
 				Param("frames", "integer", "Frames to run and sample, 1..600."),
 				Param("samples", "array", "Array of {\"address\": int | \"name\": string, \"width\"?: 8|16|32, \"domain\"?: string} to sample each frame."),
 				Param("inputs", "array", "Optional input timeline: [{\"frame\": int, \"buttons\": {button: bool}, \"controller\"?: int}]. Applied for the NEXT frame. An empty buttons object at a frame releases that controller's buttons (both modes)."),
@@ -282,39 +282,39 @@ namespace BizHawkMcp
 				Param("delay", "integer", "Frames to advance before sampling starts (skip title screens), 0..600. Note: unsampled — a chain of fixtures only continues seamlessly with delay 0.", 0),
 				Param("path", "string", "Optional absolute CSV path writable by EmuHawk (default: temp dir)."),
 			]),
-			Tool("bizhawk_read_struct", "Read relative-offset fields from a base address or symbol in one frame-consistent pass. Returns {base, domain, fields: [{name, offset, address, value, endianness}]}. Replaces hand-rolled sprObjectOffsets arithmetic.", [
+			Tool("read_struct", "Read relative-offset fields from a base address or symbol in one frame-consistent pass. Returns {base, domain, fields: [{name, offset, address, value, endianness}]}. Replaces hand-rolled sprObjectOffsets arithmetic.", [
 				Param("address", "integer", "Base offset in the domain, or use a symbol \"name\" instead."),
-				Param("name", "string", "Symbol name registered via bizhawk_symbols_set (overrides address/domain)."),
+				Param("name", "string", "Symbol name registered via symbols_set (overrides address/domain)."),
 				Param("fields", "array", "Array of {\"name\": string, \"offset\": int, \"width\"?: 8|16|32, \"endianness\"?: \"big\"|\"little\"|\"auto\"}."),
 				Param("domain", "string", "Optional domain override (defaults to the base's domain or current)."),
 			]),
-			Tool("bizhawk_dump_memory", "Dump a memory domain (or a sub-range with \"range_start\"/\"range_length\") to a host-side file (also exposed as a bizhawk:// resource; resources/list reports the file's host path so shell-capable agents can read it directly, e.g. /mnt/c/... from WSL). Omit \"path\" to save into the host temp dir (bizhawk-mcp).", [
+			Tool("dump_memory", "Dump a memory domain (or a sub-range with \"range_start\"/\"range_length\") to a host-side file (also exposed as a bizhawk:// resource; resources/list reports the file's host path so shell-capable agents can read it directly, e.g. /mnt/c/... from WSL). Omit \"path\" to save into the host temp dir (bizhawk-mcp).", [
 				Param("domain", "string", "Domain name to dump (defaults to current)."),
 				Param("range_start", "integer", "First offset to dump (default 0).", 0),
 				Param("range_length", "integer", "Bytes to dump (default: the rest of the domain)."),
 				Param("path", "string", "Optional absolute path writable by EmuHawk, e.g. C:/temp/ram.bin."),
 			]),
-			Tool("bizhawk_ram_snapshot", "Capture the full contents of a memory domain as a snapshot for later diffing (bizhawk_ram_diff). One snapshot per domain is kept.", [
+			Tool("ram_snapshot", "Capture the full contents of a memory domain as a snapshot for later diffing (ram_diff). One snapshot per domain is kept.", [
 				Param("domain", "string", "Domain name (defaults to current)."),
 				Param("label", "string", "Optional label for the snapshot."),
 			]),
-			Tool("bizhawk_ram_diff", "Compare the current contents of a domain against its snapshot (taken with bizhawk_ram_snapshot) and list changed addresses (JSON).", [
+			Tool("ram_diff", "Compare the current contents of a domain against its snapshot (taken with ram_snapshot) and list changed addresses (JSON).", [
 				Param("domain", "string", "Domain name (defaults to current)."),
 				Param("max_results", "integer", "Stop after this many changes, 1..4096.", 256),
 			]),
-			Tool("bizhawk_symbols_set", "Register symbol names for addresses (from Ghidra exports, fixtures, etc.). Symbols can then be used as \"name\" in read_memory/write_memory/read_many instead of raw addresses. Scoped per ROM (auto) + optional \"namespace\" (default \"default\"); persists across restarts.", [
+			Tool("symbols_set", "Register symbol names for addresses (from Ghidra exports, fixtures, etc.). Symbols can then be used as \"name\" in read_memory/write_memory/read_many instead of raw addresses. Scoped per ROM (auto) + optional \"namespace\" (default \"default\"); persists across restarts.", [
 				Param("symbols", "array", "Array of {\"name\": string, \"address\": int, \"width\"?: 8|16|32, \"domain\"?: string}."),
 				Param("namespace", "string", "Namespace to store under (e.g. \"ghidra\", \"fixture\").", "default"),
 			]),
-			Tool("bizhawk_symbols_list", "List registered symbols with their namespace (JSON).", []),
-			Tool("bizhawk_symbols_clear", "Remove all registered symbols, or just one namespace with \"namespace\".", [
+			Tool("symbols_list", "List registered symbols with their namespace (JSON).", []),
+			Tool("symbols_clear", "Remove all registered symbols, or just one namespace with \"namespace\".", [
 				Param("namespace", "string", "Optional namespace to clear; omit to clear everything."),
 			]),
-			Tool("bizhawk_read_palette", "Read a core's color palette as hex RGB strings. Genesis: CRAM (64 colors, 16-bit BGR). SNES: CGRAM (256 colors, 16-bit BGR555). Other systems: unsupported.", [
+			Tool("read_palette", "Read a core's color palette as hex RGB strings. Genesis: CRAM (64 colors, 16-bit BGR). SNES: CGRAM (256 colors, 16-bit BGR555). Other systems: unsupported.", [
 				Param("count", "integer", "Number of colors to read, 1..256.", 64),
 				Param("domain", "string", "Optional palette domain (defaults to CRAM on GEN, CGRAM on SNES)."),
 			]),
-			Tool("bizhawk_genesis_read_plane", "Decode a Genesis background nametable (plane A/B) from VRAM into a PNG (also exposed as a bizhawk:// resource). Genesis gpgx core only; other cores error. Plane base auto-detected from the core's VDP view (Kid Chameleon uses plane A at 0x0000, not the typical 0xC000); override with \"base\". \"columns\"/\"rows\" select the region, \"offset_x\"/\"offset_y\" (tiles) crop to a camera window, \"scale\" zooms. Uses the CRAM palette.", [
+			Tool("genesis_read_plane", "Decode a Genesis background nametable (plane A/B) from VRAM into a PNG (also exposed as a bizhawk:// resource). Genesis gpgx core only; other cores error. Plane base auto-detected from the core's VDP view (Kid Chameleon uses plane A at 0x0000, not the typical 0xC000); override with \"base\". \"columns\"/\"rows\" select the region, \"offset_x\"/\"offset_y\" (tiles) crop to a camera window, \"scale\" zooms. Uses the CRAM palette.", [
 				Param("plane", "string", "\"A\" or \"B\".", "A"),
 				Param("base", "integer", "VRAM offset of the nametable (default: auto-detect from the core)."),
 				Param("columns", "integer", "Tile columns to render, 1..128.", 64),
@@ -324,91 +324,102 @@ namespace BizHawkMcp
 				Param("scale", "integer", "Pixel zoom factor, 1..8.", 1),
 				Param("path", "string", "Optional absolute PNG path writable by EmuHawk (default: temp dir)."),
 			]),
-			Tool("bizhawk_genesis_get_vdp_view", "Read the Genesis VDP nametable bases from the core (plane A/B addresses + dimensions in tiles, as the game configures them). Genesis gpgx core only; other cores error. Use it to find where the planes live before genesis_read_plane.", []),
-			Tool("bizhawk_genesis_get_z80_registers", "Read the Z80 sound CPU registers from the Genesis core (gpgx reports both CPUs in one register table — this filters the Z80 half). The core names them lowercase: \"Z80 pc\", \"Z80 sp\", \"Z80 af\", \"Z80 hl\", ... Genesis gpgx core only; other cores error.", []),
-			Tool("bizhawk_genesis_disassemble_z80", "Disassemble Z80 (sound CPU) code from its bus space: 0x0000-0x1FFF is Z80 RAM (where the 68K uploads the sound driver — the reset vector runs RAM@0x0000), aliased at 0x2000-0x3FFF; 0x4000+ is sound I/O/open bus. \"address\" is a raw Z80 bus address; \"count\" instructions follow sequentially. Uses BizHawk's static Z80ADisassembler (the gpgx core's own disassembler only speaks 68K). On GEN the Z80 bus is synthesized from the Z80 RAM domain (the core has no Z80 BUS domain on Genesis); SMS/GG use the native Z80 BUS domain. Other cores error.", [
+			Tool("genesis_get_vdp_view", "Read the Genesis VDP nametable bases from the core (plane A/B addresses + dimensions in tiles, as the game configures them). Genesis gpgx core only; other cores error. Use it to find where the planes live before genesis_read_plane.", []),
+			Tool("genesis_get_z80_registers", "Read the Z80 sound CPU registers from the Genesis core (gpgx reports both CPUs in one register table — this filters the Z80 half). The core names them lowercase: \"Z80 pc\", \"Z80 sp\", \"Z80 af\", \"Z80 hl\", ... Genesis gpgx core only; other cores error.", []),
+			Tool("genesis_disassemble_z80", "Disassemble Z80 (sound CPU) code from its bus space: 0x0000-0x1FFF is Z80 RAM (where the 68K uploads the sound driver — the reset vector runs RAM@0x0000), aliased at 0x2000-0x3FFF; 0x4000+ is sound I/O/open bus. \"address\" is a raw Z80 bus address; \"count\" instructions follow sequentially. Uses BizHawk's static Z80ADisassembler (the gpgx core's own disassembler only speaks 68K). On GEN the Z80 bus is synthesized from the Z80 RAM domain (the core has no Z80 BUS domain on Genesis); SMS/GG use the native Z80 BUS domain. Other cores error.", [
 				Param("address", "integer", "Z80 bus address to start at (0x0000-0xFFFF)."),
 				Param("count", "integer", "Instructions to disassemble, 1..64.", 8),
 			]),
-			Tool("bizhawk_genesis_trace_z80", "Advance N frames sampling the Z80 sound CPU each step: PC, SP and the disassembled instruction at PC — shows the sound driver's main loop, busy-waits (e.g. polling the 68K handshake port) and where it spends each frame. \"stack_words\": N > 0 also dumps that many 16-bit words from the Z80 stack (SP lives in Z80 RAM at bus 0x0000-0x1FFF, little-endian). Z80 bus reads are synthesized from the Z80 RAM domain on GEN (0x0000-0x3FFF, aliased) or use the native Z80 BUS domain on SMS/GG. Genesis gpgx core only; other cores error.", [
+			Tool("genesis_trace_z80", "Advance N frames sampling the Z80 sound CPU each step: PC, SP and the disassembled instruction at PC — shows the sound driver's main loop, busy-waits (e.g. polling the 68K handshake port) and where it spends each frame. \"stack_words\": N > 0 also dumps that many 16-bit words from the Z80 stack (SP lives in Z80 RAM at bus 0x0000-0x1FFF, little-endian). Z80 bus reads are synthesized from the Z80 RAM domain on GEN (0x0000-0x3FFF, aliased) or use the native Z80 BUS domain on SMS/GG. Genesis gpgx core only; other cores error.", [
 				Param("count", "integer", "Frames to trace, 1..600.", 60),
 				Param("step", "integer", "Sample every step frames.", 1),
 				Param("stack_words", "integer", "16-bit stack words to dump per sample (0..32; 0 = off).", 0),
 			]),
-			Tool("bizhawk_press_buttons", "Set joypad state for the NEXT frame.", [
+			Tool("press_buttons", "Set joypad state for the NEXT frame.", [
 				Param("buttons", "object", "Map of button name -> pressed bool, e.g. {\"A\": true, \"Right\": true}."),
 				Param("controller", "integer", "Optional controller index (1-based).", 1),
 			]),
-			Tool("bizhawk_frame_advance", "Advance exactly N frames. If paused, temporarily unpauses and restores the pause afterwards, so frames actually run.", [
+			Tool("frame_advance", "Advance exactly N frames. If paused, temporarily unpauses and restores the pause afterwards, so frames actually run.", [
 				Param("count", "integer", "Frames to advance, 1..600.", 1),
 			]),
-			Tool("bizhawk_pause", "Pause emulation. Returns the new paused state.", []),
-			Tool("bizhawk_unpause", "Unpause emulation. Returns the new paused state.", []),
-			Tool("bizhawk_toggle_pause", "Toggle pause. Returns the new paused state.", []),
-			Tool("bizhawk_speed_mode", "Set emulation speed as a percent of full speed.", [
+			Tool("pause", "Pause emulation. Returns the new paused state.", []),
+			Tool("unpause", "Unpause emulation. Returns the new paused state.", []),
+			Tool("toggle_pause", "Toggle pause. Returns the new paused state.", []),
+			Tool("speed_mode", "Set emulation speed as a percent of full speed.", [
 				Param("percent", "integer", "e.g. 100 = normal, 50 = half speed, 400 = turbo."),
 			]),
-			Tool("bizhawk_get_sound", "Get whether emulator sound is enabled.", []),
-			Tool("bizhawk_set_sound", "Enable or disable emulator sound.", [
+			Tool("get_sound", "Get whether emulator sound is enabled.", []),
+			Tool("set_sound", "Enable or disable emulator sound.", [
 				Param("enabled", "boolean", "True to enable sound.", true),
 			]),
-			Tool("bizhawk_enable_rewind", "Enable or disable the emulator's rewind feature (state history).", [
+			Tool("enable_rewind", "Enable or disable the emulator's rewind feature (state history).", [
 				Param("enabled", "boolean", "True to enable rewind.", true),
 			]),
-			Tool("bizhawk_frameskip", "Set the emulator frameskip: how many frames to skip between rendered frames. 0 = render every frame.", [
+			Tool("frameskip", "Set the emulator frameskip: how many frames to skip between rendered frames. 0 = render every frame.", [
 				Param("count", "integer", "Frames to skip, 0..600.", 0),
 			]),
-			Tool("bizhawk_limit_framerate", "Enable or disable the emulator's framerate limit (clock throttle). Disabling lets emulation run as fast as the CPU allows.", [
+			Tool("limit_framerate", "Enable or disable the emulator's framerate limit (clock throttle). Disabling lets emulation run as fast as the CPU allows.", [
 				Param("enabled", "boolean", "True to limit framerate.", true),
 			]),
-			Tool("bizhawk_open_rom", "Open a ROM file. The path is host-side (Windows path when EmuHawk runs on Windows, e.g. F:/roms/game.md).", [
+			Tool("open_rom", "Open a ROM file. The path is host-side (Windows path when EmuHawk runs on Windows, e.g. F:/roms/game.md).", [
 				Param("path", "string", "Absolute path to a ROM file."),
 			]),
-			Tool("bizhawk_close_rom", "Close the current ROM (emulator returns to the null-ROM state).", []),
-			Tool("bizhawk_reboot", "Reboot the current core (restart the loaded game from power-on).", []),
-			Tool("bizhawk_get_joypad", "Read the current joypad state as a map of button -> value (bool or int for analog).", [
+			Tool("close_rom", "Close the current ROM (emulator returns to the null-ROM state).", []),
+			Tool("reboot", "Reboot the current core (restart the loaded game from power-on).", []),
+			Tool("get_joypad", "Read the current joypad state as a map of button -> value (bool or int for analog).", [
 				Param("controller", "integer", "Optional controller index (1-based).", 1),
 			]),
-			Tool("bizhawk_get_registers", "CPU registers as a map of name -> value.", []),
-			Tool("bizhawk_set_register", "Write a CPU register. Use the exact key from bizhawk_get_registers (e.g. \"M68K PC\" on Genesis). Note: some cores (gpgx) do not implement register writes at all — check the response.", [
+			Tool("get_registers", "CPU registers as a map of name -> value.", []),
+			Tool("set_register", "Write a CPU register. Use the exact key from get_registers (e.g. \"M68K PC\" on Genesis). Note: some cores (gpgx) do not implement register writes at all — check the response.", [
 				Param("register", "string", "Register name, e.g. \"M68K PC\", \"M68K A0\"."),
 				Param("value", "integer", "Value to write."),
 			]),
-			Tool("bizhawk_disassemble", "Disassemble the instruction at a program counter address.", [
+			Tool("disassemble", "Disassemble the instruction at a program counter address.", [
 				Param("pc", "integer", "Program counter address."),
 				Param("name", "string", "Optional disassembler name (defaults to the core's)."),
 			]),
-			Tool("bizhawk_lag_count", "Lag status: is the current frame lagging and the total lag count.", []),
-			Tool("bizhawk_screenshot", "Save a PNG of the current frame. Omit \"path\" to save into the host temp dir (bizhawk-mcp). Paths are host-side: when EmuHawk runs on Windows they must be Windows paths (e.g. F:/temp/shot.png). Set \"include_overlays\": true to also compose the overlay/OSD layer (overlay_text/rect/line, OSD messages) into the PNG. Returns the effective absolute path and an MCP resource URI to fetch the image bytes.", [
+			Tool("lag_count", "Lag status: is the current frame lagging and the total lag count.", []),
+			Tool("screenshot", "Save a PNG of the current frame. Omit \"path\" to save into the host temp dir (bizhawk-mcp). Paths are host-side: when EmuHawk runs on Windows they must be Windows paths (e.g. F:/temp/shot.png). Set \"include_overlays\": true to also compose the overlay/OSD layer (overlay_text/rect/line, OSD messages) into the PNG. Returns the effective absolute path and an MCP resource URI to fetch the image bytes.", [
 				Param("path", "string", "Optional absolute path writable by EmuHawk, e.g. C:/temp/snap.png. Defaults to a temp file."),
 				Param("include_overlays", "boolean", "Compose the overlay/OSD layer into the PNG (default false = bare core framebuffer).", false),
 			]),
-			Tool("bizhawk_frame_hash", "SHA1 hash of the current rendered frame (screenshot → hash of the PNG bytes). Identical rendered output produces the same hash (BizHawk's PNG save is deterministic), so this is a cheap screen-change detector: hash once, advance, hash again — equal hashes = same screen, no pixel transfer. Returns {sha1, frame, path, resource} (path/resource to fetch the hashed PNG). Same host-path and overlay semantics as bizhawk_screenshot.", [
+			Tool("frame_hash", "SHA1 hash of the current rendered frame (screenshot → hash of the PNG bytes). Identical rendered output produces the same hash (BizHawk's PNG save is deterministic), so this is a cheap screen-change detector: hash once, advance, hash again — equal hashes = same screen, no pixel transfer. Returns {sha1, frame, path, resource} (path/resource to fetch the hashed PNG). Same host-path and overlay semantics as screenshot.", [
 				Param("path", "string", "Optional absolute path writable by EmuHawk, e.g. C:/temp/hash.png. Defaults to a temp file."),
 				Param("include_overlays", "boolean", "Compose the overlay/OSD layer into the PNG before hashing (default false).", false),
 			]),
-			Tool("bizhawk_save_state", "Save an emulator state to a file.", [
+			Tool("save_state", "Save an emulator state to a file.", [
 				Param("path", "string", "Absolute .State path."),
 			]),
-			Tool("bizhawk_load_state", "Load an emulator state from a file.", [
+			Tool("load_state", "Load an emulator state from a file.", [
 				Param("path", "string", "Absolute .State path."),
 			]),
-			Tool("bizhawk_save_slot", "Save an emulator state to a quick-save slot (1..10).", [
+			Tool("save_slot", "Save an emulator state to a quick-save slot (1..10).", [
 				Param("slot", "integer", "Slot number, 1..10.", 1),
 			]),
-			Tool("bizhawk_load_slot", "Load an emulator state from a quick-save slot (1..10).", [
+			Tool("load_slot", "Load an emulator state from a quick-save slot (1..10).", [
 				Param("slot", "integer", "Slot number, 1..10.", 1),
 			]),
-			Tool("bizhawk_memstate_save", "Save the CORE's state to an in-memory slot (no disk, no 10-slot limit; session-local, lost on restart). Reaches the core's IStatable service via reflection on the emulator (like watchpoints) — fast save/restore for search/TAS iteration. Note: restores the core state only (CPU + memory), not EmuHawk-side state (framecount/lag count).", [
+			Tool("memstate_save", "Save the CORE's state to an in-memory slot (no disk, no 10-slot limit; session-local, lost on restart). Reaches the core's IStatable service via reflection on the emulator (like watchpoints) — fast save/restore for search/TAS iteration. Note: restores the core state only (CPU + memory), not EmuHawk-side state (framecount/lag count).", [
 				Param("slot", "string", "Slot name, any string (e.g. \"pre-jump\")."),
 			]),
-			Tool("bizhawk_memstate_load", "Restore a core state saved with bizhawk_memstate_save. Reaches the core's IStatable service via reflection (like watchpoints); cores without IStatable get a clear error. See bizhawk_memstate_save for the scope (core state only).", [
+			Tool("memstate_load", "Restore a core state saved with memstate_save. Reaches the core's IStatable service via reflection (like watchpoints); cores without IStatable get a clear error. See memstate_save for the scope (core state only).", [
 				Param("slot", "string", "Slot name previously saved."),
 			]),
-			Tool("bizhawk_memstate_list", "List in-memory core state slots (names + sizes).", []),
-			Tool("bizhawk_freeze_add", "Freeze a memory address or range: the emulator's cheat engine (the same MainForm.CheatList the hex editor's Freeze uses) re-writes the value EVERY frame, even while emulation runs freely — so the game can't change it. Use it to lock a timer (\"freeze time\"), lives/health (repeated death tests), or any value you need stable while analyzing. Without \"value\", the current contents are snapshotted; with \"value\", that value is written every frame. \"length\" > 1 freezes a range as 8-bit entries (\"value\" then fills every byte, 0..255). Width 8/16/32 applies to single-address freezes. Entries are the emulator's real cheats: they appear in the Cheats window and persist on exit.", [
+			Tool("memstate_list", "List in-memory core state slots (names + sizes).", []),
+			Tool("cdl_start", "Start the core's code/data logger (Code Data Logger — the same ICodeDataLogger service EmuHawk's CDL tool uses, reached via reflection like watchpoints): blanks the log and installs it, so from now on the core ORs access flags into a per-domain bitmap (1 byte per address) for every byte it touches. Works on any core exposing the service (Genesis gpgx: blocks \"MD CART\"/\"68K RAM\"/\"Z80 RAM\"/\"SRAM\"; bit semantics: 0x01 Exec68k, 0x04 Data68k, 0x08/0x10 ExecZ80First/Operand, 0x20 DataZ80, 0x40 DMASource); other cores get a clear error. The core writes from its own thread while emulation runs. Session-local: a reboot/ROM change needs a fresh start.", []),
+			Tool("cdl_stop", "Stop the code/data logger (the core stops writing the bitmap), keeping the collected data for cdl_get/export. Start a new log with cdl_start.", []),
+			Tool("cdl_get", "Read the code/data log started with cdl_start: per block (domain) the executed/touched byte counts, coverage %, the flag counts (gpgx bit semantics above), and the flagged address ranges (start inclusive, end exclusive, decimal domain offsets). \"mask\": \"exec\" (default, 68K+Z80 execute flags) or \"any\" (every flag incl. data/DMA). Stop first for a stable snapshot.", [
+				Param("mask", "string", "\"exec\" (execute flags only) or \"any\" (all flags).", "exec"),
+				Param("max_ranges", "integer", "Cap on ranges reported per block (1..8192; beyond it only the count is returned).", 512),
+				Param("block", "string", "Optional: only this block/domain (e.g. \"68K RAM\")."),
+			]),
+			Tool("cdl_export", "Export the code/data log to a host-side file (also exposed as a bizhawk:// resource). Default format \"cdl\" writes the real BizHawk CDL binary (BIZHAWK-CDL-2 — loadable by EmuHawk's CDL tool and by Ghidra scripts that consume BizHawk CDL exports); \"text\" writes a human-readable executed-ranges listing. Stop the logger first for a stable snapshot. Omit \"path\" to save into the host temp dir.", [
+				Param("path", "string", "Optional absolute path writable by EmuHawk, e.g. C:/temp/game.cdl."),
+				Param("format", "string", "\"cdl\" (binary, Ghidra/EmuHawk-importable) or \"text\" (ranges listing).", "cdl"),
+			]),
+			Tool("freeze_add", "Freeze a memory address or range: the emulator's cheat engine (the same MainForm.CheatList the hex editor's Freeze uses) re-writes the value EVERY frame, even while emulation runs freely — so the game can't change it. Use it to lock a timer (\"freeze time\"), lives/health (repeated death tests), or any value you need stable while analyzing. Without \"value\", the current contents are snapshotted; with \"value\", that value is written every frame. \"length\" > 1 freezes a range as 8-bit entries (\"value\" then fills every byte, 0..255). Width 8/16/32 applies to single-address freezes. Entries are the emulator's real cheats: they appear in the Cheats window and persist on exit.", [
 				Param("address", "integer", "Offset in the domain, or use a symbol \"name\" instead."),
-				Param("name", "string", "Symbol name registered via bizhawk_symbols_set (overrides address/domain)."),
+				Param("name", "string", "Symbol name registered via symbols_set (overrides address/domain)."),
 				Param("note", "string", "Optional label for the freeze entry (shown in freeze_list; usable in freeze_remove)."),
 				Param("width", "integer", "8, 16 or 32 (single-address freezes).", 8),
 				Param("domain", "string", "Optional domain."),
@@ -416,44 +427,44 @@ namespace BizHawkMcp
 				Param("value", "integer", "Optional value to write every frame (default: snapshot the current contents)."),
 				Param("length", "integer", "Optional: freeze a range of this many bytes (8-bit entries).", 1),
 			]),
-			Tool("bizhawk_freeze_remove", "Un-freeze entries: by the \"note\" label given at freeze_add, or by address (or symbol \"name\") with optional \"length\" and \"domain\" — removes every entry starting in that range, same domain only.", [
+			Tool("freeze_remove", "Un-freeze entries: by the \"note\" label given at freeze_add, or by address (or symbol \"name\") with optional \"length\" and \"domain\" — removes every entry starting in that range, same domain only.", [
 				Param("note", "string", "Label of the freeze to remove (from freeze_add or freeze_list)."),
 				Param("address", "integer", "Address to un-freeze, or use a symbol \"name\" instead."),
-				Param("name", "string", "Symbol name registered via bizhawk_symbols_set (overrides address/domain)."),
+				Param("name", "string", "Symbol name registered via symbols_set (overrides address/domain)."),
 				Param("length", "integer", "Optional: un-freeze the range [address, address+length).", 1),
 				Param("domain", "string", "Optional domain (default: current)."),
 			]),
-			Tool("bizhawk_freeze_list", "List the emulator's current freezes (cheat entries): name, domain, address, width, value, endianness, enabled. Shared with the Cheats window / hex editor freezes.", []),
-			Tool("bizhawk_freeze_clear", "Remove ALL freezes/cheats in the emulator's cheat list (including manual entries made in the Cheats window).", []),
-			Tool("bizhawk_lua_exec", "Execute a Lua snippet inline in EmuHawk's Lua runtime (the same path the Lua Console's REPL box uses). The memory/gui/emu/... libraries are available (note the BizHawk memory API uses underscore forms: memory.read_u8 / read_u16_be / read_u32_le / write_u8 / write_u16_be / write_u32_le). A Lua syntax/runtime error is returned as {\"executed\": false, \"error\": ...}, not a server error. Returns the expression's values (\"return ...\" is implied, like the REPL).", [
+			Tool("freeze_list", "List the emulator's current freezes (cheat entries): name, domain, address, width, value, endianness, enabled. Shared with the Cheats window / hex editor freezes.", []),
+			Tool("freeze_clear", "Remove ALL freezes/cheats in the emulator's cheat list (including manual entries made in the Cheats window).", []),
+			Tool("lua_exec", "Execute a Lua snippet inline in EmuHawk's Lua runtime (the same path the Lua Console's REPL box uses). The memory/gui/emu/... libraries are available (note the BizHawk memory API uses underscore forms: memory.read_u8 / read_u16_be / read_u32_le / write_u8 / write_u16_be / write_u32_le). A Lua syntax/runtime error is returned as {\"executed\": false, \"error\": ...}, not a server error. Returns the expression's values (\"return ...\" is implied, like the REPL).", [
 				Param("code", "string", "Lua code to execute, e.g. \"memory.read_u32_be(0xFF2506)\"."),
 			]),
-			Tool("bizhawk_lua_load", "Load a .lua script file into the emulator's script list and start it (same as loading it in the Lua Console). The script then runs every frame via EmuHawk's own frame events — even while emulation runs freely — with no further tool involvement. If already loaded but disabled, re-starts it. Opens the Lua Console window if it isn't open (it owns the Lua runtime).", [
+			Tool("lua_load", "Load a .lua script file into the emulator's script list and start it (same as loading it in the Lua Console). The script then runs every frame via EmuHawk's own frame events — even while emulation runs freely — with no further tool involvement. If already loaded but disabled, re-starts it. Opens the Lua Console window if it isn't open (it owns the Lua runtime).", [
 				Param("path", "string", "Absolute .lua path (host-side, e.g. C:/temp/script.lua)."),
 			]),
-			Tool("bizhawk_lua_unload", "Stop and remove a loaded Lua script.", [
+			Tool("lua_unload", "Stop and remove a loaded Lua script.", [
 				Param("path", "string", "Absolute .lua path as given to lua_load."),
 			]),
-			Tool("bizhawk_lua_enable", "Start (or resume) a loaded Lua script that is currently disabled.", [
+			Tool("lua_enable", "Start (or resume) a loaded Lua script that is currently disabled.", [
 				Param("path", "string", "Absolute .lua path."),
 			]),
-			Tool("bizhawk_lua_disable", "Stop a running Lua script (it stays in the script list, disabled).", [
+			Tool("lua_disable", "Stop a running Lua script (it stays in the script list, disabled).", [
 				Param("path", "string", "Absolute .lua path."),
 			]),
-			Tool("bizhawk_lua_list", "List the emulator's loaded Lua scripts: path, enabled, paused.", []),
-			Tool("bizhawk_lua_docs", "Agent-friendly JSON of the emulator's Lua API documentation — the same chain that generates the tasvideos.org LuaFunctions page ([LuaMethod] attributes via LuaLibraries.Docs), served live from the running build, with examples the wiki omits. Each function: {name, signature (e.g. \"uint memory.read_u8(long addr, [string domain = nil])\"), description, example, deprecated}. Optional \"library\" filters to one (memory, gui, emu, ...).", [
+			Tool("lua_list", "List the emulator's loaded Lua scripts: path, enabled, paused.", []),
+			Tool("lua_docs", "Agent-friendly JSON of the emulator's Lua API documentation — the same chain that generates the tasvideos.org LuaFunctions page ([LuaMethod] attributes via LuaLibraries.Docs), served live from the running build, with examples the wiki omits. Each function: {name, signature (e.g. \"uint memory.read_u8(long addr, [string domain = nil])\"), description, example, deprecated}. Optional \"library\" filters to one (memory, gui, emu, ...).", [
 				Param("library", "string", "Optional: only this library (e.g. \"memory\")."),
 			]),
-			Tool("bizhawk_shutdown", "Stop the MCP server (plugin stays loaded; restart via the form's button or the emulator's Lua/tools menu).", []),
-			Tool("bizhawk_overlay_text", "Draw text on the emulator's video output. Overlays ACCUMULATE until bizhawk_clear_overlay (all are re-rendered on every frame advance), so multiple hitboxes/labels can stay on screen at once.", [
+			Tool("shutdown", "Stop the MCP server (plugin stays loaded; restart via the form's button or the emulator's Lua/tools menu).", []),
+			Tool("overlay_text", "Draw text on the emulator's video output. Overlays ACCUMULATE until clear_overlay (all are re-rendered on every frame advance), so multiple hitboxes/labels can stay on screen at once.", [
 				Param("x", "integer", "X position."),
 				Param("y", "integer", "Y position."),
 				Param("text", "string", "Text to draw."),
 				Param("color", "string", "Optional hex color, e.g. \"#FFFFFF\"."),
 				Param("fontsize", "integer", "Optional font size in pixels."),
 			]),
-			Tool("bizhawk_clear_overlay", "Remove all overlays drawn on the video output (graphics + text).", []),
-			Tool("bizhawk_overlay_rect", "Draw a rectangle on the video output (hitboxes, regions). Overlays ACCUMULATE until bizhawk_clear_overlay. Accepts a single rect or a list via \"rects\": [{x,y,width,height,color,fill}].", [
+			Tool("clear_overlay", "Remove all overlays drawn on the video output (graphics + text).", []),
+			Tool("overlay_rect", "Draw a rectangle on the video output (hitboxes, regions). Overlays ACCUMULATE until clear_overlay. Accepts a single rect or a list via \"rects\": [{x,y,width,height,color,fill}].", [
 				Param("x", "integer", "X position."),
 				Param("y", "integer", "Y position."),
 				Param("width", "integer", "Width in pixels."),
@@ -462,7 +473,7 @@ namespace BizHawkMcp
 				Param("fill", "string", "Optional fill color, e.g. \"#00FF0080\" (ARGB)."),
 				Param("rects", "array", "Optional list of rects to draw in one call."),
 			]),
-			Tool("bizhawk_overlay_line", "Draw a line on the video output. Overlays ACCUMULATE until bizhawk_clear_overlay. Accepts a single line or a list via \"lines\": [{x1,y1,x2,y2,color}].", [
+			Tool("overlay_line", "Draw a line on the video output. Overlays ACCUMULATE until clear_overlay. Accepts a single line or a list via \"lines\": [{x1,y1,x2,y2,color}].", [
 				Param("x1", "integer", "Start X."),
 				Param("y1", "integer", "Start Y."),
 				Param("x2", "integer", "End X."),
@@ -470,49 +481,49 @@ namespace BizHawkMcp
 				Param("color", "string", "Optional color, e.g. \"#00FF00\"."),
 				Param("lines", "array", "Optional list of lines to draw in one call."),
 			]),
-			Tool("bizhawk_osd_message", "Show a message in the emulator's OSD (on-screen display).", [
+			Tool("osd_message", "Show a message in the emulator's OSD (on-screen display).", [
 				Param("message", "string", "Text to show."),
 				Param("duration", "integer", "Optional duration in ms."),
 			]),
-			Tool("bizhawk_movie_info", "TAS movie info: loaded, filename, mode, length, rerecords, fps, header.", []),
-			Tool("bizhawk_movie_input", "Get the input log of a movie frame as a mnemonic string.", [
+			Tool("movie_info", "TAS movie info: loaded, filename, mode, length, rerecords, fps, header.", []),
+			Tool("movie_input", "Get the input log of a movie frame as a mnemonic string.", [
 				Param("frame", "integer", "Frame number (0-based)."),
 			]),
-			Tool("bizhawk_movie_start", "Start a TAS movie. With \"path\": load that .bk2 file and play from frame 0. Without: start recording a new movie for the loaded ROM.", [
+			Tool("movie_start", "Start a TAS movie. With \"path\": load that .bk2 file and play from frame 0. Without: start recording a new movie for the loaded ROM.", [
 				Param("path", "string", "Optional .bk2 movie path to load and play (default: new recording)."),
 			]),
-			Tool("bizhawk_movie_save", "Save the current TAS movie. With \"path\": save to that .bk2 file (default: current movie filename).", [
+			Tool("movie_save", "Save the current TAS movie. With \"path\": save to that .bk2 file (default: current movie filename).", [
 				Param("path", "string", "Optional .bk2 save path."),
 			]),
-			Tool("bizhawk_movie_stop", "Stop the current TAS movie (saves changes).", []),
-			Tool("bizhawk_host_input", "Read the host's physical input (keyboard, mouse, gamepad).", []),
-			Tool("bizhawk_userdata_set", "Store a value in EmuHawk's user data store (persists across sessions).", [
+			Tool("movie_stop", "Stop the current TAS movie (saves changes).", []),
+			Tool("host_input", "Read the host's physical input (keyboard, mouse, gamepad).", []),
+			Tool("userdata_set", "Store a value in EmuHawk's user data store (persists across sessions).", [
 				Param("key", "string", "Key name."),
 				Param("value", "string", "Value to store."),
 			]),
-			Tool("bizhawk_userdata_get", "Read a value from EmuHawk's user data store.", [
+			Tool("userdata_get", "Read a value from EmuHawk's user data store.", [
 				Param("key", "string", "Key name."),
 			]),
-			Tool("bizhawk_userdata_clear", "Clear all stored user data (or a single key).", [
+			Tool("userdata_clear", "Clear all stored user data (or a single key).", [
 				Param("key", "string", "Optional key to remove; omit to clear all."),
 			]),
-			Tool("bizhawk_watch_add", "Register a memory watcher (address + width + domain + optional endianness). Values are read with bizhawk_watch_read; the watcher list is session-local.", [
+			Tool("watch_add", "Register a memory watcher (address + width + domain + optional endianness). Values are read with watch_read; the watcher list is session-local.", [
 				Param("name", "string", "Watcher name (unique)."),
-				Param("address", "integer", "Offset in the domain (see bizhawk_list_memory_domains for conventions)."),
+				Param("address", "integer", "Offset in the domain (see list_memory_domains for conventions)."),
 				Param("width", "integer", "8, 16 or 32.", 8),
 				Param("domain", "string", "Optional domain (defaults to current)."),
 				Param("endianness", "string", "\"auto\" (domain default), \"big\" or \"little\".", "auto"),
 			]),
-			Tool("bizhawk_watch_remove", "Remove a memory watcher by name.", [
+			Tool("watch_remove", "Remove a memory watcher by name.", [
 				Param("name", "string", "Watcher name."),
 			]),
-			Tool("bizhawk_watch_list", "List registered watchers with their current values (JSON).", []),
-			Tool("bizhawk_watch_read", "Read all watcher values in one call (JSON). Each entry has \"value\" and \"changed\" (true when it differs from the previous read). With \"compact\": true, returns three aligned arrays (names/values/changed) — smaller payload.", [
+			Tool("watch_list", "List registered watchers with their current values (JSON).", []),
+			Tool("watch_read", "Read all watcher values in one call (JSON). Each entry has \"value\" and \"changed\" (true when it differs from the previous read). With \"compact\": true, returns three aligned arrays (names/values/changed) — smaller payload.", [
 				Param("compact", "boolean", "Return aligned names/values/changed arrays instead of objects.", false),
 			]),
-			Tool("bizhawk_wait_until", "Advance frames until a memory condition holds (or timeout). Pauses when done. Single mode: \"address\" (or symbol \"name\") + \"op\" (eq|ne|lt|gt|le|ge) + \"value\", optional width/domain/endianness. Multi mode: pass \"conditions\": [{address|name, op, value, width?, domain?, endianness?}, ...] — advances until ALL conditions hold on the SAME frame (AND), so nested single waits are no longer needed; returns per-condition results. Optional \"endianness\" as bizhawk_read_memory (default \"auto\").", [
+			Tool("wait_until", "Advance frames until a memory condition holds (or timeout). Pauses when done. Single mode: \"address\" (or symbol \"name\") + \"op\" (eq|ne|lt|gt|le|ge) + \"value\", optional width/domain/endianness. Multi mode: pass \"conditions\": [{address|name, op, value, width?, domain?, endianness?}, ...] — advances until ALL conditions hold on the SAME frame (AND), so nested single waits are no longer needed; returns per-condition results. Optional \"endianness\" as read_memory (default \"auto\").", [
 				Param("address", "integer", "Offset in the domain, or use a symbol \"name\" instead."),
-				Param("name", "string", "Symbol name registered via bizhawk_symbols_set (overrides address/domain)."),
+				Param("name", "string", "Symbol name registered via symbols_set (overrides address/domain)."),
 				Param("op", "string", "eq | ne | lt | gt | le | ge.", "eq"),
 				Param("value", "integer", "Value to compare against."),
 				Param("width", "integer", "8, 16 or 32.", 8),
@@ -521,29 +532,29 @@ namespace BizHawkMcp
 				Param("timeout_frames", "integer", "Max frames to advance, 1..600.", 600),
 				Param("conditions", "array", "Optional multi-condition mode: [{address|name, op, value, width?, domain?, endianness?}, ...] — wait until ALL hold on the same frame (1..32)."),
 			]),
-			Tool("bizhawk_watch_change", "Advance frames until the value at an address changes from its value at call time (or timeout). Pauses when done. Unlike wait_until you don't need to know the target value — this gives \"first change frame\" semantics for finding dynamic structures. Optional \"endianness\" as bizhawk_read_memory (default \"auto\"). Accepts \"address\" or a symbol \"name\" (from bizhawk_symbols_set).", [
+			Tool("watch_change", "Advance frames until the value at an address changes from its value at call time (or timeout). Pauses when done. Unlike wait_until you don't need to know the target value — this gives \"first change frame\" semantics for finding dynamic structures. Optional \"endianness\" as read_memory (default \"auto\"). Accepts \"address\" or a symbol \"name\" (from symbols_set).", [
 				Param("address", "integer", "Offset in the domain, or use a symbol \"name\" instead."),
-				Param("name", "string", "Symbol name registered via bizhawk_symbols_set (overrides address/domain)."),
+				Param("name", "string", "Symbol name registered via symbols_set (overrides address/domain)."),
 				Param("width", "integer", "8, 16 or 32.", 8),
 				Param("domain", "string", "Optional domain."),
 				Param("endianness", "string", "\"auto\" (domain default), \"big\" or \"little\".", "auto"),
 				Param("timeout_frames", "integer", "Max frames to advance, 1..600.", 600),
 			]),
-			Tool("bizhawk_watchpoint_add", "Register a real memory watchpoint (read/write/execute) that fires the moment the core touches the address. GENESIS gpgx core ONLY: requires IDebuggable memory callbacks; other cores return an error. Execute watchpoints need an explicit address. See bizhawk_watchpoint_wait to block until one fires.", [
+			Tool("watchpoint_add", "Register a real memory watchpoint (read/write/execute) that fires the moment the core touches the address. GENESIS gpgx core ONLY: requires IDebuggable memory callbacks; other cores return an error. Execute watchpoints need an explicit address. See watchpoint_wait to block until one fires.", [
 				Param("name", "string", "Watchpoint name (unique)."),
 				Param("type", "string", "read | write | execute.", "write"),
 				Param("address", "integer", "Bus address to watch (required for execute; omit for read/write to watch all)."),
 				Param("domain", "string", "Optional scope, e.g. \"M68K BUS\" (defaults to the core's first available scope)."),
 			]),
-			Tool("bizhawk_watchpoint_remove", "Remove a registered memory watchpoint.", [
+			Tool("watchpoint_remove", "Remove a registered memory watchpoint.", [
 				Param("name", "string", "Watchpoint name."),
 			]),
-			Tool("bizhawk_watchpoint_list", "List registered memory watchpoints (JSON).", []),
-			Tool("bizhawk_watchpoint_wait", "Advance frames until a registered watchpoint fires (or timeout). Pauses when done. On a hit with \"context_bytes\": N > 0, also returns full registers, the PC + disassembled instruction, and N raw bytes around the hit address (context.start/bytes/hit_offset). Returns the hit: watchpoint name, type, address and value.", [
+			Tool("watchpoint_list", "List registered memory watchpoints (JSON).", []),
+			Tool("watchpoint_wait", "Advance frames until a registered watchpoint fires (or timeout). Pauses when done. On a hit with \"context_bytes\": N > 0, also returns full registers, the PC + disassembled instruction, and N raw bytes around the hit address (context.start/bytes/hit_offset). Returns the hit: watchpoint name, type, address and value.", [
 				Param("timeout_frames", "integer", "Max frames to advance, 1..600.", 600),
 				Param("context_bytes", "integer", "Bytes of RAM to include around the hit address (0..512; 0 = no context).", 0),
 			]),
-			Tool("bizhawk_trace", "Advance N frames and sample the CPU each step: frame, PC, and disassembly at PC (JSON).", [
+			Tool("trace", "Advance N frames and sample the CPU each step: frame, PC, and disassembly at PC (JSON).", [
 				Param("count", "integer", "Frames to trace, 1..600.", 60),
 				Param("step", "integer", "Sample every step frames.", 1),
 			]),
@@ -557,7 +568,7 @@ namespace BizHawkMcp
 		// Persistent overlay list. EmuHawk's Client surface holds ONE drawing
 		// (drawing a new shape replaces the previous), so we keep the full list
 		// here and re-render everything after every mutation and every
-		// frame-advance. Shapes accumulate until bizhawk_clear_overlay.
+		// frame-advance. Shapes accumulate until clear_overlay.
 		private readonly List<System.Action> _overlays = new();
 
 		private void RedrawOverlays()
@@ -583,104 +594,108 @@ namespace BizHawkMcp
 			{
 				return name switch
 			{
-				"bizhawk_ping" => _ui.Invoke(() => "pong"),
-				"bizhawk_get_info" => _ui.Invoke(GetInfo),
-				"bizhawk_get_board_info" => _ui.Invoke(GetBoardInfo),
-				"bizhawk_read_memory" => _ui.Invoke(() => ReadMemory(args)),
-				"bizhawk_write_memory" => _ui.Invoke(() => WriteMemory(args)),
-				"bizhawk_read_range" => _ui.Invoke(() => ReadRange(args)),
-				"bizhawk_read_bulk" => _ui.Invoke(() => ReadBulk(args)),
-				"bizhawk_use_memory_domain" => _ui.Invoke(() => UseMemoryDomain(args)),
-				"bizhawk_list_memory_domains" => _ui.Invoke(ListMemoryDomains),
-				"bizhawk_search_memory" => _ui.Invoke(() => SearchMemory(args)),
-				"bizhawk_set_big_endian" => _ui.Invoke(() => SetBigEndian(args)),
-				"bizhawk_hash_region" => _ui.Invoke(() => HashRegion(args)),
-				"bizhawk_read_signed" => _ui.Invoke(() => ReadSigned(args)),
-				"bizhawk_write_signed" => _ui.Invoke(() => WriteSigned(args)),
-				"bizhawk_read_float" => _ui.Invoke(() => ReadFloat(args)),
-				"bizhawk_write_float" => _ui.Invoke(() => WriteFloat(args)),
-				"bizhawk_read_many" => _ui.Invoke(() => ReadMany(args)),
-				"bizhawk_write_range" => _ui.Invoke(() => WriteRange(args)),
-				"bizhawk_write_many" => _ui.Invoke(() => WriteMany(args)),
-				"bizhawk_start_fixture" => _ui.Invoke(() => StartFixture(args)),
-				"bizhawk_read_struct" => _ui.Invoke(() => ReadStruct(args)),
-				"bizhawk_dump_memory" => _ui.Invoke(() => DumpMemory(args)),
-				"bizhawk_ram_snapshot" => _ui.Invoke(() => RamSnapshot(args)),
-				"bizhawk_ram_diff" => _ui.Invoke(() => RamDiff(args)),
-				"bizhawk_symbols_set" => _ui.Invoke(() => SymbolsSet(args)),
-				"bizhawk_symbols_list" => _ui.Invoke(SymbolsList),
-				"bizhawk_symbols_clear" => _ui.Invoke(() => SymbolsClear(args)),
-				"bizhawk_read_palette" => _ui.Invoke(() => ReadPalette(args)),
-				"bizhawk_genesis_read_plane" => _ui.Invoke(() => ReadPlane(args)),
-				"bizhawk_genesis_get_vdp_view" => _ui.Invoke(GetVdpView),
-				"bizhawk_genesis_get_z80_registers" => _ui.Invoke(GenesisGetZ80Registers),
-				"bizhawk_genesis_disassemble_z80" => _ui.Invoke(() => Z80DisassembleTool(args)),
-				"bizhawk_genesis_trace_z80" => _ui.Invoke(() => Z80Trace(args)),
-				"bizhawk_press_buttons" => _ui.Invoke(() => PressButtons(args)),
-				"bizhawk_frame_advance" => _ui.Invoke(() => FrameAdvance(args)),
-				"bizhawk_pause" => _ui.Invoke(() => PauseTool()),
-				"bizhawk_unpause" => _ui.Invoke(() => UnpauseTool()),
-				"bizhawk_toggle_pause" => _ui.Invoke(() => TogglePauseTool()),
-				"bizhawk_speed_mode" => _ui.Invoke(() => SpeedMode(args)),
-				"bizhawk_get_sound" => _ui.Invoke(GetSound),
-				"bizhawk_set_sound" => _ui.Invoke(() => SetSound(args)),
-				"bizhawk_enable_rewind" => _ui.Invoke(() => EnableRewind(args)),
-				"bizhawk_frameskip" => _ui.Invoke(() => FrameSkipTool(args)),
-				"bizhawk_limit_framerate" => _ui.Invoke(() => LimitFramerate(args)),
-				"bizhawk_open_rom" => _ui.Invoke(() => OpenRom(args)),
-				"bizhawk_close_rom" => _ui.Invoke(CloseRom),
-				"bizhawk_reboot" => _ui.Invoke(Reboot),
-				"bizhawk_get_joypad" => _ui.Invoke(() => GetJoypad(args)),
-				"bizhawk_get_registers" => _ui.Invoke(GetRegisters),
-				"bizhawk_set_register" => _ui.Invoke(() => SetRegister(args)),
-				"bizhawk_disassemble" => _ui.Invoke(() => Disassemble(args)),
-				"bizhawk_lag_count" => _ui.Invoke(LagCount),
-				"bizhawk_screenshot" => _ui.Invoke(() => Screenshot(args)),
-				"bizhawk_frame_hash" => _ui.Invoke(() => FrameHash(args)),
-				"bizhawk_save_state" => _ui.Invoke(() => SaveState(args)),
-				"bizhawk_load_state" => _ui.Invoke(() => LoadState(args)),
-				"bizhawk_save_slot" => _ui.Invoke(() => SaveSlot(args)),
-				"bizhawk_load_slot" => _ui.Invoke(() => LoadSlot(args)),
-				"bizhawk_memstate_save" => _ui.Invoke(() => MemStateSave(args)),
-				"bizhawk_memstate_load" => _ui.Invoke(() => MemStateLoad(args)),
-				"bizhawk_memstate_list" => _ui.Invoke(MemStateList),
-				"bizhawk_freeze_add" => _ui.Invoke(() => FreezeAdd(args)),
-				"bizhawk_freeze_remove" => _ui.Invoke(() => FreezeRemove(args)),
-				"bizhawk_freeze_list" => _ui.Invoke(FreezeList),
-				"bizhawk_freeze_clear" => _ui.Invoke(FreezeClear),
-				"bizhawk_lua_exec" => _ui.Invoke(() => LuaExec(args)),
-				"bizhawk_lua_load" => _ui.Invoke(() => LuaLoad(args)),
-				"bizhawk_lua_unload" => _ui.Invoke(() => LuaUnload(args)),
-				"bizhawk_lua_enable" => _ui.Invoke(() => LuaEnable(args)),
-				"bizhawk_lua_disable" => _ui.Invoke(() => LuaDisable(args)),
-				"bizhawk_lua_list" => _ui.Invoke(LuaList),
-				"bizhawk_lua_docs" => _ui.Invoke(() => LuaDocs(args)),
-				"bizhawk_shutdown" => Shutdown(),
-				"bizhawk_overlay_text" => _ui.Invoke(() => OverlayText(args)),
-				"bizhawk_clear_overlay" => _ui.Invoke(() => ClearOverlay()),
-				"bizhawk_overlay_rect" => _ui.Invoke(() => OverlayRect(args)),
-				"bizhawk_overlay_line" => _ui.Invoke(() => OverlayLine(args)),
-				"bizhawk_osd_message" => _ui.Invoke(() => OsdMessage(args)),
-				"bizhawk_movie_info" => _ui.Invoke(MovieInfo),
-				"bizhawk_movie_input" => _ui.Invoke(() => MovieInput(args)),
-				"bizhawk_movie_start" => _ui.Invoke(() => MovieStart(args)),
-				"bizhawk_movie_save" => _ui.Invoke(() => MovieSave(args)),
-				"bizhawk_movie_stop" => _ui.Invoke(() => MovieStop(args)),
-				"bizhawk_host_input" => _ui.Invoke(HostInput),
-				"bizhawk_userdata_set" => _ui.Invoke(() => UserDataSet(args)),
-				"bizhawk_userdata_get" => _ui.Invoke(() => UserDataGet(args)),
-				"bizhawk_userdata_clear" => _ui.Invoke(() => UserDataClear(args)),
-				"bizhawk_watch_add" => _ui.Invoke(() => WatchAdd(args)),
-				"bizhawk_watch_remove" => _ui.Invoke(() => WatchRemove(args)),
-				"bizhawk_watch_list" => _ui.Invoke(() => WatchList()),
-				"bizhawk_watch_read" => _ui.Invoke(() => WatchRead(args)),
-				"bizhawk_wait_until" => _ui.Invoke(() => WaitUntil(args)),
-				"bizhawk_watch_change" => _ui.Invoke(() => WatchChange(args)),
-				"bizhawk_watchpoint_add" => _ui.Invoke(() => WatchpointAdd(args)),
-				"bizhawk_watchpoint_remove" => _ui.Invoke(() => WatchpointRemove(args)),
-				"bizhawk_watchpoint_list" => _ui.Invoke(WatchpointList),
-				"bizhawk_watchpoint_wait" => _ui.Invoke(() => WatchpointWait(args)),
-				"bizhawk_trace" => _ui.Invoke(() => Trace(args)),
+				"ping" => _ui.Invoke(() => "pong"),
+				"get_info" => _ui.Invoke(GetInfo),
+				"get_board_info" => _ui.Invoke(GetBoardInfo),
+				"read_memory" => _ui.Invoke(() => ReadMemory(args)),
+				"write_memory" => _ui.Invoke(() => WriteMemory(args)),
+				"read_range" => _ui.Invoke(() => ReadRange(args)),
+				"read_bulk" => _ui.Invoke(() => ReadBulk(args)),
+				"use_memory_domain" => _ui.Invoke(() => UseMemoryDomain(args)),
+				"list_memory_domains" => _ui.Invoke(ListMemoryDomains),
+				"search_memory" => _ui.Invoke(() => SearchMemory(args)),
+				"set_big_endian" => _ui.Invoke(() => SetBigEndian(args)),
+				"hash_region" => _ui.Invoke(() => HashRegion(args)),
+				"read_signed" => _ui.Invoke(() => ReadSigned(args)),
+				"write_signed" => _ui.Invoke(() => WriteSigned(args)),
+				"read_float" => _ui.Invoke(() => ReadFloat(args)),
+				"write_float" => _ui.Invoke(() => WriteFloat(args)),
+				"read_many" => _ui.Invoke(() => ReadMany(args)),
+				"write_range" => _ui.Invoke(() => WriteRange(args)),
+				"write_many" => _ui.Invoke(() => WriteMany(args)),
+				"start_fixture" => _ui.Invoke(() => StartFixture(args)),
+				"read_struct" => _ui.Invoke(() => ReadStruct(args)),
+				"dump_memory" => _ui.Invoke(() => DumpMemory(args)),
+				"ram_snapshot" => _ui.Invoke(() => RamSnapshot(args)),
+				"ram_diff" => _ui.Invoke(() => RamDiff(args)),
+				"symbols_set" => _ui.Invoke(() => SymbolsSet(args)),
+				"symbols_list" => _ui.Invoke(SymbolsList),
+				"symbols_clear" => _ui.Invoke(() => SymbolsClear(args)),
+				"read_palette" => _ui.Invoke(() => ReadPalette(args)),
+				"genesis_read_plane" => _ui.Invoke(() => ReadPlane(args)),
+				"genesis_get_vdp_view" => _ui.Invoke(GetVdpView),
+				"genesis_get_z80_registers" => _ui.Invoke(GenesisGetZ80Registers),
+				"genesis_disassemble_z80" => _ui.Invoke(() => Z80DisassembleTool(args)),
+				"genesis_trace_z80" => _ui.Invoke(() => Z80Trace(args)),
+				"press_buttons" => _ui.Invoke(() => PressButtons(args)),
+				"frame_advance" => _ui.Invoke(() => FrameAdvance(args)),
+				"pause" => _ui.Invoke(() => PauseTool()),
+				"unpause" => _ui.Invoke(() => UnpauseTool()),
+				"toggle_pause" => _ui.Invoke(() => TogglePauseTool()),
+				"speed_mode" => _ui.Invoke(() => SpeedMode(args)),
+				"get_sound" => _ui.Invoke(GetSound),
+				"set_sound" => _ui.Invoke(() => SetSound(args)),
+				"enable_rewind" => _ui.Invoke(() => EnableRewind(args)),
+				"frameskip" => _ui.Invoke(() => FrameSkipTool(args)),
+				"limit_framerate" => _ui.Invoke(() => LimitFramerate(args)),
+				"open_rom" => _ui.Invoke(() => OpenRom(args)),
+				"close_rom" => _ui.Invoke(CloseRom),
+				"reboot" => _ui.Invoke(Reboot),
+				"get_joypad" => _ui.Invoke(() => GetJoypad(args)),
+				"get_registers" => _ui.Invoke(GetRegisters),
+				"set_register" => _ui.Invoke(() => SetRegister(args)),
+				"disassemble" => _ui.Invoke(() => Disassemble(args)),
+				"lag_count" => _ui.Invoke(LagCount),
+				"screenshot" => _ui.Invoke(() => Screenshot(args)),
+				"frame_hash" => _ui.Invoke(() => FrameHash(args)),
+				"save_state" => _ui.Invoke(() => SaveState(args)),
+				"load_state" => _ui.Invoke(() => LoadState(args)),
+				"save_slot" => _ui.Invoke(() => SaveSlot(args)),
+				"load_slot" => _ui.Invoke(() => LoadSlot(args)),
+				"memstate_save" => _ui.Invoke(() => MemStateSave(args)),
+				"memstate_load" => _ui.Invoke(() => MemStateLoad(args)),
+				"memstate_list" => _ui.Invoke(MemStateList),
+				"cdl_start" => _ui.Invoke(() => CdlStart(args)),
+				"cdl_stop" => _ui.Invoke(CdlStop),
+				"cdl_get" => _ui.Invoke(() => CdlGet(args)),
+				"cdl_export" => _ui.Invoke(() => CdlExport(args)),
+				"freeze_add" => _ui.Invoke(() => FreezeAdd(args)),
+				"freeze_remove" => _ui.Invoke(() => FreezeRemove(args)),
+				"freeze_list" => _ui.Invoke(FreezeList),
+				"freeze_clear" => _ui.Invoke(FreezeClear),
+				"lua_exec" => _ui.Invoke(() => LuaExec(args)),
+				"lua_load" => _ui.Invoke(() => LuaLoad(args)),
+				"lua_unload" => _ui.Invoke(() => LuaUnload(args)),
+				"lua_enable" => _ui.Invoke(() => LuaEnable(args)),
+				"lua_disable" => _ui.Invoke(() => LuaDisable(args)),
+				"lua_list" => _ui.Invoke(LuaList),
+				"lua_docs" => _ui.Invoke(() => LuaDocs(args)),
+				"shutdown" => Shutdown(),
+				"overlay_text" => _ui.Invoke(() => OverlayText(args)),
+				"clear_overlay" => _ui.Invoke(() => ClearOverlay()),
+				"overlay_rect" => _ui.Invoke(() => OverlayRect(args)),
+				"overlay_line" => _ui.Invoke(() => OverlayLine(args)),
+				"osd_message" => _ui.Invoke(() => OsdMessage(args)),
+				"movie_info" => _ui.Invoke(MovieInfo),
+				"movie_input" => _ui.Invoke(() => MovieInput(args)),
+				"movie_start" => _ui.Invoke(() => MovieStart(args)),
+				"movie_save" => _ui.Invoke(() => MovieSave(args)),
+				"movie_stop" => _ui.Invoke(() => MovieStop(args)),
+				"host_input" => _ui.Invoke(HostInput),
+				"userdata_set" => _ui.Invoke(() => UserDataSet(args)),
+				"userdata_get" => _ui.Invoke(() => UserDataGet(args)),
+				"userdata_clear" => _ui.Invoke(() => UserDataClear(args)),
+				"watch_add" => _ui.Invoke(() => WatchAdd(args)),
+				"watch_remove" => _ui.Invoke(() => WatchRemove(args)),
+				"watch_list" => _ui.Invoke(() => WatchList()),
+				"watch_read" => _ui.Invoke(() => WatchRead(args)),
+				"wait_until" => _ui.Invoke(() => WaitUntil(args)),
+				"watch_change" => _ui.Invoke(() => WatchChange(args)),
+				"watchpoint_add" => _ui.Invoke(() => WatchpointAdd(args)),
+				"watchpoint_remove" => _ui.Invoke(() => WatchpointRemove(args)),
+				"watchpoint_list" => _ui.Invoke(WatchpointList),
+				"watchpoint_wait" => _ui.Invoke(() => WatchpointWait(args)),
+				"trace" => _ui.Invoke(() => Trace(args)),
 				_ => throw new JsonRpc.Error(JsonRpc.Error.METHOD_NOT_FOUND, $"unknown tool: {name}"),
 				};
 			}
@@ -927,7 +942,7 @@ namespace BizHawkMcp
 		private readonly Dictionary<string, RamSnapshotData> _ramSnapshots = new(StringComparer.OrdinalIgnoreCase);
 
 		// RAM-search reference states: raw domain bytes captured by the last
-		// stateful bizhawk_search_memory call (op without "value"), keyed by
+		// stateful search_memory call (op without "value"), keyed by
 		// domain name — the classic "baseline then compare" search flow.
 		private readonly Dictionary<string, byte[]> _searchPrev = new(StringComparer.OrdinalIgnoreCase);
 
@@ -968,7 +983,7 @@ namespace BizHawkMcp
 
 			string name = domain ?? _tool.Memory!.GetCurrentMemoryDomain();
 			if (!_ramSnapshots.TryGetValue(name, out var snap))
-				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"no snapshot for domain {name}; call bizhawk_ram_snapshot first");
+				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"no snapshot for domain {name}; call ram_snapshot first");
 
 			uint size = _tool.Memory!.GetMemoryDomainSize(domain ?? "");
 			var changes = new List<object?>();
@@ -1871,7 +1886,7 @@ namespace BizHawkMcp
 			if (overrideDomain != null) domain = overrideDomain;
 
 			// read raw bytes and assemble the 16-bit entry in the palette's own
-			// endianness (independent of bizhawk_set_big_endian)
+			// endianness (independent of set_big_endian)
 			var colors = new List<string>();
 			for (var i = 0; i < count; i++)
 			{
@@ -2059,7 +2074,7 @@ namespace BizHawkMcp
 			});
 		}
 
-		// Z80 analog of bizhawk_trace: sample the sound CPU's PC/SP each frame
+		// Z80 analog of trace: sample the sound CPU's PC/SP each frame
 		// and disassemble at PC — shows the sound driver's main loop, busy-waits
 		// and per-frame cost. Optional stack_words dumps the Z80 stack (SP
 		// points into Z80 RAM at 0x2000-0x3FFF of bus space).
@@ -2700,6 +2715,255 @@ namespace BizHawkMcp
 			foreach (var kv in _memStates)
 				states.Add(new Dictionary<string, object?> { ["slot"] = kv.Key, ["size"] = kv.Value.Length });
 			return JsonRpc.Pretty(new Dictionary<string, object?> { ["states"] = states });
+		}
+
+		// ── code/data logger ──────────────────────────────────────────────────
+		// The core exposes the ICodeDataLogger service (the same one EmuHawk's
+		// Code Data Logger tool drives) — reached via reflection on the private
+		// `Emulator` property, exactly like IStatable above. The log is a
+		// per-domain bitmap (1 byte per address); the core ORs access flags in
+		// from its own thread (GPGX.CDCallbackProc), so we never touch it from
+		// a callback — we only install a fresh log and read the arrays back.
+		// Session-local: cdl_start replaces the log; a reboot/ROM
+		// change requires a fresh start. Flags (gpgx semantics): 0x01 Exec68k,
+		// 0x04 Data68k, 0x08 ExecZ80First, 0x10 ExecZ80Operand, 0x20 DataZ80,
+		// 0x40 DMASource.
+		private const byte CdlExec68k = 0x01;
+		private const byte CdlData68k = 0x04;
+		private const byte CdlExecZ80First = 0x08;
+		private const byte CdlExecZ80Operand = 0x10;
+		private const byte CdlDataZ80 = 0x20;
+		private const byte CdlDmaSource = 0x40;
+		private const byte CdlExecMask = CdlExec68k | CdlExecZ80First | CdlExecZ80Operand;
+
+		private CodeDataLog? _cdl;
+		private bool _cdlActive;
+
+		private ICodeDataLogger ResolveCdl()
+		{
+			var emuApi = _tool.Emulation!;
+			var emuProp = emuApi.GetType().GetProperty("Emulator", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+			if (emuProp == null || emuProp.GetValue(emuApi) is not IEmulator emu || emu.ServiceProvider == null)
+				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "code/data logger unsupported: cannot reach the core's IEmulator via the emulator API");
+			var cdl = emu.ServiceProvider.GetService<ICodeDataLogger>();
+			if (cdl == null)
+				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "code/data logger unsupported: this core does not expose the ICodeDataLogger service (works on cores like the Genesis gpgx)");
+			return cdl;
+		}
+
+		private CodeDataLog RequireCdl()
+		{
+			if (_cdl == null)
+				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "code/data logger not started — call cdl_start first");
+			return _cdl;
+		}
+
+		private string CdlStart(JsonElement? args)
+		{
+			var service = ResolveCdl();
+			var log = new CodeDataLog();
+			service.NewCDL(log); // fills the per-domain bitmap blocks for this core
+			service.SetCDL(log); // installs + starts logging
+			_cdl = log;
+			_cdlActive = true;
+			return JsonRpc.Pretty(new Dictionary<string, object?>
+			{
+				["active"] = true,
+				["blocks"] = CdlBlocksSummary(log),
+				["note"] = "the core ORs access flags into the log while emulation runs; re-start after a reboot or ROM change",
+			});
+		}
+
+		private string CdlStop()
+		{
+			var log = RequireCdl();
+			ResolveCdl().SetCDL(null); // core stops writing; our arrays keep the data
+			_cdlActive = false;
+			return JsonRpc.Pretty(new Dictionary<string, object?>
+			{
+				["active"] = false,
+				["blocks"] = CdlBlocksSummary(log),
+				["note"] = "logging stopped; collected data kept for cdl_get/export",
+			});
+		}
+
+		private static List<object?> CdlBlocksSummary(CodeDataLog log)
+		{
+			var blocks = new List<object?>();
+			foreach (var kv in log)
+				blocks.Add(new Dictionary<string, object?> { ["name"] = kv.Key, ["size"] = kv.Value.Length });
+			return blocks;
+		}
+
+		private string CdlGet(JsonElement? args)
+		{
+			var log = RequireCdl();
+			string mask = "exec";
+			int maxRanges = 512;
+			string? onlyBlock = null;
+			if (args is { } a && a.ValueKind == JsonValueKind.Object)
+			{
+				mask = OptionalString(a, "mask") ?? "exec";
+				if (a.TryGetProperty("max_ranges", out var mr) && mr.ValueKind == JsonValueKind.Number) maxRanges = mr.GetInt32();
+				onlyBlock = OptionalString(a, "block");
+			}
+			if (mask != "exec" && mask != "any")
+				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "mask must be \"exec\" or \"any\"");
+			maxRanges = maxRanges < 1 ? 1 : maxRanges > 8192 ? 8192 : maxRanges; // Math.Clamp is netstandard2.1+
+
+			byte bitMask = (byte)(mask == "any" ? 0xFF : CdlExecMask);
+			var blocks = new List<object?>();
+			foreach (var kv in log)
+			{
+				if (onlyBlock != null && kv.Key != onlyBlock) continue;
+				var (execBytes, touchedBytes, ranges, rangeCount, flagCounts) = ScanBlock(kv.Value, bitMask, maxRanges);
+				var pct = kv.Value.Length == 0 ? 0.0 : Math.Round(execBytes * 10000.0 / kv.Value.Length) / 100.0;
+				var dict = new Dictionary<string, object?>
+				{
+					["name"] = kv.Key,
+					["size"] = kv.Value.Length,
+					["exec_bytes"] = execBytes,
+					["exec_pct"] = pct,
+					["touched_bytes"] = touchedBytes,
+					["range_count"] = rangeCount,
+					["ranges"] = ranges,
+					["flag_counts"] = flagCounts,
+				};
+				if (rangeCount > ranges.Count) dict["ranges_truncated"] = true;
+				blocks.Add(dict);
+			}
+			if (onlyBlock != null && blocks.Count == 0)
+				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, $"no block \"{onlyBlock}\" in the log (available: {string.Join(", ", log.Keys)})");
+
+			return JsonRpc.Pretty(new Dictionary<string, object?>
+			{
+				["active"] = _cdlActive,
+				["mask"] = mask,
+				["blocks"] = blocks,
+			});
+		}
+
+		private static (int execBytes, int touchedBytes, List<Dictionary<string, object?>> ranges, int rangeCount, Dictionary<string, object?> flagCounts) ScanBlock(byte[] data, byte bitMask, int maxRanges)
+		{
+			int execBytes = 0, touchedBytes = 0;
+			int exec68k = 0, data68k = 0, execZ80First = 0, execZ80Operand = 0, dataZ80 = 0, dmaSource = 0;
+			var ranges = new List<Dictionary<string, object?>>();
+			int rangeCount = 0;
+			bool inRange = false;
+			long rangeStart = 0;
+			for (long i = 0; i < data.Length; i++)
+			{
+				byte b = data[i];
+				if (b == 0)
+				{
+					if (inRange)
+					{
+						rangeCount++;
+						if (ranges.Count < maxRanges)
+							ranges.Add(new Dictionary<string, object?> { ["start"] = rangeStart, ["end"] = i });
+						inRange = false;
+					}
+					continue;
+				}
+
+				touchedBytes++;
+				if ((b & CdlExec68k) != 0) exec68k++;
+				if ((b & CdlData68k) != 0) data68k++;
+				if ((b & CdlExecZ80First) != 0) execZ80First++;
+				if ((b & CdlExecZ80Operand) != 0) execZ80Operand++;
+				if ((b & CdlDataZ80) != 0) dataZ80++;
+				if ((b & CdlDmaSource) != 0) dmaSource++;
+
+				if ((b & bitMask) == 0)
+				{
+					// nonzero but not matching the mask: closes any open run
+					if (inRange)
+					{
+						rangeCount++;
+						if (ranges.Count < maxRanges)
+							ranges.Add(new Dictionary<string, object?> { ["start"] = rangeStart, ["end"] = i });
+						inRange = false;
+					}
+					continue;
+				}
+
+				execBytes++;
+				if (!inRange)
+				{
+					rangeStart = i;
+					inRange = true;
+				}
+			}
+			if (inRange)
+			{
+				rangeCount++;
+				if (ranges.Count < maxRanges)
+					ranges.Add(new Dictionary<string, object?> { ["start"] = rangeStart, ["end"] = data.Length });
+			}
+
+			var counts = new Dictionary<string, object?>
+			{
+				["Exec68k"] = exec68k,
+				["Data68k"] = data68k,
+				["ExecZ80First"] = execZ80First,
+				["ExecZ80Operand"] = execZ80Operand,
+				["DataZ80"] = dataZ80,
+				["DMASource"] = dmaSource,
+			};
+			return (execBytes, touchedBytes, ranges, rangeCount, counts);
+		}
+
+		private string CdlExport(JsonElement? args)
+		{
+			var log = RequireCdl();
+			string format = "cdl";
+			string? path = null;
+			if (args is { } a && a.ValueKind == JsonValueKind.Object)
+			{
+				format = OptionalString(a, "format") ?? "cdl";
+				path = OptionalString(a, "path");
+			}
+			if (format != "cdl" && format != "text")
+				throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "format must be \"cdl\" or \"text\"");
+			if (string.IsNullOrEmpty(path))
+			{
+				var dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "bizhawk-mcp");
+				System.IO.Directory.CreateDirectory(dir);
+				string ext = format == "text" ? ".txt" : ".cdl";
+				path = System.IO.Path.Combine(dir, $"cdl-{DateTime.Now:yyyyMMdd-HHmmss}{ext}");
+			}
+
+			if (format == "cdl")
+			{
+				using (var fs = new System.IO.FileStream(path, System.IO.FileMode.Create, System.IO.FileAccess.Write))
+				{
+					log.Save(fs); // real BizHawk CDL binary (BIZHAWK-CDL-2)
+				}
+			}
+			else
+			{
+				var sb = new System.Text.StringBuilder();
+				sb.AppendLine($"# BizHawk code/data log ({log.SubType ?? "?"}) — executed address ranges, 1 byte per address (mask 0x{CdlExecMask:X2})");
+				foreach (var kv in log)
+				{
+					var (execBytes, touchedBytes, ranges, rangeCount, _) = ScanBlock(kv.Value, CdlExecMask, 8192);
+					sb.AppendLine($"BLOCK {kv.Key} size={kv.Value.Length} exec={execBytes} touched={touchedBytes} ranges={rangeCount}");
+					foreach (var r in ranges)
+						sb.AppendLine($"  {((long)r["start"]!):X8}-{((long)r["end"]!):X8}");
+				}
+				System.IO.File.WriteAllText(path, sb.ToString());
+			}
+
+			long size = new System.IO.FileInfo(path).Length;
+			string uri = RegisterArtifact(path!, format == "text" ? "text/plain" : "application/octet-stream", $"code/data log ({format})");
+			return JsonRpc.Pretty(new Dictionary<string, object?>
+			{
+				["path"] = path,
+				["size"] = size,
+				["format"] = format,
+				["resource"] = uri,
+				["blocks"] = CdlBlocksSummary(log),
+			});
 		}
 
 		// ── freeze (emulator cheat engine) ────────────────────────────────────
@@ -3707,7 +3971,7 @@ namespace BizHawkMcp
 			}
 			if (timeout is < 1 or > 600) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "timeout_frames must be 1..600");
 			if (contextBytes is < 0 or > 512) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "context_bytes must be 0..512");
-			if (_watchpoints.Count == 0) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "no watchpoints registered; add one with bizhawk_watchpoint_add first");
+			if (_watchpoints.Count == 0) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "no watchpoints registered; add one with watchpoint_add first");
 
 			_wpFired = false;
 			bool wasPaused = _tool.EmuClient!.IsPaused();
@@ -4043,7 +4307,7 @@ namespace BizHawkMcp
 
 		// Applies the core-appropriate endianness default once per loaded system
 		// (SetBigEndian has no getter, so we keep our own state). Explicit
-		// bizhawk_set_big_endian calls take precedence and stick.
+		// set_big_endian calls take precedence and stick.
 		private void EnsureEndianness()
 		{
 			if (_bigEndianOverride != null) return;
@@ -4055,7 +4319,7 @@ namespace BizHawkMcp
 
 		// Endianness resolution for a call, in precedence order:
 		//   1. explicit "endianness": "big" | "little" | "auto" param
-		//   2. a global bizhawk_set_big_endian override
+		//   2. a global set_big_endian override
 		//   3. the DOMAIN's native endianness (e.g. 68K RAM big vs Z80 RAM
 		//      little on Genesis — both live in the same system)
 		private bool ResolveBigEndian(JsonElement? args, string? domain)

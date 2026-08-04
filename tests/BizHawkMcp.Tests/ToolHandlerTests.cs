@@ -21,16 +21,16 @@ namespace BizHawkMcp.Tests
 		[Fact]
 		public void Write_then_read_roundtrip()
 		{
-			_ts.Call("bizhawk_write_memory", TestHelpers.Js("{\"address\":100,\"width\":8,\"value\":165}"));
-			var res = Parse(_ts.Call("bizhawk_read_memory", TestHelpers.Js("{\"address\":100,\"width\":8}")));
+			_ts.Call("write_memory", TestHelpers.Js("{\"address\":100,\"width\":8,\"value\":165}"));
+			var res = Parse(_ts.Call("read_memory", TestHelpers.Js("{\"address\":100,\"width\":8}")));
 			Assert.Equal((ulong)0xA5, res.GetProperty("value").GetUInt64());
 		}
 
 		[Fact]
 		public void Write_u16_respects_big_endian_default_on_genesis()
 		{
-			_ts.Call("bizhawk_get_info", null); // triggers EnsureEndianness for GEN
-			_ts.Call("bizhawk_write_memory", TestHelpers.Js("{\"address\":100,\"width\":16,\"value\":24827}"));
+			_ts.Call("get_info", null); // triggers EnsureEndianness for GEN
+			_ts.Call("write_memory", TestHelpers.Js("{\"address\":100,\"width\":16,\"value\":24827}"));
 			// big-endian: high byte first
 			Assert.Equal((byte)0x60, _apis.MemoryApi.Bytes[100]);
 			Assert.Equal((byte)0xFB, _apis.MemoryApi.Bytes[101]);
@@ -40,8 +40,8 @@ namespace BizHawkMcp.Tests
 		public void Write_u16_little_endian_on_nes()
 		{
 			_apis.EmulationApi.SystemId = "NES";
-			_ts.Call("bizhawk_get_info", null);
-			_ts.Call("bizhawk_write_memory", TestHelpers.Js("{\"address\":100,\"width\":16,\"value\":24827}"));
+			_ts.Call("get_info", null);
+			_ts.Call("write_memory", TestHelpers.Js("{\"address\":100,\"width\":16,\"value\":24827}"));
 			Assert.Equal((byte)0xFB, _apis.MemoryApi.Bytes[100]);
 			Assert.Equal((byte)0x60, _apis.MemoryApi.Bytes[101]);
 		}
@@ -51,7 +51,7 @@ namespace BizHawkMcp.Tests
 		{
 			// NES defaults little, but an explicit param flips it for this call
 			_apis.EmulationApi.SystemId = "NES";
-			_ts.Call("bizhawk_write_memory", TestHelpers.Js("{\"address\":100,\"width\":16,\"value\":24827,\"endianness\":\"big\"}"));
+			_ts.Call("write_memory", TestHelpers.Js("{\"address\":100,\"width\":16,\"value\":24827,\"endianness\":\"big\"}"));
 			Assert.Equal((byte)0x60, _apis.MemoryApi.Bytes[100]);
 			Assert.Equal((byte)0xFB, _apis.MemoryApi.Bytes[101]);
 		}
@@ -61,7 +61,7 @@ namespace BizHawkMcp.Tests
 		{
 			// Genesis: the Z80 sound CPU memory is little-endian even though
 			// the 68K main memory is big-endian — the domain decides.
-			_ts.Call("bizhawk_write_memory", TestHelpers.Js("{\"address\":100,\"width\":16,\"value\":24827,\"domain\":\"Z80 RAM\"}"));
+			_ts.Call("write_memory", TestHelpers.Js("{\"address\":100,\"width\":16,\"value\":24827,\"domain\":\"Z80 RAM\"}"));
 			Assert.Equal((byte)0xFB, _apis.MemoryApi.Bytes[100]);
 			Assert.Equal((byte)0x60, _apis.MemoryApi.Bytes[101]);
 		}
@@ -69,7 +69,7 @@ namespace BizHawkMcp.Tests
 		[Fact]
 		public void Domain_default_is_big_for_68k_ram()
 		{
-			_ts.Call("bizhawk_write_memory", TestHelpers.Js("{\"address\":100,\"width\":16,\"value\":24827,\"domain\":\"68K RAM\"}"));
+			_ts.Call("write_memory", TestHelpers.Js("{\"address\":100,\"width\":16,\"value\":24827,\"domain\":\"68K RAM\"}"));
 			Assert.Equal((byte)0x60, _apis.MemoryApi.Bytes[100]);
 			Assert.Equal((byte)0xFB, _apis.MemoryApi.Bytes[101]);
 		}
@@ -77,7 +77,7 @@ namespace BizHawkMcp.Tests
 		[Fact]
 		public void Explicit_little_endian_param_on_z80_sticks_for_call()
 		{
-			_ts.Call("bizhawk_write_memory", TestHelpers.Js("{\"address\":100,\"width\":16,\"value\":24827,\"domain\":\"Z80 RAM\",\"endianness\":\"little\"}"));
+			_ts.Call("write_memory", TestHelpers.Js("{\"address\":100,\"width\":16,\"value\":24827,\"domain\":\"Z80 RAM\",\"endianness\":\"little\"}"));
 			Assert.Equal((byte)0xFB, _apis.MemoryApi.Bytes[100]);
 			Assert.Equal((byte)0x60, _apis.MemoryApi.Bytes[101]);
 		}
@@ -87,10 +87,10 @@ namespace BizHawkMcp.Tests
 		{
 			_apis.MemoryApi.Bytes[100] = 0x00;
 			_apis.MemoryApi.Bytes[101] = 0x08;
-			var res = Parse(_ts.Call("bizhawk_read_memory", TestHelpers.Js("{\"address\":100,\"width\":16,\"domain\":\"68K RAM\"}")));
+			var res = Parse(_ts.Call("read_memory", TestHelpers.Js("{\"address\":100,\"width\":16,\"domain\":\"68K RAM\"}")));
 			Assert.Equal((ulong)8, res.GetProperty("value").GetUInt64());
 			Assert.Equal("big", res.GetProperty("endianness").GetString());
-			res = Parse(_ts.Call("bizhawk_read_memory", TestHelpers.Js("{\"address\":100,\"width\":16,\"domain\":\"Z80 RAM\"}")));
+			res = Parse(_ts.Call("read_memory", TestHelpers.Js("{\"address\":100,\"width\":16,\"domain\":\"Z80 RAM\"}")));
 			Assert.Equal((ulong)2048, res.GetProperty("value").GetUInt64());
 			Assert.Equal("little", res.GetProperty("endianness").GetString());
 		}
@@ -98,14 +98,14 @@ namespace BizHawkMcp.Tests
 		[Fact]
 		public void Invalid_endianness_param_rejected()
 		{
-			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_read_memory", TestHelpers.Js("{\"address\":0,\"endianness\":\"sideways\"}")));
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("read_memory", TestHelpers.Js("{\"address\":0,\"endianness\":\"sideways\"}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 		}
 
 		[Fact]
 		public void Use_memory_domain_valid_switches()
 		{
-			var res = _ts.Call("bizhawk_use_memory_domain", TestHelpers.Js("{\"domain\":\"M68K BUS\"}"));
+			var res = _ts.Call("use_memory_domain", TestHelpers.Js("{\"domain\":\"M68K BUS\"}"));
 			Assert.Contains("M68K BUS", res);
 			Assert.Equal("M68K BUS", _apis.MemoryApi.CurrentDomain);
 		}
@@ -113,7 +113,7 @@ namespace BizHawkMcp.Tests
 		[Fact]
 		public void Use_memory_domain_unknown_throws_invalid_params()
 		{
-			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_use_memory_domain", TestHelpers.Js("{\"domain\":\"NOPE\"}")));
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("use_memory_domain", TestHelpers.Js("{\"domain\":\"NOPE\"}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 			Assert.Contains("known domains", ex.Message);
 			Assert.Contains("68K RAM", ex.Message);
@@ -122,13 +122,13 @@ namespace BizHawkMcp.Tests
 		[Fact]
 		public void Set_big_endian_overrides_core_default()
 		{
-			_ts.Call("bizhawk_get_info", null); // GEN → BE
-			_ts.Call("bizhawk_set_big_endian", TestHelpers.Js("{\"enabled\":false}"));
-			_ts.Call("bizhawk_write_memory", TestHelpers.Js("{\"address\":100,\"width\":16,\"value\":24827}"));
+			_ts.Call("get_info", null); // GEN → BE
+			_ts.Call("set_big_endian", TestHelpers.Js("{\"enabled\":false}"));
+			_ts.Call("write_memory", TestHelpers.Js("{\"address\":100,\"width\":16,\"value\":24827}"));
 			Assert.Equal((byte)0xFB, _apis.MemoryApi.Bytes[100]); // LE now
-			_ts.Call("bizhawk_get_info", null);
+			_ts.Call("get_info", null);
 			// override sticks: still LE
-			_ts.Call("bizhawk_write_memory", TestHelpers.Js("{\"address\":200,\"width\":16,\"value\":24827}"));
+			_ts.Call("write_memory", TestHelpers.Js("{\"address\":200,\"width\":16,\"value\":24827}"));
 			Assert.Equal((byte)0xFB, _apis.MemoryApi.Bytes[200]);
 		}
 
@@ -137,7 +137,7 @@ namespace BizHawkMcp.Tests
 		{
 			_apis.EmulationApi.SystemId = "GEN";
 			_apis.EmuClientApi.Paused = true;
-			var res = Parse(_ts.Call("bizhawk_get_info", null));
+			var res = Parse(_ts.Call("get_info", null));
 			Assert.Equal("big", res.GetProperty("endianness").GetString());
 			Assert.True(res.GetProperty("paused").GetBoolean());
 			Assert.Equal("GEN", res.GetProperty("system_id").GetString());
@@ -146,7 +146,7 @@ namespace BizHawkMcp.Tests
 		[Fact]
 		public void Get_board_info_reports_identifiers()
 		{
-			var res = Parse(_ts.Call("bizhawk_get_board_info", null));
+			var res = Parse(_ts.Call("get_board_info", null));
 			Assert.Equal("Genesis", res.GetProperty("board_name").GetString());
 			Assert.Equal("NTSC", res.GetProperty("display_type").GetString());
 			Assert.Equal("USA", res.GetProperty("game_options").GetProperty("region").GetString());
@@ -155,7 +155,7 @@ namespace BizHawkMcp.Tests
 		[Fact]
 		public void Get_info_reports_host_paths()
 		{
-			var res = Parse(_ts.Call("bizhawk_get_info", null));
+			var res = Parse(_ts.Call("get_info", null));
 			var paths = res.GetProperty("paths");
 			Assert.Equal(AppDomain.CurrentDomain.BaseDirectory, paths.GetProperty("install_dir").GetString());
 			Assert.Equal(Environment.CurrentDirectory, paths.GetProperty("working_dir").GetString());
@@ -169,28 +169,28 @@ namespace BizHawkMcp.Tests
 		public void Get_info_reports_little_on_gb()
 		{
 			_apis.EmulationApi.SystemId = "GB";
-			var res = Parse(_ts.Call("bizhawk_get_info", null));
+			var res = Parse(_ts.Call("get_info", null));
 			Assert.Equal("little", res.GetProperty("endianness").GetString());
 		}
 
 		[Fact]
 		public void Invalid_width_rejected()
 		{
-			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_read_memory", TestHelpers.Js("{\"address\":0,\"width\":7}")));
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("read_memory", TestHelpers.Js("{\"address\":0,\"width\":7}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 		}
 
 		[Fact]
 		public void Missing_args_rejected()
 		{
-			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_write_memory", null));
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("write_memory", null));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 		}
 
 		[Fact]
 		public void Value_out_of_width_rejected()
 		{
-			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_write_memory", TestHelpers.Js("{\"address\":0,\"width\":8,\"value\":300}")));
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("write_memory", TestHelpers.Js("{\"address\":0,\"width\":8,\"value\":300}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 		}
 
@@ -198,16 +198,16 @@ namespace BizHawkMcp.Tests
 		public void Address_outside_domain_rejected()
 		{
 			// 68K RAM fake has size 65536
-			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_read_memory", TestHelpers.Js("{\"address\":65536,\"width\":8}")));
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("read_memory", TestHelpers.Js("{\"address\":65536,\"width\":8}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
-			ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_write_memory", TestHelpers.Js("{\"address\":65535,\"width\":16,\"value\":1}")));
+			ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("write_memory", TestHelpers.Js("{\"address\":65535,\"width\":16,\"value\":1}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 		}
 
 		[Fact]
 		public void Address_in_domain_accepted()
 		{
-			_ts.Call("bizhawk_read_memory", TestHelpers.Js("{\"address\":65534,\"width\":16}"));
+			_ts.Call("read_memory", TestHelpers.Js("{\"address\":65534,\"width\":16}"));
 		}
 
 		[Fact]
@@ -216,11 +216,11 @@ namespace BizHawkMcp.Tests
 			// Games (e.g. Kid Chameleon) reference RAM as 0xFFFFxxxx in the
 			// disassembly; the 68K has a 24-bit bus so 0xFFFFF832 == 0xFFF832.
 			_apis.MemoryApi.Bytes[0xFFF832] = 0xAB;
-			var res = Parse(_ts.Call("bizhawk_read_memory", TestHelpers.Js("{\"address\":4294965298,\"domain\":\"M68K BUS\",\"width\":8}")));
+			var res = Parse(_ts.Call("read_memory", TestHelpers.Js("{\"address\":4294965298,\"domain\":\"M68K BUS\",\"width\":8}")));
 			// 4294965298 = 0xFFFFF832
 			Assert.Equal((ulong)0xAB, res.GetProperty("value").GetUInt64());
 
-			_ts.Call("bizhawk_write_memory", TestHelpers.Js("{\"address\":4294965298,\"domain\":\"M68K BUS\",\"width\":8,\"value\":205}"));
+			_ts.Call("write_memory", TestHelpers.Js("{\"address\":4294965298,\"domain\":\"M68K BUS\",\"width\":8,\"value\":205}"));
 			Assert.Equal((byte)0xCD, _apis.MemoryApi.Bytes[0xFFF832]);
 		}
 
@@ -228,7 +228,7 @@ namespace BizHawkMcp.Tests
 		public void Linear_domain_rejects_address_beyond_size_even_with_high_bits()
 		{
 			// 68K RAM is a linear 64KB domain: 0x10001 is NOT the same as 0x0001
-			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_read_memory", TestHelpers.Js("{\"address\":65537,\"width\":8}")));
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("read_memory", TestHelpers.Js("{\"address\":65537,\"width\":8}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 		}
 
@@ -238,14 +238,14 @@ namespace BizHawkMcp.Tests
 			// Only 68000-family cores (24-bit bus) mask 32-bit addresses; a
 			// PSX/NES-style core must keep rejecting out-of-range bus addresses.
 			_apis.EmulationApi.SystemId = "PSX";
-			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_read_memory", TestHelpers.Js("{\"address\":4294965298,\"domain\":\"M68K BUS\",\"width\":8}")));
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("read_memory", TestHelpers.Js("{\"address\":4294965298,\"domain\":\"M68K BUS\",\"width\":8}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 		}
 
 		[Fact]
 		public void List_memory_domains_returns_names_and_sizes()
 		{
-			var res = Parse(_ts.Call("bizhawk_list_memory_domains", null));
+			var res = Parse(_ts.Call("list_memory_domains", null));
 			var domains = res.GetProperty("domains");
 			Assert.Equal((ulong)65536, domains.GetProperty("68K RAM").GetProperty("size").GetUInt64());
 			Assert.Equal("68K RAM", res.GetProperty("current").GetString());
@@ -254,7 +254,7 @@ namespace BizHawkMcp.Tests
 		[Fact]
 		public void List_memory_domains_reports_bus_base_for_genesis()
 		{
-			var res = Parse(_ts.Call("bizhawk_list_memory_domains", null));
+			var res = Parse(_ts.Call("list_memory_domains", null));
 			var domains = res.GetProperty("domains");
 			Assert.Equal((long)0xFF0000, domains.GetProperty("68K RAM").GetProperty("bus_base").GetInt64());
 			Assert.Equal((long)0xA00000, domains.GetProperty("Z80 RAM").GetProperty("bus_base").GetInt64());
@@ -264,7 +264,7 @@ namespace BizHawkMcp.Tests
 		public void List_memory_domains_omits_bus_base_when_unknown()
 		{
 			_apis.EmulationApi.SystemId = "PSX";
-			var res = Parse(_ts.Call("bizhawk_list_memory_domains", null));
+			var res = Parse(_ts.Call("list_memory_domains", null));
 			var domains = res.GetProperty("domains");
 			Assert.False(domains.GetProperty("68K RAM").TryGetProperty("bus_base", out _));
 		}
@@ -274,7 +274,7 @@ namespace BizHawkMcp.Tests
 		{
 			_apis.MemoryApi.Bytes[10] = 0x42;
 			_apis.MemoryApi.Bytes[100] = 0x42;
-			var res = Parse(_ts.Call("bizhawk_search_memory", TestHelpers.Js("{\"value\":66,\"width\":8,\"max_results\":10}")));
+			var res = Parse(_ts.Call("search_memory", TestHelpers.Js("{\"value\":66,\"width\":8,\"max_results\":10}")));
 			Assert.Equal(2, res.GetProperty("count").GetInt32());
 			Assert.Equal((long)10, res.GetProperty("matches")[0].GetProperty("address").GetInt64());
 			Assert.Equal((long)100, res.GetProperty("matches")[1].GetProperty("address").GetInt64());
@@ -284,7 +284,7 @@ namespace BizHawkMcp.Tests
 		public void Search_memory_respects_max_results()
 		{
 			for (int i = 0; i < 50; i++) _apis.MemoryApi.Bytes[i] = 0x42;
-			var res = Parse(_ts.Call("bizhawk_search_memory", TestHelpers.Js("{\"value\":66,\"width\":8,\"max_results\":10}")));
+			var res = Parse(_ts.Call("search_memory", TestHelpers.Js("{\"value\":66,\"width\":8,\"max_results\":10}")));
 			Assert.Equal(10, res.GetProperty("count").GetInt32());
 		}
 
@@ -293,7 +293,7 @@ namespace BizHawkMcp.Tests
 		{
 			_apis.MemoryApi.Bytes[10] = 0x42;
 			_apis.MemoryApi.Bytes[100] = 0x42;
-			var res = Parse(_ts.Call("bizhawk_search_memory", TestHelpers.Js("{\"value\":66,\"width\":8,\"addresses\":[10]}")));
+			var res = Parse(_ts.Call("search_memory", TestHelpers.Js("{\"value\":66,\"width\":8,\"addresses\":[10]}")));
 			Assert.Equal(1, res.GetProperty("count").GetInt32());
 		}
 
@@ -303,7 +303,7 @@ namespace BizHawkMcp.Tests
 			// bytes 00 08 at 100 = 8 in BE, 2048 in LE (the mainFunction regression)
 			_apis.MemoryApi.Bytes[100] = 0x00;
 			_apis.MemoryApi.Bytes[101] = 0x08;
-			var res = Parse(_ts.Call("bizhawk_search_memory", TestHelpers.Js("{\"value\":8,\"width\":16,\"max_results\":10}")));
+			var res = Parse(_ts.Call("search_memory", TestHelpers.Js("{\"value\":8,\"width\":16,\"max_results\":10}")));
 			Assert.Equal(1, res.GetProperty("count").GetInt32());
 			Assert.Equal((long)100, res.GetProperty("matches")[0].GetProperty("address").GetInt64());
 		}
@@ -316,7 +316,7 @@ namespace BizHawkMcp.Tests
 			_apis.MemoryApi.Bytes[101] = 0x34;
 			_apis.MemoryApi.Bytes[102] = 0x56;
 			_apis.MemoryApi.Bytes[103] = 0x78;
-			var res = Parse(_ts.Call("bizhawk_search_memory", TestHelpers.Js("{\"value\":305419896,\"width\":32,\"max_results\":10}")));
+			var res = Parse(_ts.Call("search_memory", TestHelpers.Js("{\"value\":305419896,\"width\":32,\"max_results\":10}")));
 			Assert.Equal(1, res.GetProperty("count").GetInt32());
 			Assert.Equal((long)100, res.GetProperty("matches")[0].GetProperty("address").GetInt64());
 		}
@@ -327,8 +327,8 @@ namespace BizHawkMcp.Tests
 			// on GEN the override to LE must make 08 00 match value 8
 			_apis.MemoryApi.Bytes[100] = 0x08;
 			_apis.MemoryApi.Bytes[101] = 0x00;
-			_ts.Call("bizhawk_set_big_endian", TestHelpers.Js("{\"enabled\":false}"));
-			var res = Parse(_ts.Call("bizhawk_search_memory", TestHelpers.Js("{\"value\":8,\"width\":16,\"max_results\":10}")));
+			_ts.Call("set_big_endian", TestHelpers.Js("{\"enabled\":false}"));
+			var res = Parse(_ts.Call("search_memory", TestHelpers.Js("{\"value\":8,\"width\":16,\"max_results\":10}")));
 			Assert.Equal(1, res.GetProperty("count").GetInt32());
 			Assert.Equal((long)100, res.GetProperty("matches")[0].GetProperty("address").GetInt64());
 		}
@@ -338,7 +338,7 @@ namespace BizHawkMcp.Tests
 		{
 			_apis.MemoryApi.Bytes[100] = 0x00;
 			_apis.MemoryApi.Bytes[101] = 0x08;
-			var res = Parse(_ts.Call("bizhawk_search_memory", TestHelpers.Js("{\"value\":8,\"width\":16,\"addresses\":[100]}")));
+			var res = Parse(_ts.Call("search_memory", TestHelpers.Js("{\"value\":8,\"width\":16,\"addresses\":[100]}")));
 			Assert.Equal(1, res.GetProperty("count").GetInt32());
 		}
 
@@ -348,10 +348,10 @@ namespace BizHawkMcp.Tests
 			// same bytes 00 08: big on 68K RAM (=8), little on Z80 RAM (=2048)
 			_apis.MemoryApi.Bytes[100] = 0x00;
 			_apis.MemoryApi.Bytes[101] = 0x08;
-			var res = Parse(_ts.Call("bizhawk_search_memory", TestHelpers.Js("{\"value\":8,\"width\":16,\"domain\":\"68K RAM\",\"max_results\":10}")));
+			var res = Parse(_ts.Call("search_memory", TestHelpers.Js("{\"value\":8,\"width\":16,\"domain\":\"68K RAM\",\"max_results\":10}")));
 			Assert.Equal(1, res.GetProperty("count").GetInt32());
 			Assert.Equal("big", res.GetProperty("endianness").GetString());
-			res = Parse(_ts.Call("bizhawk_search_memory", TestHelpers.Js("{\"value\":2048,\"width\":16,\"domain\":\"Z80 RAM\",\"max_results\":10}")));
+			res = Parse(_ts.Call("search_memory", TestHelpers.Js("{\"value\":2048,\"width\":16,\"domain\":\"Z80 RAM\",\"max_results\":10}")));
 			Assert.Equal(1, res.GetProperty("count").GetInt32());
 			Assert.Equal("little", res.GetProperty("endianness").GetString());
 		}
@@ -361,13 +361,13 @@ namespace BizHawkMcp.Tests
 		{
 			// first stateful call takes the baseline (count 0, baseline true)
 			_apis.MemoryApi.Bytes[100] = 5;
-			var res = Parse(_ts.Call("bizhawk_search_memory", TestHelpers.Js("{\"op\":\"gt\"}")));
+			var res = Parse(_ts.Call("search_memory", TestHelpers.Js("{\"op\":\"gt\"}")));
 			Assert.True(res.GetProperty("baseline").GetBoolean());
 			Assert.Equal(0, res.GetProperty("count").GetInt32());
 
 			// value increased at 100 → found; the rest stayed 0 → not > 0
 			_apis.MemoryApi.Bytes[100] = 9;
-			res = Parse(_ts.Call("bizhawk_search_memory", TestHelpers.Js("{\"op\":\"gt\"}")));
+			res = Parse(_ts.Call("search_memory", TestHelpers.Js("{\"op\":\"gt\"}")));
 			Assert.False(res.GetProperty("baseline").GetBoolean());
 			Assert.Equal(1, res.GetProperty("count").GetInt32());
 			Assert.Equal((long)100, res.GetProperty("matches")[0].GetProperty("address").GetInt64());
@@ -377,18 +377,18 @@ namespace BizHawkMcp.Tests
 		[Fact]
 		public void Search_stateful_changed_narrows_and_updates_reference()
 		{
-			_ts.Call("bizhawk_search_memory", TestHelpers.Js("{\"op\":\"changed\"}"));
+			_ts.Call("search_memory", TestHelpers.Js("{\"op\":\"changed\"}"));
 			_apis.MemoryApi.Bytes[100] = 1;
 			_apis.MemoryApi.Bytes[200] = 2;
-			var res = Parse(_ts.Call("bizhawk_search_memory", TestHelpers.Js("{\"op\":\"changed\",\"addresses\":[100,200]}")));
+			var res = Parse(_ts.Call("search_memory", TestHelpers.Js("{\"op\":\"changed\",\"addresses\":[100,200]}")));
 			Assert.Equal(2, res.GetProperty("count").GetInt32());
 
 			// the reference was updated to the state just scanned → no more changes
-			res = Parse(_ts.Call("bizhawk_search_memory", TestHelpers.Js("{\"op\":\"changed\",\"addresses\":[100,200]}")));
+			res = Parse(_ts.Call("search_memory", TestHelpers.Js("{\"op\":\"changed\",\"addresses\":[100,200]}")));
 			Assert.Equal(0, res.GetProperty("count").GetInt32());
 
 			// a still-zero address is "unchanged" against the same reference
-			res = Parse(_ts.Call("bizhawk_search_memory", TestHelpers.Js("{\"op\":\"unchanged\",\"addresses\":[50]}")));
+			res = Parse(_ts.Call("search_memory", TestHelpers.Js("{\"op\":\"unchanged\",\"addresses\":[50]}")));
 			Assert.Equal(1, res.GetProperty("count").GetInt32());
 			Assert.Equal((long)50, res.GetProperty("matches")[0].GetProperty("address").GetInt64());
 		}
@@ -398,7 +398,7 @@ namespace BizHawkMcp.Tests
 		{
 			_apis.MemoryApi.Bytes[10] = 3;
 			_apis.MemoryApi.Bytes[11] = 9;
-			var res = Parse(_ts.Call("bizhawk_search_memory", TestHelpers.Js("{\"value\":8,\"op\":\"lt\",\"range_start\":10,\"range_length\":2}")));
+			var res = Parse(_ts.Call("search_memory", TestHelpers.Js("{\"value\":8,\"op\":\"lt\",\"range_start\":10,\"range_length\":2}")));
 			Assert.Equal(1, res.GetProperty("count").GetInt32());
 			Assert.Equal((long)10, res.GetProperty("matches")[0].GetProperty("address").GetInt64());
 		}
@@ -407,33 +407,33 @@ namespace BizHawkMcp.Tests
 		public void Search_rejects_bad_op_combinations()
 		{
 			// eq needs a value
-			Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_search_memory", TestHelpers.Js("{\"op\":\"eq\"}")));
+			Assert.Throws<JsonRpc.Error>(() => _ts.Call("search_memory", TestHelpers.Js("{\"op\":\"eq\"}")));
 			// changed/unchanged need the previous state (no value)
-			Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_search_memory", TestHelpers.Js("{\"value\":1,\"op\":\"changed\"}")));
+			Assert.Throws<JsonRpc.Error>(() => _ts.Call("search_memory", TestHelpers.Js("{\"value\":1,\"op\":\"changed\"}")));
 			// unknown op
-			Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_search_memory", TestHelpers.Js("{\"op\":\"bogus\"}")));
+			Assert.Throws<JsonRpc.Error>(() => _ts.Call("search_memory", TestHelpers.Js("{\"op\":\"bogus\"}")));
 		}
 
 		[Fact]
 		public void Hash_region_returns_hash()
 		{
-			var res = Parse(_ts.Call("bizhawk_hash_region", TestHelpers.Js("{\"address\":0,\"length\":64}")));
+			var res = Parse(_ts.Call("hash_region", TestHelpers.Js("{\"address\":0,\"length\":64}")));
 			Assert.Equal("deadbeef", res.GetProperty("hash").GetString());
 		}
 
 		[Fact]
 		public void Signed_read_write_roundtrip()
 		{
-			_ts.Call("bizhawk_write_signed", TestHelpers.Js("{\"address\":10,\"width\":16,\"value\":-1234}"));
-			var res = Parse(_ts.Call("bizhawk_read_signed", TestHelpers.Js("{\"address\":10,\"width\":16}")));
+			_ts.Call("write_signed", TestHelpers.Js("{\"address\":10,\"width\":16,\"value\":-1234}"));
+			var res = Parse(_ts.Call("read_signed", TestHelpers.Js("{\"address\":10,\"width\":16}")));
 			Assert.Equal(-1234L, res.GetProperty("value").GetInt64());
 		}
 
 		[Fact]
 		public void Float_read_write_roundtrip()
 		{
-			_ts.Call("bizhawk_write_float", TestHelpers.Js("{\"address\":20,\"value\":3.5}"));
-			var res = Parse(_ts.Call("bizhawk_read_float", TestHelpers.Js("{\"address\":20}")));
+			_ts.Call("write_float", TestHelpers.Js("{\"address\":20,\"value\":3.5}"));
+			var res = Parse(_ts.Call("read_float", TestHelpers.Js("{\"address\":20}")));
 			Assert.Equal(3.5f, res.GetProperty("value").GetSingle());
 		}
 
@@ -443,7 +443,7 @@ namespace BizHawkMcp.Tests
 			_apis.MemoryApi.Bytes[10] = 0x11;
 			_apis.MemoryApi.Bytes[20] = 0x22;
 			_apis.MemoryApi.Bytes[30] = 0x33;
-			var res = Parse(_ts.Call("bizhawk_read_many", TestHelpers.Js("{\"items\":[{\"address\":10,\"width\":8},{\"address\":20,\"width\":8},{\"address\":30,\"width\":8}]}")));
+			var res = Parse(_ts.Call("read_many", TestHelpers.Js("{\"items\":[{\"address\":10,\"width\":8},{\"address\":20,\"width\":8},{\"address\":30,\"width\":8}]}")));
 			var reads = res.GetProperty("reads");
 			Assert.Equal(3, reads.GetArrayLength());
 			Assert.Equal((ulong)0x11, reads[0].GetProperty("value").GetUInt64());
@@ -453,7 +453,7 @@ namespace BizHawkMcp.Tests
 		[Fact]
 		public void Read_many_reports_bad_item_without_killing_the_batch()
 		{
-			var res = Parse(_ts.Call("bizhawk_read_many", TestHelpers.Js("{\"items\":[{\"address\":10,\"width\":7},{\"address\":20,\"width\":8}]}")));
+			var res = Parse(_ts.Call("read_many", TestHelpers.Js("{\"items\":[{\"address\":10,\"width\":7},{\"address\":20,\"width\":8}]}")));
 			Assert.Equal(1, res.GetProperty("read").GetInt32());
 			Assert.Equal(1, res.GetProperty("failed").GetInt32());
 			var reads = res.GetProperty("reads");
@@ -470,7 +470,7 @@ namespace BizHawkMcp.Tests
 			// B2 regression: one unknown symbol used to abort the whole batch
 			// (INVALID_PARAMS) and lose the valid items.
 			_apis.MemoryApi.Bytes[10] = 0x11;
-			var res = Parse(_ts.Call("bizhawk_read_many", TestHelpers.Js("{\"items\":[{\"address\":10,\"width\":8},{\"name\":\"playerSprPtr\",\"width\":16},{\"address\":30,\"width\":8}]}")));
+			var res = Parse(_ts.Call("read_many", TestHelpers.Js("{\"items\":[{\"address\":10,\"width\":8},{\"name\":\"playerSprPtr\",\"width\":16},{\"address\":30,\"width\":8}]}")));
 			Assert.Equal(2, res.GetProperty("read").GetInt32());
 			Assert.Equal(1, res.GetProperty("failed").GetInt32());
 			var reads = res.GetProperty("reads");
@@ -484,7 +484,7 @@ namespace BizHawkMcp.Tests
 		{
 			// B4 regression: request 0x1002024 (not on the 24-bit bus) →
 			// response must show both the original and the effective address.
-			var res = Parse(_ts.Call("bizhawk_read_many", TestHelpers.Js("{\"items\":[{\"address\":16785444,\"width\":16,\"domain\":\"M68K BUS\"}]}")));
+			var res = Parse(_ts.Call("read_many", TestHelpers.Js("{\"items\":[{\"address\":16785444,\"width\":16,\"domain\":\"M68K BUS\"}]}")));
 			var item = res.GetProperty("reads")[0];
 			Assert.Equal(16785444L, item.GetProperty("requested").GetInt64());
 			Assert.Equal(8228L, item.GetProperty("address").GetInt64());
@@ -493,7 +493,7 @@ namespace BizHawkMcp.Tests
 		[Fact]
 		public void Read_memory_echoes_requested_address_before_bus_masking()
 		{
-			var res = Parse(_ts.Call("bizhawk_read_memory", TestHelpers.Js("{\"address\":16785444,\"width\":16,\"domain\":\"M68K BUS\"}")));
+			var res = Parse(_ts.Call("read_memory", TestHelpers.Js("{\"address\":16785444,\"width\":16,\"domain\":\"M68K BUS\"}")));
 			Assert.Equal(16785444L, res.GetProperty("requested").GetInt64());
 			Assert.Equal(8228L, res.GetProperty("address").GetInt64());
 		}
@@ -504,7 +504,7 @@ namespace BizHawkMcp.Tests
 			// mainFunction regression: bytes 00 08 = 8 in BE, 2048 in LE
 			_apis.MemoryApi.Bytes[100] = 0x00;
 			_apis.MemoryApi.Bytes[101] = 0x08;
-			var res = Parse(_ts.Call("bizhawk_read_many", TestHelpers.Js("{\"items\":[{\"address\":100,\"width\":16}]}")));
+			var res = Parse(_ts.Call("read_many", TestHelpers.Js("{\"items\":[{\"address\":100,\"width\":16}]}")));
 			Assert.Equal((ulong)8, res.GetProperty("reads")[0].GetProperty("value").GetUInt64());
 		}
 
@@ -513,8 +513,8 @@ namespace BizHawkMcp.Tests
 		{
 			_apis.MemoryApi.Bytes[100] = 0x08;
 			_apis.MemoryApi.Bytes[101] = 0x00;
-			_ts.Call("bizhawk_set_big_endian", TestHelpers.Js("{\"enabled\":false}"));
-			var res = Parse(_ts.Call("bizhawk_read_many", TestHelpers.Js("{\"items\":[{\"address\":100,\"width\":16}]}")));
+			_ts.Call("set_big_endian", TestHelpers.Js("{\"enabled\":false}"));
+			var res = Parse(_ts.Call("read_many", TestHelpers.Js("{\"items\":[{\"address\":100,\"width\":16}]}")));
 			Assert.Equal((ulong)8, res.GetProperty("reads")[0].GetProperty("value").GetUInt64());
 		}
 
@@ -524,7 +524,7 @@ namespace BizHawkMcp.Tests
 			// same bytes 00 08: 8 on big 68K RAM, 2048 on little Z80 RAM
 			_apis.MemoryApi.Bytes[100] = 0x00;
 			_apis.MemoryApi.Bytes[101] = 0x08;
-			var res = Parse(_ts.Call("bizhawk_read_many", TestHelpers.Js("{\"items\":[{\"address\":100,\"width\":16,\"domain\":\"68K RAM\"},{\"address\":100,\"width\":16,\"domain\":\"Z80 RAM\"}]}")));
+			var res = Parse(_ts.Call("read_many", TestHelpers.Js("{\"items\":[{\"address\":100,\"width\":16,\"domain\":\"68K RAM\"},{\"address\":100,\"width\":16,\"domain\":\"Z80 RAM\"}]}")));
 			Assert.Equal((ulong)8, res.GetProperty("reads")[0].GetProperty("value").GetUInt64());
 			Assert.Equal("big", res.GetProperty("reads")[0].GetProperty("endianness").GetString());
 			Assert.Equal((ulong)2048, res.GetProperty("reads")[1].GetProperty("value").GetUInt64());
@@ -534,7 +534,7 @@ namespace BizHawkMcp.Tests
 		[Fact]
 		public void Write_range_writes_bytes_in_order()
 		{
-			_ts.Call("bizhawk_write_range", TestHelpers.Js("{\"address\":100,\"values\":[1,2,3,4]}"));
+			_ts.Call("write_range", TestHelpers.Js("{\"address\":100,\"values\":[1,2,3,4]}"));
 			Assert.Equal((byte)1, _apis.MemoryApi.Bytes[100]);
 			Assert.Equal((byte)4, _apis.MemoryApi.Bytes[103]);
 		}
@@ -544,7 +544,7 @@ namespace BizHawkMcp.Tests
 		{
 			_apis.MemoryApi.DomainList = new FakeMemoryApi.FakeDomainList(_apis.MemoryApi.Bytes);
 			FakeMemoryApi.FakeMemoryDomain.BulkWriteUsed = false;
-			_ts.Call("bizhawk_write_range", TestHelpers.Js("{\"address\":100,\"values\":[1,2,3,4,5,6,7,8]}"));
+			_ts.Call("write_range", TestHelpers.Js("{\"address\":100,\"values\":[1,2,3,4,5,6,7,8]}"));
 			Assert.True(FakeMemoryApi.FakeMemoryDomain.BulkWriteUsed, "bulk path not taken; logs: " + string.Join(" | ", _apis.Logged));
 			Assert.False(_apis.MemoryApi.Bytes.ContainsKey(100));
 		}
@@ -552,14 +552,14 @@ namespace BizHawkMcp.Tests
 		[Fact]
 		public void Write_range_rejects_out_of_byte_values()
 		{
-			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_write_range", TestHelpers.Js("{\"address\":100,\"values\":[1,300]}")));
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("write_range", TestHelpers.Js("{\"address\":100,\"values\":[1,300]}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 		}
 
 		[Fact]
 		public void Write_many_writes_non_contiguous_values()
 		{
-			_ts.Call("bizhawk_write_many", TestHelpers.Js("{\"items\":[{\"address\":100,\"width\":8,\"value\":1},{\"address\":200,\"width\":16,\"value\":513},{\"address\":300,\"width\":32,\"value\":65537}]}"));
+			_ts.Call("write_many", TestHelpers.Js("{\"items\":[{\"address\":100,\"width\":8,\"value\":1},{\"address\":200,\"width\":16,\"value\":513},{\"address\":300,\"width\":32,\"value\":65537}]}"));
 			// domain default on GEN = big-endian (68K RAM)
 			Assert.Equal((byte)1, _apis.MemoryApi.Bytes[100]);
 			Assert.Equal((byte)0x02, _apis.MemoryApi.Bytes[200]);
@@ -573,7 +573,7 @@ namespace BizHawkMcp.Tests
 		[Fact]
 		public void Write_many_respects_explicit_little_endian()
 		{
-			_ts.Call("bizhawk_write_many", TestHelpers.Js("{\"items\":[{\"address\":200,\"width\":16,\"value\":513,\"endianness\":\"little\"},{\"address\":300,\"width\":32,\"value\":65537,\"endianness\":\"little\"}]}"));
+			_ts.Call("write_many", TestHelpers.Js("{\"items\":[{\"address\":200,\"width\":16,\"value\":513,\"endianness\":\"little\"},{\"address\":300,\"width\":32,\"value\":65537,\"endianness\":\"little\"}]}"));
 			Assert.Equal((byte)0x01, _apis.MemoryApi.Bytes[200]);
 			Assert.Equal((byte)0x02, _apis.MemoryApi.Bytes[201]);
 			Assert.Equal((byte)0x01, _apis.MemoryApi.Bytes[300]);
@@ -585,8 +585,8 @@ namespace BizHawkMcp.Tests
 		[Fact]
 		public void Write_many_accepts_symbol_names()
 		{
-			_ts.Call("bizhawk_symbols_set", TestHelpers.Js("{\"symbols\":[{\"name\":\"hp\",\"address\":50,\"width\":8}]}"));
-			_ts.Call("bizhawk_write_many", TestHelpers.Js("{\"items\":[{\"name\":\"hp\",\"value\":99}]}"));
+			_ts.Call("symbols_set", TestHelpers.Js("{\"symbols\":[{\"name\":\"hp\",\"address\":50,\"width\":8}]}"));
+			_ts.Call("write_many", TestHelpers.Js("{\"items\":[{\"name\":\"hp\",\"value\":99}]}"));
 			Assert.Equal((byte)99, _apis.MemoryApi.Bytes[50]);
 		}
 
@@ -595,7 +595,7 @@ namespace BizHawkMcp.Tests
 		{
 			_apis.MemoryApi.Bytes[100] = 0xAB;
 			_apis.MemoryApi.Bytes[101] = 0xCD;
-			var res = _ts.Call("bizhawk_read_range", TestHelpers.Js("{\"address\":100,\"length\":2}"));
+			var res = _ts.Call("read_range", TestHelpers.Js("{\"address\":100,\"length\":2}"));
 			Assert.Equal("AB CD", res);
 		}
 
@@ -603,7 +603,7 @@ namespace BizHawkMcp.Tests
 		public void Read_bulk_returns_base64_of_range()
 		{
 			for (var i = 0; i < 5; i++) _apis.MemoryApi.Bytes[100 + i] = (byte)(0x10 + i);
-			var res = Parse(_ts.Call("bizhawk_read_bulk", TestHelpers.Js("{\"address\":100,\"length\":5,\"domain\":\"68K RAM\"}")));
+			var res = Parse(_ts.Call("read_bulk", TestHelpers.Js("{\"address\":100,\"length\":5,\"domain\":\"68K RAM\"}")));
 			Assert.Equal(100L, res.GetProperty("address").GetInt64());
 			Assert.Equal(5, res.GetProperty("length").GetInt32());
 			byte[] decoded = Convert.FromBase64String(res.GetProperty("base64").GetString()!);
@@ -614,18 +614,18 @@ namespace BizHawkMcp.Tests
 		public void Read_bulk_accepts_symbol_name()
 		{
 			_apis.MemoryApi.Bytes[50] = 0x7F;
-			_ts.Call("bizhawk_symbols_set", TestHelpers.Js("{\"symbols\":[{\"name\":\"hp\",\"address\":50,\"width\":8}]}"));
-			var res = Parse(_ts.Call("bizhawk_read_bulk", TestHelpers.Js("{\"name\":\"hp\",\"length\":1}")));
+			_ts.Call("symbols_set", TestHelpers.Js("{\"symbols\":[{\"name\":\"hp\",\"address\":50,\"width\":8}]}"));
+			var res = Parse(_ts.Call("read_bulk", TestHelpers.Js("{\"name\":\"hp\",\"length\":1}")));
 			Assert.Equal(new byte[] { 0x7F }, Convert.FromBase64String(res.GetProperty("base64").GetString()!));
 		}
 
 		[Fact]
 		public void Read_bulk_rejects_bad_lengths_and_out_of_domain()
 		{
-			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_read_bulk", TestHelpers.Js("{\"address\":0,\"length\":65537}")));
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("read_bulk", TestHelpers.Js("{\"address\":0,\"length\":65537}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 			// 64KiB domain: start + length beyond it
-			ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_read_bulk", TestHelpers.Js("{\"address\":60000,\"length\":10000,\"domain\":\"68K RAM\"}")));
+			ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("read_bulk", TestHelpers.Js("{\"address\":60000,\"length\":10000,\"domain\":\"68K RAM\"}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 			Assert.Contains("outside domain", ex.Message);
 		}
@@ -634,7 +634,7 @@ namespace BizHawkMcp.Tests
 		public void Write_many_rejects_value_out_of_width_per_item()
 		{
 			// F1: a bad item must fail only itself — valid items still write.
-			var res = Parse(_ts.Call("bizhawk_write_many", TestHelpers.Js("{\"items\":[{\"address\":100,\"width\":8,\"value\":300},{\"address\":101,\"width\":8,\"value\":7}]}")));
+			var res = Parse(_ts.Call("write_many", TestHelpers.Js("{\"items\":[{\"address\":100,\"width\":8,\"value\":300},{\"address\":101,\"width\":8,\"value\":7}]}")));
 			Assert.Equal(1, res.GetProperty("wrote").GetInt32());
 			Assert.Equal(1, res.GetProperty("failed").GetInt32());
 			var failure = res.GetProperty("failures")[0];
@@ -647,7 +647,7 @@ namespace BizHawkMcp.Tests
 		[Fact]
 		public void Write_many_out_of_range_address_fails_only_that_item()
 		{
-			var res = Parse(_ts.Call("bizhawk_write_many", TestHelpers.Js("{\"items\":[{\"address\":70000,\"width\":8,\"value\":1},{\"address\":50,\"width\":8,\"value\":2}]}")));
+			var res = Parse(_ts.Call("write_many", TestHelpers.Js("{\"items\":[{\"address\":70000,\"width\":8,\"value\":1},{\"address\":50,\"width\":8,\"value\":2}]}")));
 			Assert.Equal(1, res.GetProperty("wrote").GetInt32());
 			Assert.Equal(1, res.GetProperty("failed").GetInt32());
 			Assert.Contains("outside domain", res.GetProperty("failures")[0].GetProperty("reason").GetString());
@@ -659,7 +659,7 @@ namespace BizHawkMcp.Tests
 		{
 			// B1: fill+length clears large regions with a tiny payload
 			// (the values-array path aborts in some MCP clients ~1-2 KB).
-			var res = Parse(_ts.Call("bizhawk_write_range", TestHelpers.Js("{\"address\":100,\"fill\":0,\"length\":1440}")));
+			var res = Parse(_ts.Call("write_range", TestHelpers.Js("{\"address\":100,\"fill\":0,\"length\":1440}")));
 			Assert.Equal(1440, res.GetProperty("wrote").GetInt32());
 			Assert.Equal(100L, res.GetProperty("address").GetInt64());
 			Assert.Equal(0L, res.GetProperty("fill").GetInt64());
@@ -671,9 +671,9 @@ namespace BizHawkMcp.Tests
 		[Fact]
 		public void Write_range_fill_rejects_bad_fill_value()
 		{
-			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_write_range", TestHelpers.Js("{\"address\":100,\"fill\":256,\"length\":10}")));
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("write_range", TestHelpers.Js("{\"address\":100,\"fill\":256,\"length\":10}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
-			ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_write_range", TestHelpers.Js("{\"address\":100,\"fill\":0}")));
+			ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("write_range", TestHelpers.Js("{\"address\":100,\"fill\":0}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 		}
 
@@ -682,13 +682,13 @@ namespace BizHawkMcp.Tests
 		{
 			_apis.MemoryApi.Bytes[10] = 0x01;
 			_apis.MemoryApi.Bytes[11] = 0x02;
-			_ts.Call("bizhawk_ram_snapshot", TestHelpers.Js("{\"domain\":\"68K RAM\",\"label\":\"t1\"}"));
+			_ts.Call("ram_snapshot", TestHelpers.Js("{\"domain\":\"68K RAM\",\"label\":\"t1\"}"));
 
 			_apis.MemoryApi.Bytes[10] = 0xFF;
 			_apis.MemoryApi.Bytes[11] = 0xFE;
 			_apis.MemoryApi.Bytes[500] = 0xAA;
 
-			var res = Parse(_ts.Call("bizhawk_ram_diff", TestHelpers.Js("{\"domain\":\"68K RAM\"}")));
+			var res = Parse(_ts.Call("ram_diff", TestHelpers.Js("{\"domain\":\"68K RAM\"}")));
 			Assert.Equal("t1", res.GetProperty("label").GetString());
 			Assert.Equal(2, res.GetProperty("count").GetInt32());
 			// run at 10 (old 0102, new FFFE) coalesced
@@ -704,7 +704,7 @@ namespace BizHawkMcp.Tests
 		[Fact]
 		public void Ram_diff_without_snapshot_rejected()
 		{
-			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_ram_diff", TestHelpers.Js("{\"domain\":\"68K RAM\"}")));
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("ram_diff", TestHelpers.Js("{\"domain\":\"68K RAM\"}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 		}
 
@@ -715,7 +715,7 @@ namespace BizHawkMcp.Tests
 			// (stored big-endian: 00 0E) → #FF0000
 			_apis.MemoryApi.WriteByte(0, 0x00, "CRAM");
 			_apis.MemoryApi.WriteByte(1, 0x0E, "CRAM");
-			var res = Parse(_ts.Call("bizhawk_read_palette", TestHelpers.Js("{\"count\":1}")));
+			var res = Parse(_ts.Call("read_palette", TestHelpers.Js("{\"count\":1}")));
 			Assert.Equal("GEN", res.GetProperty("system").GetString());
 			Assert.Equal("#FF0000", res.GetProperty("colors")[0].GetString());
 		}
@@ -726,7 +726,7 @@ namespace BizHawkMcp.Tests
 			// B at bits 9-11: B=7 → 0x0E00 (big-endian stored)
 			_apis.MemoryApi.WriteByte(0, 0x0E, "CRAM");
 			_apis.MemoryApi.WriteByte(1, 0x00, "CRAM");
-			var res = Parse(_ts.Call("bizhawk_read_palette", TestHelpers.Js("{\"count\":1}")));
+			var res = Parse(_ts.Call("read_palette", TestHelpers.Js("{\"count\":1}")));
 			Assert.Equal("#0000FF", res.GetProperty("colors")[0].GetString());
 		}
 
@@ -737,7 +737,7 @@ namespace BizHawkMcp.Tests
 			_apis.EmulationApi.SystemId = "SNES";
 			_apis.MemoryApi.WriteByte(0, 0x1F, "CGRAM");
 			_apis.MemoryApi.WriteByte(1, 0x00, "CGRAM");
-			var res = Parse(_ts.Call("bizhawk_read_palette", TestHelpers.Js("{\"count\":1}")));
+			var res = Parse(_ts.Call("read_palette", TestHelpers.Js("{\"count\":1}")));
 			Assert.Equal("#FF0000", res.GetProperty("colors")[0].GetString());
 		}
 
@@ -745,7 +745,7 @@ namespace BizHawkMcp.Tests
 		public void Palette_unsupported_system_rejected()
 		{
 			_apis.EmulationApi.SystemId = "NES";
-			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_read_palette", null));
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("read_palette", null));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 		}
 
@@ -766,7 +766,7 @@ namespace BizHawkMcp.Tests
 			mem.WriteByte(0xC000, 0x00, "VRAM"); mem.WriteByte(0xC001, 0x00, "VRAM");
 			mem.WriteByte(0xC002, 0x00, "VRAM"); mem.WriteByte(0xC003, 0x01, "VRAM");
 
-			var res = Parse(_ts.Call("bizhawk_genesis_read_plane", TestHelpers.Js("{\"plane\":\"A\",\"columns\":2,\"rows\":1}")));
+			var res = Parse(_ts.Call("genesis_read_plane", TestHelpers.Js("{\"plane\":\"A\",\"columns\":2,\"rows\":1}")));
 			Assert.Equal((long)0xC000, res.GetProperty("base").GetInt64());
 			Assert.Equal(16, res.GetProperty("width").GetInt32());
 			Assert.Equal(8, res.GetProperty("height").GetInt32());
@@ -806,7 +806,7 @@ namespace BizHawkMcp.Tests
 			mem.WriteByte(0xC000, (byte)(attr >> 8), "VRAM");
 			mem.WriteByte(0xC001, (byte)attr, "VRAM");
 
-			var res = Parse(_ts.Call("bizhawk_genesis_read_plane", TestHelpers.Js("{\"plane\":\"A\",\"columns\":1,\"rows\":1}")));
+			var res = Parse(_ts.Call("genesis_read_plane", TestHelpers.Js("{\"plane\":\"A\",\"columns\":1,\"rows\":1}")));
 			var path = res.GetProperty("path").GetString();
 			Assert.True(System.IO.File.Exists(path));
 			System.IO.File.Delete(path);
@@ -816,7 +816,7 @@ namespace BizHawkMcp.Tests
 		public void Read_plane_rejects_out_of_vram()
 		{
 			// 0xF100 (61696) + 64*32*2 nametable exceeds 64KB VRAM
-			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_genesis_read_plane", TestHelpers.Js("{\"plane\":\"A\",\"base\":61696,\"columns\":64,\"rows\":32}")));
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("genesis_read_plane", TestHelpers.Js("{\"plane\":\"A\",\"base\":61696,\"columns\":64,\"rows\":32}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 		}
 
@@ -826,7 +826,7 @@ namespace BizHawkMcp.Tests
 			var dbg = _apis.EnableWatchpoints();
 			dbg.PlaneABase = 0x0000;
 			dbg.PlaneBBase = 0xE000;
-			var res = Parse(_ts.Call("bizhawk_genesis_get_vdp_view", null));
+			var res = Parse(_ts.Call("genesis_get_vdp_view", null));
 			Assert.Equal((long)0x0000, res.GetProperty("planeA").GetProperty("base").GetInt64());
 			Assert.Equal((long)0xE000, res.GetProperty("planeB").GetProperty("base").GetInt64());
 			Assert.Equal(64, res.GetProperty("planeA").GetProperty("width").GetInt32());
@@ -835,7 +835,7 @@ namespace BizHawkMcp.Tests
 		[Fact]
 		public void Get_vdp_view_errors_without_core()
 		{
-			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_genesis_get_vdp_view", null));
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("genesis_get_vdp_view", null));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 		}
 
@@ -850,7 +850,7 @@ namespace BizHawkMcp.Tests
 			for (var i = 0; i < 32; i++) mem.WriteByte(i, 0x11, "VRAM");
 			mem.WriteByte(0x0000, 0x00, "VRAM"); mem.WriteByte(0x0001, 0x00, "VRAM");
 
-			var res = Parse(_ts.Call("bizhawk_genesis_read_plane", TestHelpers.Js("{\"plane\":\"A\",\"columns\":1,\"rows\":1}")));
+			var res = Parse(_ts.Call("genesis_read_plane", TestHelpers.Js("{\"plane\":\"A\",\"columns\":1,\"rows\":1}")));
 			// no explicit base → the core's plane A base (0x0000) is used
 			Assert.Equal((long)0x0000, res.GetProperty("base").GetInt64());
 			var path = res.GetProperty("path").GetString();
@@ -868,7 +868,7 @@ namespace BizHawkMcp.Tests
 			mem.WriteByte(0xC000 + 40 * 2, 0x00, "VRAM");
 			mem.WriteByte(0xC000 + 40 * 2 + 1, 0x00, "VRAM");
 
-			var res = Parse(_ts.Call("bizhawk_genesis_read_plane", TestHelpers.Js("{\"plane\":\"B\",\"columns\":1,\"rows\":1,\"offset_x\":40}")));
+			var res = Parse(_ts.Call("genesis_read_plane", TestHelpers.Js("{\"plane\":\"B\",\"columns\":1,\"rows\":1,\"offset_x\":40}")));
 			Assert.Equal((long)0xE000, res.GetProperty("base").GetInt64());
 			Assert.Equal(8, res.GetProperty("width").GetInt32());
 			var path = res.GetProperty("path").GetString();
@@ -880,7 +880,7 @@ namespace BizHawkMcp.Tests
 		public void Screenshot_toggles_osd_off_and_back_on()
 		{
 			var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "test-osd.png");
-			_ts.Call("bizhawk_screenshot", TestHelpers.Js($"{{\"path\":\"{path}\"}}"));
+			_ts.Call("screenshot", TestHelpers.Js($"{{\"path\":\"{path}\"}}"));
 			// default: overlay off, then restored off (no getter)
 			Assert.Equal(new[] { false, false }, _apis.EmuClientApi.OsdChanges.ToArray());
 			Assert.False(_apis.EmuClientApi.OsdEnabled);
@@ -890,7 +890,7 @@ namespace BizHawkMcp.Tests
 		public void Screenshot_include_overlays_sets_osd()
 		{
 			var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "test-osd-overlays.png");
-			var res = Parse(_ts.Call("bizhawk_screenshot", TestHelpers.Js($"{{\"path\":\"{path}\",\"include_overlays\":true}}")));
+			var res = Parse(_ts.Call("screenshot", TestHelpers.Js($"{{\"path\":\"{path}\",\"include_overlays\":true}}")));
 			Assert.True(res.GetProperty("include_overlays").GetBoolean());
 			Assert.Equal(new[] { true, false }, _apis.EmuClientApi.OsdChanges.ToArray());
 			System.IO.File.Delete(path);
@@ -899,8 +899,8 @@ namespace BizHawkMcp.Tests
 		[Fact]
 		public void Frame_hash_is_deterministic_and_tracks_pixels()
 		{
-			var r1 = Parse(_ts.Call("bizhawk_frame_hash", null));
-			var r2 = Parse(_ts.Call("bizhawk_frame_hash", null));
+			var r1 = Parse(_ts.Call("frame_hash", null));
+			var r2 = Parse(_ts.Call("frame_hash", null));
 			Assert.Equal(r1.GetProperty("sha1").GetString(), r2.GetProperty("sha1").GetString());
 			Assert.Equal(1000, r1.GetProperty("frame").GetInt32());
 			var path = r1.GetProperty("path").GetString()!;
@@ -909,7 +909,7 @@ namespace BizHawkMcp.Tests
 
 			// a different rendered frame → different hash
 			_apis.EmuClientApi.ScreenshotPayload = new byte[] { 0x00, 0xFF, 0x11 };
-			var r3 = Parse(_ts.Call("bizhawk_frame_hash", null));
+			var r3 = Parse(_ts.Call("frame_hash", null));
 			Assert.NotEqual(r1.GetProperty("sha1").GetString(), r3.GetProperty("sha1").GetString());
 			System.IO.File.Delete(r3.GetProperty("path").GetString()!);
 		}
@@ -918,7 +918,7 @@ namespace BizHawkMcp.Tests
 		public void Genesis_z80_registers_filters_z80_keys()
 		{
 			_apis.EmulationApi.Registers = new Dictionary<string, ulong> { ["M68K PC"] = 1, ["Z80 PC"] = 0x1234, ["Z80 SP"] = 0xFFFF };
-			var res = Parse(_ts.Call("bizhawk_genesis_get_z80_registers", null));
+			var res = Parse(_ts.Call("genesis_get_z80_registers", null));
 			var regs = res.GetProperty("registers");
 			Assert.Equal((ulong)0x1234, regs.GetProperty("Z80 PC").GetUInt64());
 			Assert.Equal((ulong)0xFFFF, regs.GetProperty("Z80 SP").GetUInt64());
@@ -929,7 +929,7 @@ namespace BizHawkMcp.Tests
 		public void Genesis_z80_registers_errors_without_z80_cpu()
 		{
 			_apis.EmulationApi.Registers = new Dictionary<string, ulong> { ["M68K PC"] = 1 };
-			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_genesis_get_z80_registers", null));
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("genesis_get_z80_registers", null));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 		}
 
@@ -939,7 +939,7 @@ namespace BizHawkMcp.Tests
 			// fake disassembler: each byte = one 1-byte instruction → 0x2000, 0x2001, ...
 			_apis.MemoryApi.Bytes[0x2000] = 0x3E; // LD A,n
 			_apis.MemoryApi.Bytes[0x2001] = 0x7C;
-			var res = Parse(_ts.Call("bizhawk_genesis_disassemble_z80", TestHelpers.Js("{\"address\":8192,\"count\":2}")));
+			var res = Parse(_ts.Call("genesis_disassemble_z80", TestHelpers.Js("{\"address\":8192,\"count\":2}")));
 			var insns = res.GetProperty("instructions");
 			Assert.Equal(2, insns.GetArrayLength());
 			Assert.Equal((long)0x2000, insns[0].GetProperty("address").GetInt64());
@@ -953,9 +953,9 @@ namespace BizHawkMcp.Tests
 		[Fact]
 		public void Genesis_z80_disassemble_rejects_bad_address()
 		{
-			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_genesis_disassemble_z80", TestHelpers.Js("{\"address\":65536}")));
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("genesis_disassemble_z80", TestHelpers.Js("{\"address\":65536}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
-			ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_genesis_disassemble_z80", TestHelpers.Js("{\"address\":0,\"count\":65}")));
+			ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("genesis_disassemble_z80", TestHelpers.Js("{\"address\":0,\"count\":65}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 		}
 
@@ -970,18 +970,18 @@ namespace BizHawkMcp.Tests
 			_apis.MemoryApi.Bytes[0x1000] = 0xED;
 
 			// RAM at bus 0x0000
-			var res = Parse(_ts.Call("bizhawk_genesis_disassemble_z80", TestHelpers.Js("{\"address\":0,\"count\":1}")));
+			var res = Parse(_ts.Call("genesis_disassemble_z80", TestHelpers.Js("{\"address\":0,\"count\":1}")));
 			Assert.Equal("op C3", res.GetProperty("instructions")[0].GetProperty("instruction").GetString());
 			// RAM at bus 0x1000
-			res = Parse(_ts.Call("bizhawk_genesis_disassemble_z80", TestHelpers.Js("{\"address\":4096,\"count\":1}")));
+			res = Parse(_ts.Call("genesis_disassemble_z80", TestHelpers.Js("{\"address\":4096,\"count\":1}")));
 			Assert.Equal("op ED", res.GetProperty("instructions")[0].GetProperty("instruction").GetString());
 			// alias: bus 0x3000 = 12288 reads RAM offset 0x1000
-			res = Parse(_ts.Call("bizhawk_genesis_disassemble_z80", TestHelpers.Js("{\"address\":12288,\"count\":1}")));
+			res = Parse(_ts.Call("genesis_disassemble_z80", TestHelpers.Js("{\"address\":12288,\"count\":1}")));
 			Assert.Equal("op ED", res.GetProperty("instructions")[0].GetProperty("instruction").GetString());
 			// sound I/O / open bus 0x4000+ reads 0xFF
-			res = Parse(_ts.Call("bizhawk_genesis_disassemble_z80", TestHelpers.Js("{\"address\":16384,\"count\":1}")));
+			res = Parse(_ts.Call("genesis_disassemble_z80", TestHelpers.Js("{\"address\":16384,\"count\":1}")));
 			Assert.Equal("op FF", res.GetProperty("instructions")[0].GetProperty("instruction").GetString());
-			res = Parse(_ts.Call("bizhawk_genesis_disassemble_z80", TestHelpers.Js("{\"address\":24576,\"count\":1}")));
+			res = Parse(_ts.Call("genesis_disassemble_z80", TestHelpers.Js("{\"address\":24576,\"count\":1}")));
 			Assert.Equal("op FF", res.GetProperty("instructions")[0].GetProperty("instruction").GetString());
 		}
 
@@ -990,11 +990,11 @@ namespace BizHawkMcp.Tests
 		{
 			// ApiHawk silently falls back to the current domain on a miss —
 			// the plugin must reject instead of reading mislabeled data
-			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_read_memory", TestHelpers.Js("{\"address\":0,\"domain\":\"NOPE\"}")));
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("read_memory", TestHelpers.Js("{\"address\":0,\"domain\":\"NOPE\"}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
-			ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_read_range", TestHelpers.Js("{\"address\":0,\"domain\":\"NOPE\"}")));
+			ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("read_range", TestHelpers.Js("{\"address\":0,\"domain\":\"NOPE\"}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
-			ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_search_memory", TestHelpers.Js("{\"value\":1,\"domain\":\"NOPE\"}")));
+			ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("search_memory", TestHelpers.Js("{\"value\":1,\"domain\":\"NOPE\"}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 		}
 
@@ -1025,7 +1025,7 @@ namespace BizHawkMcp.Tests
 			_apis.MemoryApi.Bytes[0x2001] = 0x3E; // sampled at pc 0x2001 (frame 1)
 			_apis.EmuClientApi.Paused = true;
 
-			var res = Parse(_ts.Call("bizhawk_genesis_trace_z80", TestHelpers.Js("{\"count\":2,\"step\":1,\"stack_words\":2}")));
+			var res = Parse(_ts.Call("genesis_trace_z80", TestHelpers.Js("{\"count\":2,\"step\":1,\"stack_words\":2}")));
 			var samples = res.GetProperty("samples");
 			Assert.Equal(2, samples.GetArrayLength());
 			Assert.Equal((ulong)0x2001, samples[0].GetProperty("pc").GetUInt64());
@@ -1042,7 +1042,7 @@ namespace BizHawkMcp.Tests
 		public void Genesis_z80_trace_errors_without_z80_cpu()
 		{
 			_apis.EmulationApi.Registers = new Dictionary<string, ulong> { ["M68K PC"] = 1 };
-			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_genesis_trace_z80", TestHelpers.Js("{\"count\":1}")));
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("genesis_trace_z80", TestHelpers.Js("{\"count\":1}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 		}
 
@@ -1050,12 +1050,12 @@ namespace BizHawkMcp.Tests
 		public void Symbols_set_then_read_and_write_by_name()
 		{
 			_apis.MemoryApi.Bytes[0xFFFBCA] = 0x12;
-			_ts.Call("bizhawk_symbols_set", TestHelpers.Js("{\"symbols\":[{\"name\":\"mainFunction\",\"address\":16776138,\"width\":8,\"domain\":\"M68K BUS\"}]}"));
+			_ts.Call("symbols_set", TestHelpers.Js("{\"symbols\":[{\"name\":\"mainFunction\",\"address\":16776138,\"width\":8,\"domain\":\"M68K BUS\"}]}"));
 			// 16776138 = 0xFFFBCA
-			var res = Parse(_ts.Call("bizhawk_read_memory", TestHelpers.Js("{\"name\":\"mainFunction\"}")));
+			var res = Parse(_ts.Call("read_memory", TestHelpers.Js("{\"name\":\"mainFunction\"}")));
 			Assert.Equal((ulong)0x12, res.GetProperty("value").GetUInt64());
 
-			_ts.Call("bizhawk_write_memory", TestHelpers.Js("{\"name\":\"mainFunction\",\"value\":153}"));
+			_ts.Call("write_memory", TestHelpers.Js("{\"name\":\"mainFunction\",\"value\":153}"));
 			Assert.Equal((byte)0x99, _apis.MemoryApi.Bytes[0xFFFBCA]);
 		}
 
@@ -1064,8 +1064,8 @@ namespace BizHawkMcp.Tests
 		{
 			_apis.MemoryApi.Bytes[10] = 0x11;
 			_apis.MemoryApi.Bytes[20] = 0x22;
-			_ts.Call("bizhawk_symbols_set", TestHelpers.Js("{\"symbols\":[{\"name\":\"a\",\"address\":10},{\"name\":\"b\",\"address\":20}]}"));
-			var res = Parse(_ts.Call("bizhawk_read_many", TestHelpers.Js("{\"items\":[{\"name\":\"a\"},{\"name\":\"b\"}]}")));
+			_ts.Call("symbols_set", TestHelpers.Js("{\"symbols\":[{\"name\":\"a\",\"address\":10},{\"name\":\"b\",\"address\":20}]}"));
+			var res = Parse(_ts.Call("read_many", TestHelpers.Js("{\"items\":[{\"name\":\"a\"},{\"name\":\"b\"}]}")));
 			Assert.Equal((ulong)0x11, res.GetProperty("reads")[0].GetProperty("value").GetUInt64());
 			Assert.Equal((ulong)0x22, res.GetProperty("reads")[1].GetProperty("value").GetUInt64());
 		}
@@ -1073,28 +1073,28 @@ namespace BizHawkMcp.Tests
 		[Fact]
 		public void Symbols_unknown_name_rejected()
 		{
-			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_read_memory", TestHelpers.Js("{\"name\":\"nope\"}")));
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("read_memory", TestHelpers.Js("{\"name\":\"nope\"}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 		}
 
 		[Fact]
 		public void Symbols_list_and_clear()
 		{
-			_ts.Call("bizhawk_symbols_set", TestHelpers.Js("{\"symbols\":[{\"name\":\"a\",\"address\":10}]}"));
-			var listed = Parse(_ts.Call("bizhawk_symbols_list", null));
+			_ts.Call("symbols_set", TestHelpers.Js("{\"symbols\":[{\"name\":\"a\",\"address\":10}]}"));
+			var listed = Parse(_ts.Call("symbols_list", null));
 			Assert.Equal("a", listed.GetProperty("symbols")[0].GetProperty("name").GetString());
-			_ts.Call("bizhawk_symbols_clear", null);
-			var cleared = Parse(_ts.Call("bizhawk_symbols_list", null));
+			_ts.Call("symbols_clear", null);
+			var cleared = Parse(_ts.Call("symbols_list", null));
 			Assert.Empty(cleared.GetProperty("symbols").EnumerateArray());
 		}
 
 		[Fact]
 		public void Symbols_persist_across_toolset_restarts()
 		{
-			_ts.Call("bizhawk_symbols_set", TestHelpers.Js("{\"symbols\":[{\"name\":\"persisted\",\"address\":42,\"width\":16,\"domain\":\"68K RAM\"}]}"));
+			_ts.Call("symbols_set", TestHelpers.Js("{\"symbols\":[{\"name\":\"persisted\",\"address\":42,\"width\":16,\"domain\":\"68K RAM\"}]}"));
 			// a brand-new toolset sharing the same UserData store must reload them
 			var fresh = new McpToolset(_apis, new InlineDispatcher());
-			var res = Parse(fresh.Call("bizhawk_symbols_list", null));
+			var res = Parse(fresh.Call("symbols_list", null));
 			var sym = res.GetProperty("symbols")[0];
 			Assert.Equal("persisted", sym.GetProperty("name").GetString());
 			Assert.Equal((long)42, sym.GetProperty("address").GetInt64());
@@ -1105,29 +1105,29 @@ namespace BizHawkMcp.Tests
 		[Fact]
 		public void Symbols_clear_persists_empty()
 		{
-			_ts.Call("bizhawk_symbols_set", TestHelpers.Js("{\"symbols\":[{\"name\":\"x\",\"address\":1}]}"));
-			_ts.Call("bizhawk_symbols_clear", null);
+			_ts.Call("symbols_set", TestHelpers.Js("{\"symbols\":[{\"name\":\"x\",\"address\":1}]}"));
+			_ts.Call("symbols_clear", null);
 			var fresh = new McpToolset(_apis, new InlineDispatcher());
-			var res = Parse(fresh.Call("bizhawk_symbols_list", null));
+			var res = Parse(fresh.Call("symbols_list", null));
 			Assert.Empty(res.GetProperty("symbols").EnumerateArray());
 		}
 
 		[Fact]
 		public void Symbols_namespaces_are_isolated_and_clearable()
 		{
-			_ts.Call("bizhawk_symbols_set", TestHelpers.Js("{\"namespace\":\"ghidra\",\"symbols\":[{\"name\":\"mainFunction\",\"address\":100}]}"));
-			_ts.Call("bizhawk_symbols_set", TestHelpers.Js("{\"namespace\":\"fixture\",\"symbols\":[{\"name\":\"hp\",\"address\":200}]}"));
+			_ts.Call("symbols_set", TestHelpers.Js("{\"namespace\":\"ghidra\",\"symbols\":[{\"name\":\"mainFunction\",\"address\":100}]}"));
+			_ts.Call("symbols_set", TestHelpers.Js("{\"namespace\":\"fixture\",\"symbols\":[{\"name\":\"hp\",\"address\":200}]}"));
 
-			var res = Parse(_ts.Call("bizhawk_symbols_list", null));
+			var res = Parse(_ts.Call("symbols_list", null));
 			Assert.Equal(2, res.GetProperty("symbols").GetArrayLength());
 			// namespaces survive a reload
 			var fresh = new McpToolset(_apis, new InlineDispatcher());
-			var reloaded = Parse(fresh.Call("bizhawk_symbols_list", null));
+			var reloaded = Parse(fresh.Call("symbols_list", null));
 			Assert.Equal(2, reloaded.GetProperty("symbols").GetArrayLength());
 
 			// clearing just one namespace keeps the other
-			fresh.Call("bizhawk_symbols_clear", TestHelpers.Js("{\"namespace\":\"fixture\"}"));
-			var after = Parse(fresh.Call("bizhawk_symbols_list", null));
+			fresh.Call("symbols_clear", TestHelpers.Js("{\"namespace\":\"fixture\"}"));
+			var after = Parse(fresh.Call("symbols_list", null));
 			Assert.Single(after.GetProperty("symbols").EnumerateArray());
 			Assert.Equal("ghidra", after.GetProperty("symbols")[0].GetProperty("namespace").GetString());
 		}
@@ -1135,11 +1135,11 @@ namespace BizHawkMcp.Tests
 		[Fact]
 		public void Symbols_switch_when_rom_changes()
 		{
-			_ts.Call("bizhawk_symbols_set", TestHelpers.Js("{\"symbols\":[{\"name\":\"onlyInRom1\",\"address\":11}]}"));
+			_ts.Call("symbols_set", TestHelpers.Js("{\"symbols\":[{\"name\":\"onlyInRom1\",\"address\":11}]}"));
 			// same toolset, different ROM loaded → get_info swaps the symbol set
 			_apis.EmulationApi.RomHash = "rom2";
-			var info = Parse(_ts.Call("bizhawk_get_info", null));
-			var after = Parse(_ts.Call("bizhawk_symbols_list", null));
+			var info = Parse(_ts.Call("get_info", null));
+			var after = Parse(_ts.Call("symbols_list", null));
 			Assert.Empty(after.GetProperty("symbols").EnumerateArray());
 		}
 
@@ -1147,15 +1147,15 @@ namespace BizHawkMcp.Tests
 		public void Symbols_rom2_persists_separately()
 		{
 			// default ROM hash is "abcd"
-			_ts.Call("bizhawk_symbols_set", TestHelpers.Js("{\"symbols\":[{\"name\":\"rom1sym\",\"address\":11}]}"));
+			_ts.Call("symbols_set", TestHelpers.Js("{\"symbols\":[{\"name\":\"rom1sym\",\"address\":11}]}"));
 			_apis.EmulationApi.RomHash = "rom2";
-			_ts.Call("bizhawk_get_info", null);
-			_ts.Call("bizhawk_symbols_set", TestHelpers.Js("{\"symbols\":[{\"name\":\"rom2sym\",\"address\":22}]}"));
+			_ts.Call("get_info", null);
+			_ts.Call("symbols_set", TestHelpers.Js("{\"symbols\":[{\"name\":\"rom2sym\",\"address\":22}]}"));
 
 			// back to the original ROM restores its own set
 			_apis.EmulationApi.RomHash = "abcd";
-			_ts.Call("bizhawk_get_info", null);
-			var listed = Parse(_ts.Call("bizhawk_symbols_list", null));
+			_ts.Call("get_info", null);
+			var listed = Parse(_ts.Call("symbols_list", null));
 			Assert.Single(listed.GetProperty("symbols").EnumerateArray());
 			Assert.Equal("rom1sym", listed.GetProperty("symbols")[0].GetProperty("name").GetString());
 		}
@@ -1165,7 +1165,7 @@ namespace BizHawkMcp.Tests
 		{
 			_apis.MemoryApi.Bytes[0] = 0xDE;
 			_apis.MemoryApi.Bytes[1] = 0xAD;
-			var res = Parse(_ts.Call("bizhawk_dump_memory", TestHelpers.Js("{\"domain\":\"68K RAM\"}")));
+			var res = Parse(_ts.Call("dump_memory", TestHelpers.Js("{\"domain\":\"68K RAM\"}")));
 			var path = res.GetProperty("path").GetString();
 			Assert.Contains("bizhawk-mcp", path);
 			Assert.Equal(65536L, res.GetProperty("size").GetInt64());
@@ -1183,7 +1183,7 @@ namespace BizHawkMcp.Tests
 		{
 			_apis.MemoryApi.Bytes[100] = 0xAA;
 			_apis.MemoryApi.Bytes[199] = 0xBB;
-			var res = Parse(_ts.Call("bizhawk_dump_memory", TestHelpers.Js("{\"domain\":\"68K RAM\",\"range_start\":100,\"range_length\":100}")));
+			var res = Parse(_ts.Call("dump_memory", TestHelpers.Js("{\"domain\":\"68K RAM\",\"range_start\":100,\"range_length\":100}")));
 			Assert.Equal(100L, res.GetProperty("size").GetInt64());
 			Assert.Equal(100L, res.GetProperty("range_start").GetInt64());
 			var fileBytes = System.IO.File.ReadAllBytes(res.GetProperty("path").GetString()!);
@@ -1196,14 +1196,14 @@ namespace BizHawkMcp.Tests
 		[Fact]
 		public void Dump_memory_rejects_out_of_range()
 		{
-			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_dump_memory", TestHelpers.Js("{\"domain\":\"68K RAM\",\"range_start\":65500,\"range_length\":100}")));
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("dump_memory", TestHelpers.Js("{\"domain\":\"68K RAM\",\"range_start\":65500,\"range_length\":100}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 		}
 
 		[Fact]
 		public void Resources_list_reports_host_path()
 		{
-			var res = Parse(_ts.Call("bizhawk_dump_memory", TestHelpers.Js("{\"domain\":\"68K RAM\"}")));
+			var res = Parse(_ts.Call("dump_memory", TestHelpers.Js("{\"domain\":\"68K RAM\"}")));
 			var uri = res.GetProperty("resource").GetString();
 			var listed = _ts.ListResources();
 			var listDoc = JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize(listed));
@@ -1219,7 +1219,7 @@ namespace BizHawkMcp.Tests
 		{
 			_apis.MemoryApi.Bytes[100] = 0x42;
 			_apis.MemoryApi.Bytes[101] = 0x24;
-			var res = Parse(_ts.Call("bizhawk_read_many", TestHelpers.Js("{\"items\":[{\"address\":100},{\"address\":101},{\"address\":999999}],\"compact\":true}")));
+			var res = Parse(_ts.Call("read_many", TestHelpers.Js("{\"items\":[{\"address\":100},{\"address\":101},{\"address\":999999}],\"compact\":true}")));
 			Assert.Equal(2, res.GetProperty("read").GetInt32());
 			Assert.Equal(1, res.GetProperty("failed").GetInt32());
 			// aligned with items: 0x42, 0x24, null (failed)
@@ -1234,7 +1234,7 @@ namespace BizHawkMcp.Tests
 		{
 			_apis.MemoryApi.Bytes[10] = 0x42;
 			_apis.MemoryApi.Bytes[100] = 0x42;
-			var res = Parse(_ts.Call("bizhawk_search_memory", TestHelpers.Js("{\"value\":66,\"width\":8,\"compact\":true}")));
+			var res = Parse(_ts.Call("search_memory", TestHelpers.Js("{\"value\":66,\"width\":8,\"compact\":true}")));
 			Assert.Equal(2, res.GetProperty("count").GetInt32());
 			var addresses = res.GetProperty("addresses");
 			Assert.Equal(2, addresses.GetArrayLength());
@@ -1247,7 +1247,7 @@ namespace BizHawkMcp.Tests
 		public void Read_many_consistent_pauses_and_resumes()
 		{
 			_apis.EmuClientApi.Paused = false;
-			var res = Parse(_ts.Call("bizhawk_read_many", TestHelpers.Js("{\"items\":[{\"address\":10}],\"consistent\":true}")));
+			var res = Parse(_ts.Call("read_many", TestHelpers.Js("{\"items\":[{\"address\":10}],\"consistent\":true}")));
 			Assert.Equal(1, res.GetProperty("reads").GetArrayLength());
 			// paused during the batch (Pause called), resumed after (Unpause called)
 			Assert.Equal(1, _apis.EmuClientApi.PauseCalls);
@@ -1259,7 +1259,7 @@ namespace BizHawkMcp.Tests
 		public void Read_many_consistent_keeps_pause_when_already_paused()
 		{
 			_apis.EmuClientApi.Paused = true;
-			_ts.Call("bizhawk_read_many", TestHelpers.Js("{\"items\":[{\"address\":10}],\"consistent\":true}"));
+			_ts.Call("read_many", TestHelpers.Js("{\"items\":[{\"address\":10}],\"consistent\":true}"));
 			Assert.Equal(0, _apis.EmuClientApi.PauseCalls);
 			Assert.Equal(0, _apis.EmuClientApi.UnpauseCalls);
 			Assert.True(_apis.EmuClientApi.Paused);
@@ -1272,10 +1272,10 @@ namespace BizHawkMcp.Tests
 			_apis.EmuClientApi.OnFrameAdvance = () => { frames++; _apis.MemoryApi.Bytes[100] = (byte)frames; };
 			_apis.MemoryApi.Bytes[100] = 0;
 			_apis.EmuClientApi.Paused = true;
-			_ts.Call("bizhawk_symbols_set", TestHelpers.Js("{\"symbols\":[{\"name\":\"hp\",\"address\":100,\"width\":8}]}"));
+			_ts.Call("symbols_set", TestHelpers.Js("{\"symbols\":[{\"name\":\"hp\",\"address\":100,\"width\":8}]}"));
 			string path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "bizhawk-mcp-test-fixture.csv");
 
-			var res = Parse(_ts.Call("bizhawk_start_fixture", TestHelpers.Js($"{{\"frames\":5,\"samples\":[{{\"name\":\"hp\"}}],\"path\":\"{path}\"}}")));
+			var res = Parse(_ts.Call("start_fixture", TestHelpers.Js($"{{\"frames\":5,\"samples\":[{{\"name\":\"hp\"}}],\"path\":\"{path}\"}}")));
 			Assert.Equal(5, res.GetProperty("frames").GetInt32());
 			Assert.Equal(1, res.GetProperty("samples").GetInt32());
 			Assert.True(_apis.EmuClientApi.Paused); // pause restored
@@ -1295,7 +1295,7 @@ namespace BizHawkMcp.Tests
 		{
 			_apis.EmuClientApi.Paused = true;
 			string path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "bizhawk-mcp-test-fixture2.csv");
-			_ts.Call("bizhawk_start_fixture", TestHelpers.Js($"{{\"frames\":2,\"samples\":[{{\"address\":0,\"width\":8}}],\"inputs\":[{{\"frame\":1,\"buttons\":{{\"A\":true,\"Right\":true}}}}],\"path\":\"{path}\"}}"));
+			_ts.Call("start_fixture", TestHelpers.Js($"{{\"frames\":2,\"samples\":[{{\"address\":0,\"width\":8}}],\"inputs\":[{{\"frame\":1,\"buttons\":{{\"A\":true,\"Right\":true}}}}],\"path\":\"{path}\"}}"));
 			Assert.NotNull(_apis.JoypadApi.LastSet);
 			Assert.True(_apis.JoypadApi.LastSet!["A"]);
 			Assert.True(_apis.JoypadApi.LastSet!["Right"]);
@@ -1309,7 +1309,7 @@ namespace BizHawkMcp.Tests
 			_apis.EmuClientApi.Paused = true;
 			string path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "bizhawk-mcp-test-fixture3.csv");
 			_apis.JoypadApi.Calls.Clear();
-			_ts.Call("bizhawk_start_fixture", TestHelpers.Js($"{{\"frames\":3,\"samples\":[{{\"address\":0,\"width\":8}}],\"inputs\":[{{\"frame\":0,\"buttons\":{{\"Right\":true}}}}],\"path\":\"{path}\"}}"));
+			_ts.Call("start_fixture", TestHelpers.Js($"{{\"frames\":3,\"samples\":[{{\"address\":0,\"width\":8}}],\"inputs\":[{{\"frame\":0,\"buttons\":{{\"Right\":true}}}}],\"path\":\"{path}\"}}"));
 			Assert.Single(_apis.JoypadApi.Calls); // only frame 0 sets — Right stays held on 1,2
 			Assert.True(_apis.JoypadApi.Calls[0].buttons["Right"]);
 			System.IO.File.Delete(path);
@@ -1324,7 +1324,7 @@ namespace BizHawkMcp.Tests
 			_apis.EmuClientApi.Paused = true;
 			string path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "bizhawk-mcp-test-fixture4.csv");
 			_apis.JoypadApi.Calls.Clear();
-			_ts.Call("bizhawk_start_fixture", TestHelpers.Js($"{{\"frames\":3,\"samples\":[{{\"address\":0,\"width\":8}}],\"inputs\":[{{\"frame\":0,\"buttons\":{{\"Right\":true}}}}],\"input_mode\":\"explicit\",\"path\":\"{path}\"}}"));
+			_ts.Call("start_fixture", TestHelpers.Js($"{{\"frames\":3,\"samples\":[{{\"address\":0,\"width\":8}}],\"inputs\":[{{\"frame\":0,\"buttons\":{{\"Right\":true}}}}],\"input_mode\":\"explicit\",\"path\":\"{path}\"}}"));
 			Assert.Equal(3, _apis.JoypadApi.Calls.Count);
 			Assert.True(_apis.JoypadApi.Calls[0].buttons["Right"]);
 			Assert.Empty(_apis.JoypadApi.Calls[1].buttons);
@@ -1342,7 +1342,7 @@ namespace BizHawkMcp.Tests
 			_apis.EmuClientApi.Paused = true;
 			string path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "bizhawk-mcp-test-fixture5.csv");
 			_apis.JoypadApi.Calls.Clear();
-			_ts.Call("bizhawk_start_fixture", TestHelpers.Js($"{{\"frames\":3,\"samples\":[{{\"address\":0,\"width\":8}}],\"inputs\":[{{\"frame\":0,\"buttons\":{{\"Right\":true}}}},{{\"frame\":1,\"buttons\":{{}}}}],\"path\":\"{path}\"}}"));
+			_ts.Call("start_fixture", TestHelpers.Js($"{{\"frames\":3,\"samples\":[{{\"address\":0,\"width\":8}}],\"inputs\":[{{\"frame\":0,\"buttons\":{{\"Right\":true}}}},{{\"frame\":1,\"buttons\":{{}}}}],\"path\":\"{path}\"}}"));
 			Assert.Equal(2, _apis.JoypadApi.Calls.Count);
 			Assert.True(_apis.JoypadApi.Calls[0].buttons["Right"]);
 			Assert.Empty(_apis.JoypadApi.Calls[1].buttons);
@@ -1353,14 +1353,14 @@ namespace BizHawkMcp.Tests
 		[Fact]
 		public void Start_fixture_rejects_bad_input_mode()
 		{
-			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_start_fixture", TestHelpers.Js("{\"frames\":1,\"samples\":[{\"address\":0}],\"input_mode\":\"sticky\"}")));
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("start_fixture", TestHelpers.Js("{\"frames\":1,\"samples\":[{\"address\":0}],\"input_mode\":\"sticky\"}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 		}
 
 		[Fact]
 		public void Start_fixture_rejects_bad_frames()
 		{
-			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_start_fixture", TestHelpers.Js("{\"frames\":0,\"samples\":[{\"address\":0}]}")));
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("start_fixture", TestHelpers.Js("{\"frames\":0,\"samples\":[{\"address\":0}]}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 		}
 
@@ -1377,7 +1377,7 @@ namespace BizHawkMcp.Tests
 			_apis.MemoryApi.Bytes[0xF85E + 0x20] = 0xF0;
 			_apis.MemoryApi.Bytes[0xF85E + 0x21] = 0x00;
 
-			var res = Parse(_ts.Call("bizhawk_read_struct", TestHelpers.Js("{\"address\":63582,\"domain\":\"68K RAM\",\"fields\":[{\"name\":\"x\",\"offset\":26,\"width\":32},{\"name\":\"y\",\"offset\":30,\"width\":32}]}")));
+			var res = Parse(_ts.Call("read_struct", TestHelpers.Js("{\"address\":63582,\"domain\":\"68K RAM\",\"fields\":[{\"name\":\"x\",\"offset\":26,\"width\":32},{\"name\":\"y\",\"offset\":30,\"width\":32}]}")));
 			Assert.Equal((ulong)0x00200000, res.GetProperty("fields")[0].GetProperty("value").GetUInt64());
 			Assert.Equal((ulong)0x0010F000, res.GetProperty("fields")[1].GetProperty("value").GetUInt64());
 			Assert.Equal("big", res.GetProperty("fields")[0].GetProperty("endianness").GetString());
@@ -1386,10 +1386,10 @@ namespace BizHawkMcp.Tests
 		[Fact]
 		public void Read_struct_accepts_symbol_base()
 		{
-			_ts.Call("bizhawk_symbols_set", TestHelpers.Js("{\"symbols\":[{\"name\":\"player\",\"address\":100,\"width\":8,\"domain\":\"68K RAM\"}]}"));
+			_ts.Call("symbols_set", TestHelpers.Js("{\"symbols\":[{\"name\":\"player\",\"address\":100,\"width\":8,\"domain\":\"68K RAM\"}]}"));
 			_apis.MemoryApi.Bytes[100] = 0xAA;
 			_apis.MemoryApi.Bytes[101] = 0xBB;
-			var res = Parse(_ts.Call("bizhawk_read_struct", TestHelpers.Js("{\"name\":\"player\",\"fields\":[{\"name\":\"b0\",\"offset\":0,\"width\":8},{\"name\":\"b1\",\"offset\":1,\"width\":8}]}")));
+			var res = Parse(_ts.Call("read_struct", TestHelpers.Js("{\"name\":\"player\",\"fields\":[{\"name\":\"b0\",\"offset\":0,\"width\":8},{\"name\":\"b1\",\"offset\":1,\"width\":8}]}")));
 			Assert.Equal((ulong)0xAA, res.GetProperty("fields")[0].GetProperty("value").GetUInt64());
 			Assert.Equal((ulong)0xBB, res.GetProperty("fields")[1].GetProperty("value").GetUInt64());
 		}
@@ -1409,11 +1409,11 @@ namespace BizHawkMcp.Tests
 		public void Watch_add_list_read_roundtrip()
 		{
 			_apis.MemoryApi.Bytes[100] = 0x42;
-			_ts.Call("bizhawk_watch_add", TestHelpers.Js("{\"name\":\"hp\",\"address\":100,\"width\":8}"));
-			var listed = Parse(_ts.Call("bizhawk_watch_list", null));
+			_ts.Call("watch_add", TestHelpers.Js("{\"name\":\"hp\",\"address\":100,\"width\":8}"));
+			var listed = Parse(_ts.Call("watch_list", null));
 			Assert.Equal((ulong)0x42, listed.GetProperty("watchers")[0].GetProperty("value").GetUInt64());
 
-			var read = Parse(_ts.Call("bizhawk_watch_read", null));
+			var read = Parse(_ts.Call("watch_read", null));
 			Assert.Equal((ulong)0x42, read.GetProperty("watchers")[0].GetProperty("value").GetUInt64());
 			Assert.False(read.GetProperty("watchers")[0].GetProperty("changed").GetBoolean());
 		}
@@ -1422,10 +1422,10 @@ namespace BizHawkMcp.Tests
 		public void Watch_read_reports_changed()
 		{
 			_apis.MemoryApi.Bytes[100] = 0x42;
-			_ts.Call("bizhawk_watch_add", TestHelpers.Js("{\"name\":\"hp\",\"address\":100,\"width\":8}"));
-			_ts.Call("bizhawk_watch_read", null);
+			_ts.Call("watch_add", TestHelpers.Js("{\"name\":\"hp\",\"address\":100,\"width\":8}"));
+			_ts.Call("watch_read", null);
 			_apis.MemoryApi.Bytes[100] = 0x99;
-			var read = Parse(_ts.Call("bizhawk_watch_read", null));
+			var read = Parse(_ts.Call("watch_read", null));
 			Assert.Equal((ulong)0x99, read.GetProperty("watchers")[0].GetProperty("value").GetUInt64());
 			Assert.True(read.GetProperty("watchers")[0].GetProperty("changed").GetBoolean());
 		}
@@ -1434,9 +1434,9 @@ namespace BizHawkMcp.Tests
 		public void Watch_read_compact_returns_aligned_arrays()
 		{
 			_apis.MemoryApi.Bytes[100] = 0x42;
-			_ts.Call("bizhawk_watch_add", TestHelpers.Js("{\"name\":\"hp\",\"address\":100,\"width\":8}"));
-			_ts.Call("bizhawk_watch_add", TestHelpers.Js("{\"name\":\"lives\",\"address\":200,\"width\":8}"));
-			var read = Parse(_ts.Call("bizhawk_watch_read", TestHelpers.Js("{\"compact\":true}")));
+			_ts.Call("watch_add", TestHelpers.Js("{\"name\":\"hp\",\"address\":100,\"width\":8}"));
+			_ts.Call("watch_add", TestHelpers.Js("{\"name\":\"lives\",\"address\":200,\"width\":8}"));
+			var read = Parse(_ts.Call("watch_read", TestHelpers.Js("{\"compact\":true}")));
 			Assert.Equal(new[] { "hp", "lives" }, read.GetProperty("names").EnumerateArray().Select(e => e.GetString()).ToArray());
 			Assert.Equal((ulong)0x42, read.GetProperty("values")[0].GetUInt64());
 			Assert.Equal((ulong)0, read.GetProperty("values")[1].GetUInt64());
@@ -1448,9 +1448,9 @@ namespace BizHawkMcp.Tests
 		{
 			_apis.MemoryApi.Bytes[100] = 0x00;
 			_apis.MemoryApi.Bytes[101] = 0x08;
-			_ts.Call("bizhawk_watch_add", TestHelpers.Js("{\"name\":\"main\",\"address\":100,\"width\":16,\"domain\":\"68K RAM\"}"));
-			_ts.Call("bizhawk_watch_add", TestHelpers.Js("{\"name\":\"sound\",\"address\":100,\"width\":16,\"domain\":\"Z80 RAM\"}"));
-			var listed = Parse(_ts.Call("bizhawk_watch_list", null));
+			_ts.Call("watch_add", TestHelpers.Js("{\"name\":\"main\",\"address\":100,\"width\":16,\"domain\":\"68K RAM\"}"));
+			_ts.Call("watch_add", TestHelpers.Js("{\"name\":\"sound\",\"address\":100,\"width\":16,\"domain\":\"Z80 RAM\"}"));
+			var listed = Parse(_ts.Call("watch_list", null));
 			Assert.Equal((ulong)8, listed.GetProperty("watchers")[0].GetProperty("value").GetUInt64());
 			Assert.Equal("big", listed.GetProperty("watchers")[0].GetProperty("endianness").GetString());
 			Assert.Equal((ulong)2048, listed.GetProperty("watchers")[1].GetProperty("value").GetUInt64());
@@ -1460,25 +1460,25 @@ namespace BizHawkMcp.Tests
 		[Fact]
 		public void Watch_add_duplicate_rejected()
 		{
-			_ts.Call("bizhawk_watch_add", TestHelpers.Js("{\"name\":\"hp\",\"address\":100,\"width\":8}"));
-			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_watch_add", TestHelpers.Js("{\"name\":\"hp\",\"address\":200,\"width\":8}")));
+			_ts.Call("watch_add", TestHelpers.Js("{\"name\":\"hp\",\"address\":100,\"width\":8}"));
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("watch_add", TestHelpers.Js("{\"name\":\"hp\",\"address\":200,\"width\":8}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 		}
 
 		[Fact]
 		public void Watch_remove_works()
 		{
-			_ts.Call("bizhawk_watch_add", TestHelpers.Js("{\"name\":\"hp\",\"address\":100,\"width\":8}"));
-			var res = _ts.Call("bizhawk_watch_remove", TestHelpers.Js("{\"name\":\"hp\"}"));
+			_ts.Call("watch_add", TestHelpers.Js("{\"name\":\"hp\",\"address\":100,\"width\":8}"));
+			var res = _ts.Call("watch_remove", TestHelpers.Js("{\"name\":\"hp\"}"));
 			Assert.Contains("removed", res);
-			var listed = Parse(_ts.Call("bizhawk_watch_list", null));
+			var listed = Parse(_ts.Call("watch_list", null));
 			Assert.Empty(listed.GetProperty("watchers").EnumerateArray());
 		}
 
 		[Fact]
 		public void Watch_add_outside_domain_rejected()
 		{
-			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_watch_add", TestHelpers.Js("{\"name\":\"x\",\"address\":70000,\"width\":8}")));
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("watch_add", TestHelpers.Js("{\"name\":\"x\",\"address\":70000,\"width\":8}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 		}
 
@@ -1491,7 +1491,7 @@ namespace BizHawkMcp.Tests
 			_apis.MemoryApi.Bytes[100] = 0;
 			_apis.EmuClientApi.Paused = true;
 
-			var res = Parse(_ts.Call("bizhawk_wait_until", TestHelpers.Js("{\"address\":100,\"op\":\"eq\",\"value\":5,\"width\":8}")));
+			var res = Parse(_ts.Call("wait_until", TestHelpers.Js("{\"address\":100,\"op\":\"eq\",\"value\":5,\"width\":8}")));
 			Assert.True(res.GetProperty("matched").GetBoolean());
 			Assert.Equal(5, res.GetProperty("frames").GetInt32());
 			Assert.Equal((ulong)5, res.GetProperty("value").GetUInt64());
@@ -1502,13 +1502,13 @@ namespace BizHawkMcp.Tests
 		public void Wait_until_accepts_symbol_name()
 		{
 			// same as above but the target is addressed by symbol, not raw offset
-			_ts.Call("bizhawk_symbols_set", TestHelpers.Js("{\"symbols\":[{\"name\":\"hp\",\"address\":100,\"width\":8}]}"));
+			_ts.Call("symbols_set", TestHelpers.Js("{\"symbols\":[{\"name\":\"hp\",\"address\":100,\"width\":8}]}"));
 			var frames = 0;
 			_apis.EmuClientApi.OnFrameAdvance = () => { frames++; _apis.MemoryApi.Bytes[100] = (byte)frames; };
 			_apis.MemoryApi.Bytes[100] = 0;
 			_apis.EmuClientApi.Paused = true;
 
-			var res = Parse(_ts.Call("bizhawk_wait_until", TestHelpers.Js("{\"name\":\"hp\",\"op\":\"eq\",\"value\":3}")));
+			var res = Parse(_ts.Call("wait_until", TestHelpers.Js("{\"name\":\"hp\",\"op\":\"eq\",\"value\":3}")));
 			Assert.True(res.GetProperty("matched").GetBoolean());
 			Assert.Equal(3, res.GetProperty("frames").GetInt32());
 			Assert.Equal((ulong)3, res.GetProperty("value").GetUInt64());
@@ -1519,7 +1519,7 @@ namespace BizHawkMcp.Tests
 		{
 			// value never changes → no match within 600 frames
 			_apis.MemoryApi.Bytes[100] = 0;
-			var res = Parse(_ts.Call("bizhawk_wait_until", TestHelpers.Js("{\"address\":100,\"op\":\"eq\",\"value\":9,\"width\":8}")));
+			var res = Parse(_ts.Call("wait_until", TestHelpers.Js("{\"address\":100,\"op\":\"eq\",\"value\":9,\"width\":8}")));
 			Assert.False(res.GetProperty("matched").GetBoolean());
 			Assert.Equal(600, res.GetProperty("frames").GetInt32());
 		}
@@ -1527,7 +1527,7 @@ namespace BizHawkMcp.Tests
 		[Fact]
 		public void Wait_until_rejects_bad_op()
 		{
-			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_wait_until", TestHelpers.Js("{\"address\":100,\"op\":\"==\",\"value\":1}")));
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("wait_until", TestHelpers.Js("{\"address\":100,\"op\":\"==\",\"value\":1}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 		}
 
@@ -1541,7 +1541,7 @@ namespace BizHawkMcp.Tests
 			_apis.MemoryApi.Bytes[101] = 0x00;
 			_apis.EmuClientApi.Paused = true;
 
-			var res = Parse(_ts.Call("bizhawk_wait_until", TestHelpers.Js("{\"address\":100,\"op\":\"eq\",\"value\":1,\"width\":16,\"domain\":\"68K RAM\"}")));
+			var res = Parse(_ts.Call("wait_until", TestHelpers.Js("{\"address\":100,\"op\":\"eq\",\"value\":1,\"width\":16,\"domain\":\"68K RAM\"}")));
 			Assert.True(res.GetProperty("matched").GetBoolean());
 			Assert.Equal((ulong)1, res.GetProperty("value").GetUInt64());
 			Assert.Equal("big", res.GetProperty("endianness").GetString());
@@ -1563,7 +1563,7 @@ namespace BizHawkMcp.Tests
 			_apis.MemoryApi.Bytes[200] = 10;
 			_apis.EmuClientApi.Paused = true;
 
-			var res = Parse(_ts.Call("bizhawk_wait_until", TestHelpers.Js("{\"conditions\":[{\"address\":100,\"op\":\"eq\",\"value\":3,\"width\":8},{\"address\":200,\"op\":\"eq\",\"value\":7,\"width\":8}]}")));
+			var res = Parse(_ts.Call("wait_until", TestHelpers.Js("{\"conditions\":[{\"address\":100,\"op\":\"eq\",\"value\":3,\"width\":8},{\"address\":200,\"op\":\"eq\",\"value\":7,\"width\":8}]}")));
 			Assert.True(res.GetProperty("matched").GetBoolean());
 			Assert.Equal(3, res.GetProperty("frames").GetInt32());
 			var conds = res.GetProperty("conditions");
@@ -1580,12 +1580,12 @@ namespace BizHawkMcp.Tests
 		{
 			// symbol "timer" counts up by 2/frame (>= 8 on frame 4); addr 300
 			// stays 0 so its "lt 5" condition already holds
-			_ts.Call("bizhawk_symbols_set", TestHelpers.Js("{\"symbols\":[{\"name\":\"timer\",\"address\":100,\"width\":8}]}"));
+			_ts.Call("symbols_set", TestHelpers.Js("{\"symbols\":[{\"name\":\"timer\",\"address\":100,\"width\":8}]}"));
 			var frames = 0;
 			_apis.EmuClientApi.OnFrameAdvance = () => { frames++; _apis.MemoryApi.Bytes[100] = (byte)(frames * 2); };
 			_apis.EmuClientApi.Paused = true;
 
-			var res = Parse(_ts.Call("bizhawk_wait_until", TestHelpers.Js("{\"conditions\":[{\"name\":\"timer\",\"op\":\"ge\",\"value\":8},{\"address\":300,\"op\":\"lt\",\"value\":5}]}")));
+			var res = Parse(_ts.Call("wait_until", TestHelpers.Js("{\"conditions\":[{\"name\":\"timer\",\"op\":\"ge\",\"value\":8},{\"address\":300,\"op\":\"lt\",\"value\":5}]}")));
 			Assert.True(res.GetProperty("matched").GetBoolean());
 			Assert.Equal(4, res.GetProperty("frames").GetInt32());
 		}
@@ -1595,7 +1595,7 @@ namespace BizHawkMcp.Tests
 		{
 			// addr 200 never reaches 99 → timeout without match
 			_apis.EmuClientApi.Paused = true;
-			var res = Parse(_ts.Call("bizhawk_wait_until", TestHelpers.Js("{\"timeout_frames\":10,\"conditions\":[{\"address\":100,\"op\":\"eq\",\"value\":5},{\"address\":200,\"op\":\"eq\",\"value\":99}]}")));
+			var res = Parse(_ts.Call("wait_until", TestHelpers.Js("{\"timeout_frames\":10,\"conditions\":[{\"address\":100,\"op\":\"eq\",\"value\":5},{\"address\":200,\"op\":\"eq\",\"value\":99}]}")));
 			Assert.False(res.GetProperty("matched").GetBoolean());
 			Assert.Equal(10, res.GetProperty("frames").GetInt32());
 		}
@@ -1604,11 +1604,11 @@ namespace BizHawkMcp.Tests
 		public void Wait_until_rejects_bad_conditions()
 		{
 			// empty array
-			Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_wait_until", TestHelpers.Js("{\"conditions\":[]}")));
+			Assert.Throws<JsonRpc.Error>(() => _ts.Call("wait_until", TestHelpers.Js("{\"conditions\":[]}")));
 			// condition missing its value
-			Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_wait_until", TestHelpers.Js("{\"conditions\":[{\"address\":100,\"op\":\"eq\"}]}")));
+			Assert.Throws<JsonRpc.Error>(() => _ts.Call("wait_until", TestHelpers.Js("{\"conditions\":[{\"address\":100,\"op\":\"eq\"}]}")));
 			// condition with a bad op
-			Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_wait_until", TestHelpers.Js("{\"conditions\":[{\"address\":100,\"op\":\"==\",\"value\":1}]}")));
+			Assert.Throws<JsonRpc.Error>(() => _ts.Call("wait_until", TestHelpers.Js("{\"conditions\":[{\"address\":100,\"op\":\"==\",\"value\":1}]}")));
 		}
 
 		[Fact]
@@ -1624,7 +1624,7 @@ namespace BizHawkMcp.Tests
 			_apis.MemoryApi.Bytes[100] = 0;
 			_apis.EmuClientApi.Paused = true;
 
-			var res = Parse(_ts.Call("bizhawk_watch_change", TestHelpers.Js("{\"address\":100,\"width\":8}")));
+			var res = Parse(_ts.Call("watch_change", TestHelpers.Js("{\"address\":100,\"width\":8}")));
 			Assert.True(res.GetProperty("changed").GetBoolean());
 			Assert.Equal(3, res.GetProperty("frames").GetInt32());
 			Assert.Equal((ulong)0, res.GetProperty("initial").GetUInt64());
@@ -1635,13 +1635,13 @@ namespace BizHawkMcp.Tests
 		[Fact]
 		public void Watch_change_accepts_symbol_name()
 		{
-			_ts.Call("bizhawk_symbols_set", TestHelpers.Js("{\"symbols\":[{\"name\":\"camX\",\"address\":100,\"width\":32}]}"));
+			_ts.Call("symbols_set", TestHelpers.Js("{\"symbols\":[{\"name\":\"camX\",\"address\":100,\"width\":32}]}"));
 			var frames = 0;
 			_apis.EmuClientApi.OnFrameAdvance = () => { frames++; _apis.MemoryApi.Bytes[100] = (byte)frames; };
 			_apis.MemoryApi.Bytes[100] = 0;
 			_apis.EmuClientApi.Paused = true;
 
-			var res = Parse(_ts.Call("bizhawk_watch_change", TestHelpers.Js("{\"name\":\"camX\"}")));
+			var res = Parse(_ts.Call("watch_change", TestHelpers.Js("{\"name\":\"camX\"}")));
 			Assert.True(res.GetProperty("changed").GetBoolean());
 			Assert.Equal(1, res.GetProperty("frames").GetInt32());
 		}
@@ -1650,7 +1650,7 @@ namespace BizHawkMcp.Tests
 		public void Watch_change_times_out_when_value_is_stable()
 		{
 			_apis.MemoryApi.Bytes[100] = 0x42;
-			var res = Parse(_ts.Call("bizhawk_watch_change", TestHelpers.Js("{\"address\":100,\"width\":8,\"timeout_frames\":5}")));
+			var res = Parse(_ts.Call("watch_change", TestHelpers.Js("{\"address\":100,\"width\":8,\"timeout_frames\":5}")));
 			Assert.False(res.GetProperty("changed").GetBoolean());
 			Assert.Equal(5, res.GetProperty("frames").GetInt32());
 			Assert.Equal((ulong)0x42, res.GetProperty("value").GetUInt64());
@@ -1659,7 +1659,7 @@ namespace BizHawkMcp.Tests
 		[Fact]
 		public void Watch_change_rejects_bad_timeout()
 		{
-			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_watch_change", TestHelpers.Js("{\"address\":100,\"timeout_frames\":0}")));
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("watch_change", TestHelpers.Js("{\"address\":100,\"timeout_frames\":0}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 		}
 
@@ -1667,7 +1667,7 @@ namespace BizHawkMcp.Tests
 		public void Trace_samples_pc_and_disasm()
 		{
 			_apis.EmuClientApi.Paused = true;
-			var res = Parse(_ts.Call("bizhawk_trace", TestHelpers.Js("{\"count\":10,\"step\":5}")));
+			var res = Parse(_ts.Call("trace", TestHelpers.Js("{\"count\":10,\"step\":5}")));
 			var samples = res.GetProperty("samples");
 			// 10 frames, sampled every 5 → frames 0, 5 (i % step == 0)
 			Assert.Equal(2, samples.GetArrayLength());
@@ -1680,7 +1680,7 @@ namespace BizHawkMcp.Tests
 		[Fact]
 		public void Trace_rejects_large_count()
 		{
-			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_trace", TestHelpers.Js("{\"count\":601}")));
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("trace", TestHelpers.Js("{\"count\":601}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 		}
 	}
@@ -1698,7 +1698,7 @@ namespace BizHawkMcp.Tests
 		public void Watchpoint_add_registers_in_core()
 		{
 			var dbg = _apis.EnableWatchpoints();
-			_ts.Call("bizhawk_watchpoint_add", TestHelpers.Js("{\"name\":\"wp1\",\"type\":\"write\",\"address\":16776136}"));
+			_ts.Call("watchpoint_add", TestHelpers.Js("{\"name\":\"wp1\",\"type\":\"write\",\"address\":16776136}"));
 			Assert.Single(dbg.Callbacks.Registered);
 			Assert.Equal(MemoryCallbackType.Write, dbg.Callbacks.Registered[0].Type);
 			Assert.Equal((uint)16776136, dbg.Callbacks.Registered[0].Address);
@@ -1707,7 +1707,7 @@ namespace BizHawkMcp.Tests
 		[Fact]
 		public void Watchpoint_add_without_core_support_errors()
 		{
-			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_watchpoint_add", TestHelpers.Js("{\"name\":\"wp1\",\"type\":\"write\"}")));
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("watchpoint_add", TestHelpers.Js("{\"name\":\"wp1\",\"type\":\"write\"}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 			Assert.Contains("unsupported", ex.Message);
 		}
@@ -1716,7 +1716,7 @@ namespace BizHawkMcp.Tests
 		public void Watchpoint_execute_requires_address()
 		{
 			_apis.EnableWatchpoints();
-			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_watchpoint_add", TestHelpers.Js("{\"name\":\"wp1\",\"type\":\"execute\"}")));
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("watchpoint_add", TestHelpers.Js("{\"name\":\"wp1\",\"type\":\"execute\"}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 		}
 
@@ -1725,7 +1725,7 @@ namespace BizHawkMcp.Tests
 		{
 			var dbg = _apis.EnableWatchpoints();
 			dbg.Callbacks.ExecuteCallbacksAvailableValue = false;
-			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_watchpoint_add", TestHelpers.Js("{\"name\":\"wp1\",\"type\":\"execute\",\"address\":16776136}")));
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("watchpoint_add", TestHelpers.Js("{\"name\":\"wp1\",\"type\":\"execute\",\"address\":16776136}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 		}
 
@@ -1733,7 +1733,7 @@ namespace BizHawkMcp.Tests
 		public void Watchpoint_bad_scope_errors()
 		{
 			_apis.EnableWatchpoints();
-			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_watchpoint_add", TestHelpers.Js("{\"name\":\"wp1\",\"type\":\"write\",\"domain\":\"NOPE\"}")));
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("watchpoint_add", TestHelpers.Js("{\"name\":\"wp1\",\"type\":\"write\",\"domain\":\"NOPE\"}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 		}
 
@@ -1742,7 +1742,7 @@ namespace BizHawkMcp.Tests
 		{
 			var dbg = _apis.EnableWatchpoints();
 			_apis.EmuClientApi.Paused = true;
-			_ts.Call("bizhawk_watchpoint_add", TestHelpers.Js("{\"name\":\"wp1\",\"type\":\"write\",\"address\":16776136}"));
+			_ts.Call("watchpoint_add", TestHelpers.Js("{\"name\":\"wp1\",\"type\":\"write\",\"address\":16776136}"));
 			// fire the callback on the 3rd frame advance
 			var frame = 0;
 			_apis.EmuClientApi.OnFrameAdvance = () =>
@@ -1750,7 +1750,7 @@ namespace BizHawkMcp.Tests
 				if (++frame == 3) dbg.Callbacks.Fire(16776136, 0x77);
 			};
 
-			var res = Parse(_ts.Call("bizhawk_watchpoint_wait", TestHelpers.Js("{\"timeout_frames\":10}")));
+			var res = Parse(_ts.Call("watchpoint_wait", TestHelpers.Js("{\"timeout_frames\":10}")));
 			Assert.True(res.GetProperty("matched").GetBoolean());
 			Assert.Equal("wp1", res.GetProperty("watchpoint").GetString());
 			Assert.Equal("write", res.GetProperty("type").GetString());
@@ -1769,7 +1769,7 @@ namespace BizHawkMcp.Tests
 			_apis.MemoryApi.Bytes[0x24D1] = 0xBB;
 			_apis.MemoryApi.Bytes[0x24D2] = 0xCC;
 			_apis.MemoryApi.Bytes[0x24D3] = 0xDD;
-			_ts.Call("bizhawk_watchpoint_add", TestHelpers.Js("{\"name\":\"wp1\",\"type\":\"write\",\"address\":16776200}"));
+			_ts.Call("watchpoint_add", TestHelpers.Js("{\"name\":\"wp1\",\"type\":\"write\",\"address\":16776200}"));
 			// hit address 16776200 (= 0x1000208); scope M68K BUS (16 MiB)
 			var frame = 0;
 			_apis.EmuClientApi.OnFrameAdvance = () =>
@@ -1777,7 +1777,7 @@ namespace BizHawkMcp.Tests
 				if (++frame == 2) dbg.Callbacks.Fire(16776200, 0x42);
 			};
 
-			var res = Parse(_ts.Call("bizhawk_watchpoint_wait", TestHelpers.Js("{\"timeout_frames\":10,\"context_bytes\":64}")));
+			var res = Parse(_ts.Call("watchpoint_wait", TestHelpers.Js("{\"timeout_frames\":10,\"context_bytes\":64}")));
 			Assert.True(res.GetProperty("matched").GetBoolean());
 			// registers captured on the hit
 			Assert.Equal((ulong)0xFFFBCA, res.GetProperty("registers").GetProperty("M68K PC").GetUInt64());
@@ -1796,14 +1796,14 @@ namespace BizHawkMcp.Tests
 		{
 			var dbg = _apis.EnableWatchpoints();
 			_apis.EmuClientApi.Paused = true;
-			_ts.Call("bizhawk_watchpoint_add", TestHelpers.Js("{\"name\":\"wp1\",\"type\":\"write\"}"));
+			_ts.Call("watchpoint_add", TestHelpers.Js("{\"name\":\"wp1\",\"type\":\"write\"}"));
 			var frame = 0;
 			_apis.EmuClientApi.OnFrameAdvance = () =>
 			{
 				if (++frame == 1) dbg.Callbacks.Fire(100, 0x01);
 			};
 
-			var res = Parse(_ts.Call("bizhawk_watchpoint_wait", TestHelpers.Js("{\"timeout_frames\":10}")));
+			var res = Parse(_ts.Call("watchpoint_wait", TestHelpers.Js("{\"timeout_frames\":10}")));
 			Assert.True(res.GetProperty("matched").GetBoolean());
 			Assert.False(res.TryGetProperty("registers", out _));
 			Assert.False(res.TryGetProperty("context", out _));
@@ -1813,8 +1813,8 @@ namespace BizHawkMcp.Tests
 		public void Watchpoint_wait_times_out()
 		{
 			_apis.EnableWatchpoints();
-			_ts.Call("bizhawk_watchpoint_add", TestHelpers.Js("{\"name\":\"wp1\",\"type\":\"read\"}"));
-			var res = Parse(_ts.Call("bizhawk_watchpoint_wait", TestHelpers.Js("{\"timeout_frames\":5}")));
+			_ts.Call("watchpoint_add", TestHelpers.Js("{\"name\":\"wp1\",\"type\":\"read\"}"));
+			var res = Parse(_ts.Call("watchpoint_wait", TestHelpers.Js("{\"timeout_frames\":5}")));
 			Assert.False(res.GetProperty("matched").GetBoolean());
 			Assert.Equal(5, res.GetProperty("frames").GetInt32());
 		}
@@ -1823,7 +1823,7 @@ namespace BizHawkMcp.Tests
 		public void Watchpoint_wait_without_any_registered_errors()
 		{
 			_apis.EnableWatchpoints();
-			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_watchpoint_wait", null));
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("watchpoint_wait", null));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 		}
 
@@ -1831,8 +1831,8 @@ namespace BizHawkMcp.Tests
 		public void Watchpoint_remove_unregisters()
 		{
 			var dbg = _apis.EnableWatchpoints();
-			_ts.Call("bizhawk_watchpoint_add", TestHelpers.Js("{\"name\":\"wp1\",\"type\":\"write\",\"address\":100}"));
-			var res = _ts.Call("bizhawk_watchpoint_remove", TestHelpers.Js("{\"name\":\"wp1\"}"));
+			_ts.Call("watchpoint_add", TestHelpers.Js("{\"name\":\"wp1\",\"type\":\"write\",\"address\":100}"));
+			var res = _ts.Call("watchpoint_remove", TestHelpers.Js("{\"name\":\"wp1\"}"));
 			Assert.Contains("removed", res);
 			Assert.Empty(dbg.Callbacks.Registered);
 		}
@@ -1841,8 +1841,8 @@ namespace BizHawkMcp.Tests
 		public void Watchpoint_list_reports()
 		{
 			_apis.EnableWatchpoints();
-			_ts.Call("bizhawk_watchpoint_add", TestHelpers.Js("{\"name\":\"wp1\",\"type\":\"execute\",\"address\":2370}"));
-			var res = Parse(_ts.Call("bizhawk_watchpoint_list", null));
+			_ts.Call("watchpoint_add", TestHelpers.Js("{\"name\":\"wp1\",\"type\":\"execute\",\"address\":2370}"));
+			var res = Parse(_ts.Call("watchpoint_list", null));
 			Assert.Equal("wp1", res.GetProperty("watchpoints")[0].GetProperty("name").GetString());
 			Assert.Equal("execute", res.GetProperty("watchpoints")[0].GetProperty("type").GetString());
 			Assert.Equal((ulong)2370, res.GetProperty("watchpoints")[0].GetProperty("address").GetUInt64());
@@ -1862,7 +1862,7 @@ namespace BizHawkMcp.Tests
 		public void Frame_advance_runs_frames_and_restores_pause()
 		{
 			_apis.EmuClientApi.Paused = true;
-			var res = _ts.Call("bizhawk_frame_advance", TestHelpers.Js("{\"count\":3}"));
+			var res = _ts.Call("frame_advance", TestHelpers.Js("{\"count\":3}"));
 			Assert.Equal(3, _apis.EmuClientApi.FramesAdvanced);
 			Assert.Equal(1, _apis.EmuClientApi.UnpauseCalls);
 			Assert.Equal(1, _apis.EmuClientApi.PauseCalls);
@@ -1874,7 +1874,7 @@ namespace BizHawkMcp.Tests
 		public void Frame_advance_running_stays_running()
 		{
 			_apis.EmuClientApi.Paused = false;
-			_ts.Call("bizhawk_frame_advance", TestHelpers.Js("{\"count\":2}"));
+			_ts.Call("frame_advance", TestHelpers.Js("{\"count\":2}"));
 			Assert.Equal(2, _apis.EmuClientApi.FramesAdvanced);
 			Assert.Equal(0, _apis.EmuClientApi.UnpauseCalls);
 			Assert.Equal(0, _apis.EmuClientApi.PauseCalls);
@@ -1885,86 +1885,86 @@ namespace BizHawkMcp.Tests
 		public void Pause_unpause_toggle_work()
 		{
 			_apis.EmuClientApi.Paused = false;
-			var res = Parse(_ts.Call("bizhawk_pause", null));
+			var res = Parse(_ts.Call("pause", null));
 			Assert.True(res.GetProperty("paused").GetBoolean());
-			res = Parse(_ts.Call("bizhawk_unpause", null));
+			res = Parse(_ts.Call("unpause", null));
 			Assert.False(res.GetProperty("paused").GetBoolean());
-			res = Parse(_ts.Call("bizhawk_toggle_pause", null));
+			res = Parse(_ts.Call("toggle_pause", null));
 			Assert.True(res.GetProperty("paused").GetBoolean());
 		}
 
 		[Fact]
 		public void Speed_mode_sets_percent()
 		{
-			_ts.Call("bizhawk_speed_mode", TestHelpers.Js("{\"percent\":400}"));
+			_ts.Call("speed_mode", TestHelpers.Js("{\"percent\":400}"));
 			Assert.Equal(400, _apis.EmuClientApi.SpeedModePercent);
 		}
 
 		[Fact]
 		public void Sound_get_set_work()
 		{
-			var res = Parse(_ts.Call("bizhawk_get_sound", null));
+			var res = Parse(_ts.Call("get_sound", null));
 			Assert.True(res.GetProperty("sound_on").GetBoolean());
-			_ts.Call("bizhawk_set_sound", TestHelpers.Js("{\"enabled\":false}"));
+			_ts.Call("set_sound", TestHelpers.Js("{\"enabled\":false}"));
 			Assert.False(_apis.EmuClientApi.SoundOn);
-			res = Parse(_ts.Call("bizhawk_get_sound", null));
+			res = Parse(_ts.Call("get_sound", null));
 			Assert.False(res.GetProperty("sound_on").GetBoolean());
-			_ts.Call("bizhawk_set_sound", null);
+			_ts.Call("set_sound", null);
 			Assert.True(_apis.EmuClientApi.SoundOn); // default enables
 		}
 
 		[Fact]
 		public void Enable_rewind_toggles()
 		{
-			_ts.Call("bizhawk_enable_rewind", TestHelpers.Js("{\"enabled\":true}"));
+			_ts.Call("enable_rewind", TestHelpers.Js("{\"enabled\":true}"));
 			Assert.True(_apis.EmuClientApi.RewindEnabled);
 			Assert.Equal(1, _apis.EmuClientApi.RewindCalls);
-			_ts.Call("bizhawk_enable_rewind", TestHelpers.Js("{\"enabled\":false}"));
+			_ts.Call("enable_rewind", TestHelpers.Js("{\"enabled\":false}"));
 			Assert.False(_apis.EmuClientApi.RewindEnabled);
 		}
 
 		[Fact]
 		public void Frame_skip_sets_count()
 		{
-			_ts.Call("bizhawk_frameskip", TestHelpers.Js("{\"count\":3}"));
+			_ts.Call("frameskip", TestHelpers.Js("{\"count\":3}"));
 			Assert.Equal(3, _apis.EmuClientApi.FrameSkipValue);
-			_ts.Call("bizhawk_frameskip", TestHelpers.Js("{\"count\":0}"));
+			_ts.Call("frameskip", TestHelpers.Js("{\"count\":0}"));
 			Assert.Equal(0, _apis.EmuClientApi.FrameSkipValue);
 		}
 
 		[Fact]
 		public void Limit_framerate_toggles()
 		{
-			_ts.Call("bizhawk_limit_framerate", TestHelpers.Js("{\"enabled\":false}"));
+			_ts.Call("limit_framerate", TestHelpers.Js("{\"enabled\":false}"));
 			Assert.False(_apis.EmulationApi.LimitFramerateValue);
-			_ts.Call("bizhawk_limit_framerate", null);
+			_ts.Call("limit_framerate", null);
 			Assert.True(_apis.EmulationApi.LimitFramerateValue);
 		}
 
 		[Fact]
 		public void Rom_open_close_reboot_work()
 		{
-			var res = Parse(_ts.Call("bizhawk_open_rom", TestHelpers.Js("{\"path\":\"F:/roms/game.md\"}")));
+			var res = Parse(_ts.Call("open_rom", TestHelpers.Js("{\"path\":\"F:/roms/game.md\"}")));
 			Assert.True(res.GetProperty("loaded").GetBoolean());
 			Assert.Single(_apis.EmuClientApi.OpenedRoms);
 			Assert.Equal("/mnt/f/roms/game.md", _apis.EmuClientApi.OpenedRoms[0]);
-			_ts.Call("bizhawk_close_rom", null);
+			_ts.Call("close_rom", null);
 			Assert.Equal(1, _apis.EmuClientApi.CloseRomCalls);
-			_ts.Call("bizhawk_reboot", null);
+			_ts.Call("reboot", null);
 			Assert.Equal(1, _apis.EmuClientApi.RebootCalls);
 		}
 
 		[Fact]
 		public void Open_rom_requires_path()
 		{
-			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_open_rom", TestHelpers.Js("{}")));
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("open_rom", TestHelpers.Js("{}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 		}
 
 		[Fact]
 		public void Get_registers_returns_map()
 		{
-			var res = Parse(_ts.Call("bizhawk_get_registers", null));
+			var res = Parse(_ts.Call("get_registers", null));
 			Assert.Equal((ulong)0xFFFBCA, res.GetProperty("registers").GetProperty("M68K PC").GetUInt64());
 		}
 
@@ -1974,7 +1974,7 @@ namespace BizHawkMcp.Tests
 			// gpgx names registers "M68K PC" etc.; the trace must match the
 			// suffix, not just the bare "PC" key (regression: PC sampled as 0).
 			_apis.EmuClientApi.Paused = true;
-			var res = Parse(_ts.Call("bizhawk_trace", TestHelpers.Js("{\"count\":2,\"step\":1}")));
+			var res = Parse(_ts.Call("trace", TestHelpers.Js("{\"count\":2,\"step\":1}")));
 			var sample = res.GetProperty("samples")[0];
 			Assert.Equal((ulong)0xFFFBCA, sample.GetProperty("pc").GetUInt64());
 			Assert.Equal("MOVE.L D0,D1", sample.GetProperty("disasm").GetString());
@@ -1985,7 +1985,7 @@ namespace BizHawkMcp.Tests
 		[Fact]
 		public void Set_register_forwards()
 		{
-			_ts.Call("bizhawk_set_register", TestHelpers.Js("{\"register\":\"A0\",\"value\":39321}"));
+			_ts.Call("set_register", TestHelpers.Js("{\"register\":\"A0\",\"value\":39321}"));
 			Assert.Equal("A0", _apis.EmulationApi.RegisterToSet);
 			Assert.Equal(0x9999, _apis.EmulationApi.RegisterValue);
 		}
@@ -1993,7 +1993,7 @@ namespace BizHawkMcp.Tests
 		[Fact]
 		public void Disassemble_returns_asm()
 		{
-			var res = _ts.Call("bizhawk_disassemble", TestHelpers.Js("{\"pc\":4194304}"));
+			var res = _ts.Call("disassemble", TestHelpers.Js("{\"pc\":4194304}"));
 			Assert.Equal("MOVE.L D0,D1", res);
 		}
 
@@ -2002,7 +2002,7 @@ namespace BizHawkMcp.Tests
 		{
 			_apis.EmulationApi.Lagged = true;
 			_apis.EmulationApi.LagCountValue = 7;
-			var res = Parse(_ts.Call("bizhawk_lag_count", null));
+			var res = Parse(_ts.Call("lag_count", null));
 			Assert.True(res.GetProperty("is_lagged").GetBoolean());
 			Assert.Equal(7, res.GetProperty("lag_count").GetInt32());
 		}
@@ -2020,7 +2020,7 @@ namespace BizHawkMcp.Tests
 		[Fact]
 		public void Screenshot_without_path_returns_temp_path_and_resource()
 		{
-			var res = Parse(_ts.Call("bizhawk_screenshot", null));
+			var res = Parse(_ts.Call("screenshot", null));
 			var path = res.GetProperty("path").GetString();
 			Assert.Contains("bizhawk-mcp", path);
 			Assert.StartsWith("bizhawk://", res.GetProperty("resource").GetString());
@@ -2031,14 +2031,14 @@ namespace BizHawkMcp.Tests
 		public void Screenshot_with_path_uses_it()
 		{
 			var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "test-shot.png");
-			var res = Parse(_ts.Call("bizhawk_screenshot", TestHelpers.Js($"{{\"path\":\"{path}\"}}")));
+			var res = Parse(_ts.Call("screenshot", TestHelpers.Js($"{{\"path\":\"{path}\"}}")));
 			Assert.Equal(path, res.GetProperty("path").GetString());
 		}
 
 		[Fact]
 		public void Resources_list_and_read_roundtrip()
 		{
-			var res = Parse(_ts.Call("bizhawk_screenshot", null));
+			var res = Parse(_ts.Call("screenshot", null));
 			var uri = res.GetProperty("resource").GetString()!;
 
 			var listed = _ts.ListResources();
@@ -2133,14 +2133,14 @@ namespace BizHawkMcp.Tests
 		[Fact]
 		public void Get_joypad_returns_buttons()
 		{
-			var res = Parse(_ts.Call("bizhawk_get_joypad", null));
+			var res = Parse(_ts.Call("get_joypad", null));
 			Assert.True(res.GetProperty("buttons").GetProperty("A").GetBoolean());
 		}
 
 		[Fact]
 		public void Press_buttons_forwards_to_joypad()
 		{
-			_ts.Call("bizhawk_press_buttons", TestHelpers.Js("{\"buttons\":{\"A\":true,\"Right\":true},\"controller\":2}"));
+			_ts.Call("press_buttons", TestHelpers.Js("{\"buttons\":{\"A\":true,\"Right\":true},\"controller\":2}"));
 			Assert.True(_apis.JoypadApi.LastSet!["A"]);
 			Assert.Equal(2, _apis.JoypadApi.LastController);
 		}
@@ -2148,18 +2148,18 @@ namespace BizHawkMcp.Tests
 		[Fact]
 		public void Save_load_state_forward()
 		{
-			_ts.Call("bizhawk_save_state", TestHelpers.Js("{\"path\":\"C:/x.State\"}"));
+			_ts.Call("save_state", TestHelpers.Js("{\"path\":\"C:/x.State\"}"));
 			Assert.Equal("/mnt/c/x.State", _apis.SaveStateApi.SavedTo);
-			var res = _ts.Call("bizhawk_load_state", TestHelpers.Js("{\"path\":\"C:/x.State\"}"));
+			var res = _ts.Call("load_state", TestHelpers.Js("{\"path\":\"C:/x.State\"}"));
 			Assert.Contains("loaded", res);
 		}
 
 		[Fact]
 		public void Save_load_slot_forward()
 		{
-			_ts.Call("bizhawk_save_slot", TestHelpers.Js("{\"slot\":3}"));
+			_ts.Call("save_slot", TestHelpers.Js("{\"slot\":3}"));
 			Assert.Equal(3, _apis.SaveStateApi.SavedSlot);
-			var res = _ts.Call("bizhawk_load_slot", TestHelpers.Js("{\"slot\":3}"));
+			var res = _ts.Call("load_slot", TestHelpers.Js("{\"slot\":3}"));
 			Assert.Equal(3, _apis.SaveStateApi.LoadedSlot);
 			Assert.Contains("loaded", res);
 		}
@@ -2167,9 +2167,9 @@ namespace BizHawkMcp.Tests
 		[Fact]
 		public void Save_slot_rejects_out_of_range()
 		{
-			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_save_slot", TestHelpers.Js("{\"slot\":0}")));
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("save_slot", TestHelpers.Js("{\"slot\":0}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
-			ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_load_slot", TestHelpers.Js("{\"slot\":11}")));
+			ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("load_slot", TestHelpers.Js("{\"slot\":11}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 		}
 
@@ -2180,7 +2180,7 @@ namespace BizHawkMcp.Tests
 			_apis.MemoryApi.Bytes[100] = 0x11;
 			_apis.MemoryApi.Bytes[200] = 0x22;
 
-			var res = Parse(_ts.Call("bizhawk_memstate_save", TestHelpers.Js("{\"slot\":\"pre-jump\"}")));
+			var res = Parse(_ts.Call("memstate_save", TestHelpers.Js("{\"slot\":\"pre-jump\"}")));
 			Assert.Equal("pre-jump", res.GetProperty("slot").GetString());
 			Assert.True(res.GetProperty("size").GetInt32() > 0);
 
@@ -2188,7 +2188,7 @@ namespace BizHawkMcp.Tests
 			_apis.MemoryApi.Bytes[100] = 0x99;
 			_apis.MemoryApi.Bytes[200] = 0x77;
 			_apis.MemoryApi.Bytes[300] = 0x55;
-			var load = Parse(_ts.Call("bizhawk_memstate_load", TestHelpers.Js("{\"slot\":\"pre-jump\"}")));
+			var load = Parse(_ts.Call("memstate_load", TestHelpers.Js("{\"slot\":\"pre-jump\"}")));
 			Assert.Equal("pre-jump", load.GetProperty("slot").GetString());
 
 			Assert.Equal((byte)0x11, _apis.MemoryApi.Bytes[100]);
@@ -2201,17 +2201,17 @@ namespace BizHawkMcp.Tests
 		{
 			_apis.EnableMemStates();
 			_apis.MemoryApi.Bytes[100] = 1;
-			_ts.Call("bizhawk_memstate_save", TestHelpers.Js("{\"slot\":\"a\"}"));
+			_ts.Call("memstate_save", TestHelpers.Js("{\"slot\":\"a\"}"));
 			_apis.MemoryApi.Bytes[100] = 2;
-			_ts.Call("bizhawk_memstate_save", TestHelpers.Js("{\"slot\":\"b\"}"));
+			_ts.Call("memstate_save", TestHelpers.Js("{\"slot\":\"b\"}"));
 
 			_apis.MemoryApi.Bytes[100] = 99;
-			_ts.Call("bizhawk_memstate_load", TestHelpers.Js("{\"slot\":\"a\"}"));
+			_ts.Call("memstate_load", TestHelpers.Js("{\"slot\":\"a\"}"));
 			Assert.Equal((byte)1, _apis.MemoryApi.Bytes[100]);
-			_ts.Call("bizhawk_memstate_load", TestHelpers.Js("{\"slot\":\"b\"}"));
+			_ts.Call("memstate_load", TestHelpers.Js("{\"slot\":\"b\"}"));
 			Assert.Equal((byte)2, _apis.MemoryApi.Bytes[100]);
 
-			var list = Parse(_ts.Call("bizhawk_memstate_list", null));
+			var list = Parse(_ts.Call("memstate_list", null));
 			Assert.Equal(2, list.GetProperty("states").GetArrayLength());
 		}
 
@@ -2219,7 +2219,7 @@ namespace BizHawkMcp.Tests
 		public void Mem_state_load_unknown_slot_errors()
 		{
 			_apis.EnableMemStates();
-			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_memstate_load", TestHelpers.Js("{\"slot\":\"nope\"}")));
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("memstate_load", TestHelpers.Js("{\"slot\":\"nope\"}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 		}
 
@@ -2227,7 +2227,7 @@ namespace BizHawkMcp.Tests
 		public void Mem_state_unsupported_core_errors_clearly()
 		{
 			// no Emulator wired → same shape as watchpoints on non-gpgx cores
-			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_memstate_save", TestHelpers.Js("{\"slot\":\"a\"}")));
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("memstate_save", TestHelpers.Js("{\"slot\":\"a\"}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 			Assert.Contains("IEmulator", ex.Message);
 		}
@@ -2236,9 +2236,9 @@ namespace BizHawkMcp.Tests
 		public void Mem_state_rejects_empty_slot_name()
 		{
 			_apis.EnableMemStates();
-			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_memstate_save", TestHelpers.Js("{\"slot\":\"\"}")));
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("memstate_save", TestHelpers.Js("{\"slot\":\"\"}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
-			ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_memstate_save", TestHelpers.Js("{\"slot\":\"  \"}")));
+			ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("memstate_save", TestHelpers.Js("{\"slot\":\"  \"}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 		}
 
@@ -2247,7 +2247,7 @@ namespace BizHawkMcp.Tests
 		{
 			_apis.EnableCheats();
 			_apis.MemoryApi.Bytes[100] = 0x42;
-			var res = Parse(_ts.Call("bizhawk_freeze_add", TestHelpers.Js("{\"address\":100,\"width\":8,\"domain\":\"68K RAM\"}")));
+			var res = Parse(_ts.Call("freeze_add", TestHelpers.Js("{\"address\":100,\"width\":8,\"domain\":\"68K RAM\"}")));
 			Assert.Equal(100L, res.GetProperty("address").GetInt64());
 			Assert.Equal(0x42, res.GetProperty("value").GetInt32());
 			var cheat = _apis.Cheats!.Single();
@@ -2260,7 +2260,7 @@ namespace BizHawkMcp.Tests
 		public void Freeze_add_with_explicit_value_and_note()
 		{
 			_apis.EnableCheats();
-			var res = Parse(_ts.Call("bizhawk_freeze_add", TestHelpers.Js("{\"address\":100,\"width\":16,\"value\":513,\"domain\":\"68K RAM\",\"note\":\"lives\"}")));
+			var res = Parse(_ts.Call("freeze_add", TestHelpers.Js("{\"address\":100,\"width\":16,\"value\":513,\"domain\":\"68K RAM\",\"note\":\"lives\"}")));
 			Assert.Equal("lives", res.GetProperty("note").GetString());
 			var cheat = _apis.Cheats!.Single();
 			Assert.Equal(513, cheat.Value);
@@ -2275,13 +2275,13 @@ namespace BizHawkMcp.Tests
 			_apis.EnableCheats();
 			for (var i = 0; i < 5; i++) _apis.MemoryApi.Bytes[100 + i] = (byte)(i + 1);
 
-			var res = Parse(_ts.Call("bizhawk_freeze_add", TestHelpers.Js("{\"address\":100,\"length\":5,\"domain\":\"68K RAM\"}")));
+			var res = Parse(_ts.Call("freeze_add", TestHelpers.Js("{\"address\":100,\"length\":5,\"domain\":\"68K RAM\"}")));
 			Assert.Equal("snapshot", res.GetProperty("mode").GetString());
 			Assert.Equal(5, res.GetProperty("frozen").GetInt32());
 			Assert.Equal(5, _apis.Cheats!.Count);
 			Assert.Equal(3, _apis.Cheats.ElementAt(2).Value); // byte 3 of the snapshot
 
-			var fill = Parse(_ts.Call("bizhawk_freeze_add", TestHelpers.Js("{\"address\":200,\"length\":4,\"value\":0,\"domain\":\"68K RAM\"}")));
+			var fill = Parse(_ts.Call("freeze_add", TestHelpers.Js("{\"address\":200,\"length\":4,\"value\":0,\"domain\":\"68K RAM\"}")));
 			Assert.Equal("fill", fill.GetProperty("mode").GetString());
 			Assert.Equal(9, _apis.Cheats!.Count);
 			Assert.All(_apis.Cheats!.Skip(5), c => Assert.Equal(0, c.Value));
@@ -2292,16 +2292,16 @@ namespace BizHawkMcp.Tests
 		{
 			_apis.EnableCheats();
 			// range with width 16
-			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_freeze_add", TestHelpers.Js("{\"address\":100,\"length\":2,\"width\":16}")));
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("freeze_add", TestHelpers.Js("{\"address\":100,\"length\":2,\"width\":16}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 			// range fill value not a byte
-			ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_freeze_add", TestHelpers.Js("{\"address\":100,\"length\":2,\"value\":256}")));
+			ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("freeze_add", TestHelpers.Js("{\"address\":100,\"length\":2,\"value\":256}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 			// single value not fitting the width
-			ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_freeze_add", TestHelpers.Js("{\"address\":100,\"width\":8,\"value\":999}")));
+			ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("freeze_add", TestHelpers.Js("{\"address\":100,\"width\":8,\"value\":999}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 			// non-writable domain (VRAM in the fake)
-			ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_freeze_add", TestHelpers.Js("{\"address\":0,\"width\":8,\"domain\":\"VRAM\"}")));
+			ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("freeze_add", TestHelpers.Js("{\"address\":0,\"width\":8,\"domain\":\"VRAM\"}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 			Assert.Contains("not writable", ex.Message);
 		}
@@ -2310,15 +2310,15 @@ namespace BizHawkMcp.Tests
 		public void Freeze_remove_by_note_and_by_range()
 		{
 			_apis.EnableCheats();
-			_ts.Call("bizhawk_freeze_add", TestHelpers.Js("{\"address\":100,\"note\":\"lives\"}"));
-			_ts.Call("bizhawk_freeze_add", TestHelpers.Js("{\"address\":200,\"note\":\"timer\"}"));
-			_ts.Call("bizhawk_freeze_add", TestHelpers.Js("{\"address\":300,\"length\":4}"));
+			_ts.Call("freeze_add", TestHelpers.Js("{\"address\":100,\"note\":\"lives\"}"));
+			_ts.Call("freeze_add", TestHelpers.Js("{\"address\":200,\"note\":\"timer\"}"));
+			_ts.Call("freeze_add", TestHelpers.Js("{\"address\":300,\"length\":4}"));
 
-			var byNote = Parse(_ts.Call("bizhawk_freeze_remove", TestHelpers.Js("{\"note\":\"lives\"}")));
+			var byNote = Parse(_ts.Call("freeze_remove", TestHelpers.Js("{\"note\":\"lives\"}")));
 			Assert.Equal(1, byNote.GetProperty("removed").GetInt32());
 			Assert.Equal(5, _apis.Cheats!.Count);
 
-			var byRange = Parse(_ts.Call("bizhawk_freeze_remove", TestHelpers.Js("{\"address\":301,\"length\":2,\"domain\":\"68K RAM\"}")));
+			var byRange = Parse(_ts.Call("freeze_remove", TestHelpers.Js("{\"address\":301,\"length\":2,\"domain\":\"68K RAM\"}")));
 			Assert.Equal(2, byRange.GetProperty("removed").GetInt32());
 			Assert.Equal(3, _apis.Cheats!.Count);
 			Assert.Equal(200L, _apis.Cheats!.First().Address); // timer survived
@@ -2328,10 +2328,10 @@ namespace BizHawkMcp.Tests
 		public void Freeze_list_and_clear()
 		{
 			_apis.EnableCheats();
-			_ts.Call("bizhawk_freeze_add", TestHelpers.Js("{\"address\":100,\"width\":16,\"value\":513,\"note\":\"hp\"}"));
-			_ts.Call("bizhawk_freeze_add", TestHelpers.Js("{\"address\":200,\"value\":7}"));
+			_ts.Call("freeze_add", TestHelpers.Js("{\"address\":100,\"width\":16,\"value\":513,\"note\":\"hp\"}"));
+			_ts.Call("freeze_add", TestHelpers.Js("{\"address\":200,\"value\":7}"));
 
-			var list = Parse(_ts.Call("bizhawk_freeze_list", null));
+			var list = Parse(_ts.Call("freeze_list", null));
 			Assert.Equal(2, list.GetProperty("count").GetInt32());
 			var first = list.GetProperty("freezes")[0];
 			Assert.Equal("hp", first.GetProperty("name").GetString());
@@ -2339,7 +2339,7 @@ namespace BizHawkMcp.Tests
 			Assert.Equal("big", first.GetProperty("endianness").GetString());
 			Assert.True(first.GetProperty("enabled").GetBoolean());
 
-			var clear = Parse(_ts.Call("bizhawk_freeze_clear", null));
+			var clear = Parse(_ts.Call("freeze_clear", null));
 			Assert.Equal(2, clear.GetProperty("cleared").GetInt32());
 			Assert.Empty(_apis.Cheats!);
 		}
@@ -2350,7 +2350,7 @@ namespace BizHawkMcp.Tests
 			// domain resolvable, but no cheat list wired → like a host where
 			// MainForm.CheatList is unreachable
 			_apis.MemoryApi.DomainList = new FakeMemoryApi.FakeDomainList(_apis.MemoryApi.Bytes);
-			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_freeze_add", TestHelpers.Js("{\"address\":100}")));
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("freeze_add", TestHelpers.Js("{\"address\":100}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 			Assert.Contains("cheat list", ex.Message);
 		}
@@ -2359,7 +2359,7 @@ namespace BizHawkMcp.Tests
 		public void Write_memory_with_freeze_registers_cheat()
 		{
 			_apis.EnableCheats();
-			var res = Parse(_ts.Call("bizhawk_write_memory", TestHelpers.Js("{\"address\":100,\"width\":16,\"value\":513,\"freeze\":true,\"domain\":\"68K RAM\"}")));
+			var res = Parse(_ts.Call("write_memory", TestHelpers.Js("{\"address\":100,\"width\":16,\"value\":513,\"freeze\":true,\"domain\":\"68K RAM\"}")));
 			Assert.True(res.GetProperty("frozen").GetBoolean());
 			Assert.Equal((byte)0x02, _apis.MemoryApi.Bytes[100]); // big-endian write
 			var cheat = _apis.Cheats!.Single();
@@ -2374,7 +2374,7 @@ namespace BizHawkMcp.Tests
 			// cheat list unreachable: the call must error BEFORE the write
 			// happens (2026-08-03 QA finding: write-then-error inconsistency)
 			_apis.MemoryApi.DomainList = new FakeMemoryApi.FakeDomainList(_apis.MemoryApi.Bytes);
-			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_write_memory", TestHelpers.Js("{\"address\":100,\"width\":8,\"value\":7,\"freeze\":true,\"domain\":\"68K RAM\"}")));
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("write_memory", TestHelpers.Js("{\"address\":100,\"width\":8,\"value\":7,\"freeze\":true,\"domain\":\"68K RAM\"}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 			Assert.False(_apis.MemoryApi.Bytes.ContainsKey(100));
 		}
@@ -2383,7 +2383,7 @@ namespace BizHawkMcp.Tests
 		public void Write_many_freezes_only_marked_items()
 		{
 			_apis.EnableCheats();
-			_ts.Call("bizhawk_write_many", TestHelpers.Js("{\"items\":[{\"address\":100,\"width\":8,\"value\":1,\"freeze\":true},{\"address\":200,\"width\":8,\"value\":2}]}"));
+			_ts.Call("write_many", TestHelpers.Js("{\"items\":[{\"address\":100,\"width\":8,\"value\":1,\"freeze\":true},{\"address\":200,\"width\":8,\"value\":2}]}"));
 			Assert.Single(_apis.Cheats!);
 			Assert.Equal(100L, _apis.Cheats!.Single().Address);
 		}
@@ -2392,7 +2392,7 @@ namespace BizHawkMcp.Tests
 		public void Write_range_with_freeze_registers_whole_range()
 		{
 			_apis.EnableCheats();
-			_ts.Call("bizhawk_write_range", TestHelpers.Js("{\"address\":100,\"values\":[1,2,3],\"freeze\":true,\"domain\":\"68K RAM\"}"));
+			_ts.Call("write_range", TestHelpers.Js("{\"address\":100,\"values\":[1,2,3],\"freeze\":true,\"domain\":\"68K RAM\"}"));
 			Assert.Equal(3, _apis.Cheats!.Count);
 			Assert.Equal(101L, _apis.Cheats!.ElementAt(1).Address);
 			Assert.Equal(2, _apis.Cheats!.ElementAt(1).Value);
@@ -2402,7 +2402,7 @@ namespace BizHawkMcp.Tests
 		public void Lua_exec_returns_results()
 		{
 			var lua = _apis.EnableLua();
-			var res = Parse(_ts.Call("bizhawk_lua_exec", TestHelpers.Js("{\"code\":\"memory.read_u8(0xFF2506)\"}")));
+			var res = Parse(_ts.Call("lua_exec", TestHelpers.Js("{\"code\":\"memory.read_u8(0xFF2506)\"}")));
 			Assert.True(res.GetProperty("executed").GetBoolean());
 			Assert.Equal("42", res.GetProperty("result")[0].GetString());
 			Assert.Equal("memory.read_u8(0xFF2506)", lua.Executed.Single());
@@ -2413,7 +2413,7 @@ namespace BizHawkMcp.Tests
 		{
 			var lua = _apis.EnableLua();
 			lua.ExecuteError = new Exception("attempt to call a nil value (global 'nope')");
-			var res = Parse(_ts.Call("bizhawk_lua_exec", TestHelpers.Js("{\"code\":\"nope()\"}")));
+			var res = Parse(_ts.Call("lua_exec", TestHelpers.Js("{\"code\":\"nope()\"}")));
 			Assert.False(res.GetProperty("executed").GetBoolean());
 			Assert.Contains("nil value", res.GetProperty("error").GetString());
 		}
@@ -2421,7 +2421,7 @@ namespace BizHawkMcp.Tests
 		[Fact]
 		public void Lua_unsupported_errors_clearly()
 		{
-			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_lua_exec", TestHelpers.Js("{\"code\":\"1\"}")));
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("lua_exec", TestHelpers.Js("{\"code\":\"1\"}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 			Assert.Contains("Lua", ex.Message);
 		}
@@ -2438,7 +2438,7 @@ namespace BizHawkMcp.Tests
 		{
 			var lua = _apis.EnableLua();
 			string path = _luaTempScript("load", "emu.frameadvance()\n");
-			var res = Parse(_ts.Call("bizhawk_lua_load", TestHelpers.Js($"{{\"path\":\"{path}\"}}")));
+			var res = Parse(_ts.Call("lua_load", TestHelpers.Js($"{{\"path\":\"{path}\"}}")));
 			Assert.True(res.GetProperty("enabled").GetBoolean());
 			Assert.Single(lua.ScriptList);
 			Assert.Equal(1, lua.SpawnCalls);
@@ -2450,7 +2450,7 @@ namespace BizHawkMcp.Tests
 		public void Lua_load_missing_file_errors()
 		{
 			_apis.EnableLua();
-			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_lua_load", TestHelpers.Js("{\"path\":\"C:/nope/not-there.lua\"}")));
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("lua_load", TestHelpers.Js("{\"path\":\"C:/nope/not-there.lua\"}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 			Assert.Contains("not found", ex.Message);
 		}
@@ -2460,10 +2460,10 @@ namespace BizHawkMcp.Tests
 		{
 			var lua = _apis.EnableLua();
 			string path = _luaTempScript("reload", "emu.frameadvance()\n");
-			_ts.Call("bizhawk_lua_load", TestHelpers.Js($"{{\"path\":\"{path}\"}}"));
-			_ts.Call("bizhawk_lua_disable", TestHelpers.Js($"{{\"path\":\"{path}\"}}"));
+			_ts.Call("lua_load", TestHelpers.Js($"{{\"path\":\"{path}\"}}"));
+			_ts.Call("lua_disable", TestHelpers.Js($"{{\"path\":\"{path}\"}}"));
 			Assert.False(lua.ScriptList[0].Enabled);
-			_ts.Call("bizhawk_lua_load", TestHelpers.Js($"{{\"path\":\"{path}\"}}"));
+			_ts.Call("lua_load", TestHelpers.Js($"{{\"path\":\"{path}\"}}"));
 			Assert.Equal(2, lua.SpawnCalls); // re-started, not duplicated
 			Assert.Single(lua.ScriptList);
 			System.IO.File.Delete(path);
@@ -2475,9 +2475,9 @@ namespace BizHawkMcp.Tests
 			var lua = _apis.EnableLua();
 			string p1 = _luaTempScript("u1", "emu.frameadvance()\n");
 			string p2 = _luaTempScript("u2", "emu.frameadvance()\n");
-			_ts.Call("bizhawk_lua_load", TestHelpers.Js($"{{\"path\":\"{p1}\"}}"));
-			_ts.Call("bizhawk_lua_load", TestHelpers.Js($"{{\"path\":\"{p2}\"}}"));
-			var res = Parse(_ts.Call("bizhawk_lua_unload", TestHelpers.Js($"{{\"path\":\"{p1}\"}}")));
+			_ts.Call("lua_load", TestHelpers.Js($"{{\"path\":\"{p1}\"}}"));
+			_ts.Call("lua_load", TestHelpers.Js($"{{\"path\":\"{p2}\"}}"));
+			var res = Parse(_ts.Call("lua_unload", TestHelpers.Js($"{{\"path\":\"{p1}\"}}")));
 			Assert.Equal(p1, res.GetProperty("removed").GetString());
 			Assert.Single(lua.ScriptList);
 			Assert.Equal(p2, lua.ScriptList[0].Path);
@@ -2490,10 +2490,10 @@ namespace BizHawkMcp.Tests
 		{
 			var lua = _apis.EnableLua();
 			string path = _luaTempScript("ed", "emu.frameadvance()\n");
-			_ts.Call("bizhawk_lua_load", TestHelpers.Js($"{{\"path\":\"{path}\"}}"));
-			var dis = Parse(_ts.Call("bizhawk_lua_disable", TestHelpers.Js($"{{\"path\":\"{path}\"}}")));
+			_ts.Call("lua_load", TestHelpers.Js($"{{\"path\":\"{path}\"}}"));
+			var dis = Parse(_ts.Call("lua_disable", TestHelpers.Js($"{{\"path\":\"{path}\"}}")));
 			Assert.False(dis.GetProperty("enabled").GetBoolean());
-			var en = Parse(_ts.Call("bizhawk_lua_enable", TestHelpers.Js($"{{\"path\":\"{path}\"}}")));
+			var en = Parse(_ts.Call("lua_enable", TestHelpers.Js($"{{\"path\":\"{path}\"}}")));
 			Assert.True(en.GetProperty("enabled").GetBoolean());
 			Assert.Equal(2, lua.SpawnCalls);
 			System.IO.File.Delete(path);
@@ -2505,9 +2505,9 @@ namespace BizHawkMcp.Tests
 			_apis.EnableLua();
 			string p1 = _luaTempScript("l1", "emu.frameadvance()\n");
 			string p2 = _luaTempScript("l2", "emu.frameadvance()\n");
-			_ts.Call("bizhawk_lua_load", TestHelpers.Js($"{{\"path\":\"{p1}\"}}"));
-			_ts.Call("bizhawk_lua_load", TestHelpers.Js($"{{\"path\":\"{p2}\"}}"));
-			var res = Parse(_ts.Call("bizhawk_lua_list", null));
+			_ts.Call("lua_load", TestHelpers.Js($"{{\"path\":\"{p1}\"}}"));
+			_ts.Call("lua_load", TestHelpers.Js($"{{\"path\":\"{p2}\"}}"));
+			var res = Parse(_ts.Call("lua_list", null));
 			Assert.Equal(2, res.GetProperty("count").GetInt32());
 			Assert.Equal(p1, res.GetProperty("scripts")[0].GetProperty("path").GetString());
 			Assert.True(res.GetProperty("scripts")[0].GetProperty("enabled").GetBoolean());
@@ -2520,7 +2520,7 @@ namespace BizHawkMcp.Tests
 		public void Lua_docs_dumps_all_libraries_with_signatures()
 		{
 			_apis.EnableLua();
-			var res = Parse(_ts.Call("bizhawk_lua_docs", null));
+			var res = Parse(_ts.Call("lua_docs", null));
 			Assert.Equal(2, res.GetProperty("count").GetInt32());
 			Assert.Equal(2, res.GetProperty("libraries").GetArrayLength());
 			// alphabetical: gui < memory
@@ -2540,7 +2540,7 @@ namespace BizHawkMcp.Tests
 		public void Lua_docs_filters_by_library()
 		{
 			_apis.EnableLua();
-			var res = Parse(_ts.Call("bizhawk_lua_docs", TestHelpers.Js("{\"library\":\"gui\"}")));
+			var res = Parse(_ts.Call("lua_docs", TestHelpers.Js("{\"library\":\"gui\"}")));
 			Assert.Equal(1, res.GetProperty("count").GetInt32());
 			Assert.Equal("gui", res.GetProperty("libraries")[0].GetProperty("library").GetString());
 			Assert.Equal("addmessage", res.GetProperty("libraries")[0].GetProperty("functions")[0].GetProperty("name").GetString());
@@ -2550,7 +2550,7 @@ namespace BizHawkMcp.Tests
 		public void Lua_docs_unknown_library_errors()
 		{
 			_apis.EnableLua();
-			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_lua_docs", TestHelpers.Js("{\"library\":\"nope\"}")));
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("lua_docs", TestHelpers.Js("{\"library\":\"nope\"}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 			Assert.Contains("memory", ex.Message);
 		}
@@ -2597,9 +2597,9 @@ namespace BizHawkMcp.Tests
 		[Fact]
 		public void Overlay_text_draws_and_clears()
 		{
-			_ts.Call("bizhawk_overlay_text", TestHelpers.Js("{\"x\":1,\"y\":2,\"text\":\"hi\",\"fontsize\":12}"));
+			_ts.Call("overlay_text", TestHelpers.Js("{\"x\":1,\"y\":2,\"text\":\"hi\",\"fontsize\":12}"));
 			Assert.Equal((1, 2, "hi", (int?)12), _apis.GuiApi.LastDraw);
-			_ts.Call("bizhawk_clear_overlay", null);
+			_ts.Call("clear_overlay", null);
 			// clears the Client graphics surface, the text layer, and the list
 			Assert.Equal(3, _apis.GuiApi.ClearTextCalls);
 		}
@@ -2609,9 +2609,9 @@ namespace BizHawkMcp.Tests
 		{
 			// drawing a new shape must NOT wipe the previous ones: the toolset
 			// keeps a list and re-renders everything on every mutation
-			_ts.Call("bizhawk_overlay_rect", TestHelpers.Js("{\"x\":1,\"y\":2,\"width\":10,\"height\":20}"));
+			_ts.Call("overlay_rect", TestHelpers.Js("{\"x\":1,\"y\":2,\"width\":10,\"height\":20}"));
 			Assert.Equal(1, _apis.GuiApi.DrawCount); // one rect
-			_ts.Call("bizhawk_overlay_line", TestHelpers.Js("{\"x1\":0,\"y1\":0,\"x2\":5,\"y2\":5}"));
+			_ts.Call("overlay_line", TestHelpers.Js("{\"x1\":0,\"y1\":0,\"x2\":5,\"y2\":5}"));
 			// re-rendered the rect again + the new line (2 draws this mutation)
 			Assert.Equal((1, 2, 10, 20), _apis.GuiApi.LastRect);
 			Assert.Equal((0, 0, 5, 5), _apis.GuiApi.LastLine);
@@ -2621,7 +2621,7 @@ namespace BizHawkMcp.Tests
 		[Fact]
 		public void Overlay_rects_list_in_one_call()
 		{
-			_ts.Call("bizhawk_overlay_rect", TestHelpers.Js("{\"rects\":[{\"x\":1,\"y\":2,\"width\":3,\"height\":4},{\"x\":5,\"y\":6,\"width\":7,\"height\":8}]}"));
+			_ts.Call("overlay_rect", TestHelpers.Js("{\"rects\":[{\"x\":1,\"y\":2,\"width\":3,\"height\":4},{\"x\":5,\"y\":6,\"width\":7,\"height\":8}]}"));
 			Assert.Equal((5, 6, 7, 8), _apis.GuiApi.LastRect);
 		}
 
@@ -2630,23 +2630,23 @@ namespace BizHawkMcp.Tests
 		{
 			// regression: DrawRectangle/DrawLine without a surface used to throw
 			// (Get2DRenderer(null) threw); WithSurface(Client, ...) fixes it
-			_ts.Call("bizhawk_overlay_rect", TestHelpers.Js("{\"x\":1,\"y\":2,\"width\":10,\"height\":20,\"color\":\"#FF0000\"}"));
+			_ts.Call("overlay_rect", TestHelpers.Js("{\"x\":1,\"y\":2,\"width\":10,\"height\":20,\"color\":\"#FF0000\"}"));
 			Assert.Equal((1, 2, 10, 20), _apis.GuiApi.LastRect);
-			_ts.Call("bizhawk_overlay_line", TestHelpers.Js("{\"x1\":0,\"y1\":0,\"x2\":5,\"y2\":5}"));
+			_ts.Call("overlay_line", TestHelpers.Js("{\"x1\":0,\"y1\":0,\"x2\":5,\"y2\":5}"));
 			Assert.Equal((0, 0, 5, 5), _apis.GuiApi.LastLine);
 		}
 
 		[Fact]
 		public void Osd_message_forwards()
 		{
-			_ts.Call("bizhawk_osd_message", TestHelpers.Js("{\"message\":\"hello\",\"duration\":500}"));
+			_ts.Call("osd_message", TestHelpers.Js("{\"message\":\"hello\",\"duration\":500}"));
 			Assert.Contains("hello", _apis.GuiApi.Messages);
 		}
 
 		[Fact]
 		public void Movie_info_returns_json()
 		{
-			var res = Parse(_ts.Call("bizhawk_movie_info", null));
+			var res = Parse(_ts.Call("movie_info", null));
 			Assert.True(res.GetProperty("loaded").GetBoolean());
 			Assert.Equal("test.bk2", res.GetProperty("filename").GetString());
 			Assert.Equal((ulong)42, res.GetProperty("rerecords").GetUInt64());
@@ -2656,7 +2656,7 @@ namespace BizHawkMcp.Tests
 		public void Movie_info_without_movie_returns_empty_not_crash()
 		{
 			_apis.MovieApi.Loaded = false;
-			var res = Parse(_ts.Call("bizhawk_movie_info", null));
+			var res = Parse(_ts.Call("movie_info", null));
 			Assert.False(res.GetProperty("loaded").GetBoolean());
 			Assert.Equal(JsonValueKind.Null, res.GetProperty("filename").ValueKind);
 			Assert.Equal(0, res.GetProperty("length").GetInt32());
@@ -2666,21 +2666,21 @@ namespace BizHawkMcp.Tests
 		public void Movie_input_without_movie_errors_cleanly()
 		{
 			_apis.MovieApi.Loaded = false;
-			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("bizhawk_movie_input", TestHelpers.Js("{\"frame\":0}")));
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("movie_input", TestHelpers.Js("{\"frame\":0}")));
 			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
 		}
 
 		[Fact]
 		public void Movie_input_returns_mnemonic()
 		{
-			var res = _ts.Call("bizhawk_movie_input", TestHelpers.Js("{\"frame\":0}"));
+			var res = _ts.Call("movie_input", TestHelpers.Js("{\"frame\":0}"));
 			Assert.Equal("|..|..|", res);
 		}
 
 		[Fact]
 		public void Movie_start_without_path_starts_recording()
 		{
-			var res = _ts.Call("bizhawk_movie_start", null);
+			var res = _ts.Call("movie_start", null);
 			Assert.Contains("recording", res);
 			Assert.Equal("", _apis.MovieApi.PlayedPath);
 		}
@@ -2688,7 +2688,7 @@ namespace BizHawkMcp.Tests
 		[Fact]
 		public void Movie_start_with_path_loads_and_plays()
 		{
-			var res = _ts.Call("bizhawk_movie_start", TestHelpers.Js("{\"path\":\"C:/movies/run.bk2\"}"));
+			var res = _ts.Call("movie_start", TestHelpers.Js("{\"path\":\"C:/movies/run.bk2\"}"));
 			Assert.Contains("playing", res);
 			Assert.Equal("/mnt/c/movies/run.bk2", _apis.MovieApi.PlayedPath);
 		}
@@ -2697,16 +2697,16 @@ namespace BizHawkMcp.Tests
 		public void Movie_start_failure_reports()
 		{
 			_apis.MovieApi.PlayResult = false;
-			var res = _ts.Call("bizhawk_movie_start", TestHelpers.Js("{\"path\":\"C:/movies/nope.bk2\"}"));
+			var res = _ts.Call("movie_start", TestHelpers.Js("{\"path\":\"C:/movies/nope.bk2\"}"));
 			Assert.Contains("failed", res);
 		}
 
 		[Fact]
 		public void Movie_save_and_stop_forward()
 		{
-			_ts.Call("bizhawk_movie_save", TestHelpers.Js("{\"path\":\"C:/movies/out.bk2\"}"));
+			_ts.Call("movie_save", TestHelpers.Js("{\"path\":\"C:/movies/out.bk2\"}"));
 			Assert.Equal("/mnt/c/movies/out.bk2", _apis.MovieApi.SavedPath);
-			var res = _ts.Call("bizhawk_movie_stop", null);
+			var res = _ts.Call("movie_stop", null);
 			Assert.Contains("stopped", res);
 			Assert.True(_apis.MovieApi.Stopped);
 		}
@@ -2714,7 +2714,7 @@ namespace BizHawkMcp.Tests
 		[Fact]
 		public void Host_input_returns_pressed_and_mouse()
 		{
-			var res = Parse(_ts.Call("bizhawk_host_input", null));
+			var res = Parse(_ts.Call("host_input", null));
 			Assert.Equal("Shift+A", res.GetProperty("pressed")[0].GetString());
 			Assert.Equal(10, res.GetProperty("mouse").GetProperty("X").GetInt32());
 		}
@@ -2722,18 +2722,175 @@ namespace BizHawkMcp.Tests
 		[Fact]
 		public void Userdata_set_get_clear()
 		{
-			_ts.Call("bizhawk_userdata_set", TestHelpers.Js("{\"key\":\"k\",\"value\":\"v\"}"));
-			var res = Parse(_ts.Call("bizhawk_userdata_get", TestHelpers.Js("{\"key\":\"k\"}")));
+			_ts.Call("userdata_set", TestHelpers.Js("{\"key\":\"k\",\"value\":\"v\"}"));
+			var res = Parse(_ts.Call("userdata_get", TestHelpers.Js("{\"key\":\"k\"}")));
 			Assert.Equal("v", res.GetProperty("value").GetString());
-			_ts.Call("bizhawk_userdata_clear", null);
+			_ts.Call("userdata_clear", null);
 			Assert.Empty(_apis.UserDataApi.Data);
 		}
 
 		[Fact]
 		public void Shutdown_stops_server()
 		{
-			_ts.Call("bizhawk_shutdown", null);
+			_ts.Call("shutdown", null);
 			Assert.Equal(1, _apis.StopServerCalls);
+		}
+	}
+
+	// ── code/data logger (ICodeDataLogger service) ────────────────────────────
+	public class CodeDataLoggerTests
+	{
+		private readonly FakeApis _apis = new();
+		private readonly McpToolset _ts;
+
+		public CodeDataLoggerTests() => _ts = _apis.Toolset();
+
+		private static JsonElement Parse(string json) => JsonDocument.Parse(json).RootElement;
+
+		[Fact]
+		public void Cdl_start_installs_log_and_lists_blocks()
+		{
+			var cdl = _apis.EnableCdl();
+			var res = Parse(_ts.Call("cdl_start", null));
+			Assert.True(res.GetProperty("active").GetBoolean());
+			var blocks = res.GetProperty("blocks");
+			Assert.Equal(3, blocks.GetArrayLength());
+			Assert.Equal("MD CART", blocks[0].GetProperty("name").GetString());
+			Assert.Equal(1024 * 1024, blocks[0].GetProperty("size").GetInt32());
+			Assert.Equal("68K RAM", blocks[1].GetProperty("name").GetString());
+			Assert.Equal(65536, blocks[1].GetProperty("size").GetInt32());
+			Assert.Equal("Z80 RAM", blocks[2].GetProperty("name").GetString());
+			Assert.NotNull(cdl.Installed);
+		}
+
+		[Fact]
+		public void Cdl_get_reports_ranges_counts_flags_and_coverage()
+		{
+			var cdl = _apis.EnableCdl();
+			_ts.Call("cdl_start", null);
+			cdl.Exec("68K RAM", 0x100, 0x01);
+			cdl.Exec("68K RAM", 0x101, 0x01);
+			cdl.Exec("68K RAM", 0x102, 0x05); // Exec68k | Data68k
+			cdl.Exec("68K RAM", 0x200, 0x01);
+			cdl.Exec("68K RAM", 0x300, 0x04); // data only
+
+			var res = Parse(_ts.Call("cdl_get", null));
+			Assert.True(res.GetProperty("active").GetBoolean());
+			var ram = res.GetProperty("blocks")[1];
+			Assert.Equal("68K RAM", ram.GetProperty("name").GetString());
+			Assert.Equal(4, ram.GetProperty("exec_bytes").GetInt32()); // 0x100..0x102 + 0x200
+			Assert.Equal(5, ram.GetProperty("touched_bytes").GetInt32());
+			Assert.Equal(0.01, ram.GetProperty("exec_pct").GetDouble()); // 4/65536
+
+			var ranges = ram.GetProperty("ranges");
+			Assert.Equal(2, ranges.GetArrayLength());
+			Assert.Equal(0x100, ranges[0].GetProperty("start").GetInt32());
+			Assert.Equal(0x103, ranges[0].GetProperty("end").GetInt32());
+			Assert.Equal(0x200, ranges[1].GetProperty("start").GetInt32());
+			Assert.Equal(0x201, ranges[1].GetProperty("end").GetInt32());
+
+			var fc = ram.GetProperty("flag_counts");
+			Assert.Equal(4, fc.GetProperty("Exec68k").GetInt32());
+			Assert.Equal(2, fc.GetProperty("Data68k").GetInt32()); // 0x102 (Exec|Data) + 0x300 (data only)
+			Assert.Equal(0, fc.GetProperty("DMASource").GetInt32());
+		}
+
+		[Fact]
+		public void Cdl_get_mask_any_counts_data_only_bytes_and_block_filter_works()
+		{
+			var cdl = _apis.EnableCdl();
+			_ts.Call("cdl_start", null);
+			cdl.Exec("68K RAM", 0x300, 0x04); // data only
+
+			// default mask "exec" ignores the data-only byte
+			var exec = Parse(_ts.Call("cdl_get", null));
+			var ramExec = exec.GetProperty("blocks")[1];
+			Assert.Equal(0, ramExec.GetProperty("exec_bytes").GetInt32());
+			Assert.Equal(1, ramExec.GetProperty("touched_bytes").GetInt32());
+			Assert.Equal(0, ramExec.GetProperty("ranges").GetArrayLength());
+
+			// "any" mask includes it
+			var any = Parse(_ts.Call("cdl_get", TestHelpers.Js("{\"mask\":\"any\"}")));
+			var ramAny = any.GetProperty("blocks")[1];
+			Assert.Equal(1, ramAny.GetProperty("exec_bytes").GetInt32());
+			Assert.Equal(1, ramAny.GetProperty("ranges").GetArrayLength());
+			Assert.Equal(0x300, ramAny.GetProperty("ranges")[0].GetProperty("start").GetInt32());
+			Assert.Equal(0x301, ramAny.GetProperty("ranges")[0].GetProperty("end").GetInt32());
+
+			// block filter
+			var filtered = Parse(_ts.Call("cdl_get", TestHelpers.Js("{\"block\":\"MD CART\"}")));
+			Assert.Equal(1, filtered.GetProperty("blocks").GetArrayLength());
+			Assert.Equal("MD CART", filtered.GetProperty("blocks")[0].GetProperty("name").GetString());
+
+			// unknown block → clear error
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("cdl_get", TestHelpers.Js("{\"block\":\"nope\"}")));
+			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
+		}
+
+		[Fact]
+		public void Cdl_stop_uninstalls_but_keeps_data()
+		{
+			var cdl = _apis.EnableCdl();
+			_ts.Call("cdl_start", null);
+			cdl.Exec("68K RAM", 0x100, 0x01);
+
+			var stop = Parse(_ts.Call("cdl_stop", null));
+			Assert.False(stop.GetProperty("active").GetBoolean());
+			Assert.Null(cdl.Installed);
+
+			// data retained after stop
+			var res = Parse(_ts.Call("cdl_get", null));
+			Assert.False(res.GetProperty("active").GetBoolean());
+			Assert.Equal(1, res.GetProperty("blocks")[1].GetProperty("exec_bytes").GetInt32());
+		}
+
+		[Fact]
+		public void Cdl_get_and_export_before_start_error()
+		{
+			_apis.EnableCdl();
+			Assert.Throws<JsonRpc.Error>(() => _ts.Call("cdl_get", null));
+			Assert.Throws<JsonRpc.Error>(() => _ts.Call("cdl_stop", null));
+			Assert.Throws<JsonRpc.Error>(() => _ts.Call("cdl_export", null));
+		}
+
+		[Fact]
+		public void Cdl_export_writes_cdl_file_and_registers_artifact()
+		{
+			_apis.EnableCdl();
+			_ts.Call("cdl_start", null);
+			string tmp = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"cdl-test-{Guid.NewGuid():N}.cdl");
+			var res = Parse(_ts.Call("cdl_export", TestHelpers.Js("{\"path\":\"" + tmp + "\"}")));
+			Assert.Equal("cdl", res.GetProperty("format").GetString());
+			Assert.StartsWith("bizhawk://", res.GetProperty("resource").GetString());
+			Assert.True(System.IO.File.Exists(tmp));
+			var bytes = System.IO.File.ReadAllBytes(tmp);
+			Assert.True(bytes.Length > 13);
+			// BinaryWriter writes a 7-bit length prefix before the string
+			Assert.Equal(13, bytes[0]);
+			Assert.Equal("BIZHAWK-CDL-2", System.Text.Encoding.ASCII.GetString(bytes, 1, 13));
+			System.IO.File.Delete(tmp);
+		}
+
+		[Fact]
+		public void Cdl_export_text_format_lists_blocks()
+		{
+			_apis.EnableCdl();
+			_ts.Call("cdl_start", null);
+			var res = Parse(_ts.Call("cdl_export", TestHelpers.Js("{\"format\":\"text\"}")));
+			string path = res.GetProperty("path").GetString()!;
+			var text = System.IO.File.ReadAllText(path);
+			Assert.Contains("BLOCK 68K RAM", text);
+			Assert.Contains("BLOCK MD CART", text);
+			System.IO.File.Delete(path);
+		}
+
+		[Fact]
+		public void Cdl_unsupported_core_errors_clearly()
+		{
+			// no Emulator wired → same shape as watchpoints on unsupported cores
+			var ex = Assert.Throws<JsonRpc.Error>(() => _ts.Call("cdl_start", null));
+			Assert.Equal(JsonRpc.Error.INVALID_PARAMS, ex.Code);
+			Assert.Contains("IEmulator", ex.Message);
 		}
 	}
 }
