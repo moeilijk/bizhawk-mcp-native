@@ -114,7 +114,7 @@ Symbols persist across restarts, scoped per ROM hash + namespace — paste Ghidr
 
 | Tool | Params | Returns |
 |---|---|---|
-| `frame_advance` | `count` (1–600) | confirmation |
+| `frame_advance` | `count` (1–600), `buttons?` (held on each frame), `controller?`, or `steps` (`[{buttons?, frames}]`, 600 frames at most) | confirmation |
 | `pause` / `unpause` / `toggle_pause` | — | new paused state |
 | `speed_mode` | `percent` | confirmation |
 | `frameskip` | `count` | confirmation |
@@ -127,7 +127,7 @@ Symbols persist across restarts, scoped per ROM hash + namespace — paste Ghidr
 
 | Tool | Params | Returns |
 |---|---|---|
-| `press_buttons` | `buttons` (map), `controller?` | confirmation (for the NEXT frame) |
+| `press_buttons` | `buttons` (map; console buttons such as `Reset` as they are), `controller?` | confirmation (for the NEXT frame) |
 | `get_joypad` | `controller?` | button map (JSON) |
 | `host_input` | — | host keyboard/mouse (JSON) |
 
