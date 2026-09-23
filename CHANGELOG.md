@@ -9,6 +9,21 @@ and uses it as the GitHub release notes; if no section exists it falls back to
 auto-generated notes. A versioned section is only created when a release is cut
 on explicit request — otherwise changes accumulate under `## [Unreleased]`.
 
+## [v0.3.0-aas.1] - 2026-09-23
+
+A release of the fork [moeilijk/bizhawk-mcp-native](https://github.com/moeilijk/bizhawk-mcp-native) for
+[ai-assisted-speedruns](https://github.com/moeilijk/ai-assisted-speedruns): StealthC's v0.3.0 with the two changes
+offered upstream as [#1](https://github.com/StealthC/bizhawk-mcp-native/pull/1) and
+[#2](https://github.com/StealthC/bizhawk-mcp-native/pull/2).
+
+### Fixed
+- **`press_buttons` can press console buttons.** Every name got the `P<controller> ` prefix, so `Reset` and `Power`
+  (and a full name such as `P1 A`) could not be pressed. A name the core lists as it is now goes to the joypad API
+  without a controller; every other name keeps the prefix.
+
+### Added
+- **`frame_advance` holds buttons.** Optional `buttons` (and `controller`) are set before each of the N frames.
+
 ## [v0.3.0] - 2026-08-03
 
 ### Added

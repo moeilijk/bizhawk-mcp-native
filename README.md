@@ -1,5 +1,9 @@
 # BizHawk MCP
 
+> This is a fork of [StealthC/bizhawk-mcp-native](https://github.com/StealthC/bizhawk-mcp-native) (MIT) for
+> [ai-assisted-speedruns](https://github.com/moeilijk/ai-assisted-speedruns). Its releases are StealthC's with the
+> changes listed in the [changelog](CHANGELOG.md), each also offered upstream. Everything else is StealthC's work.
+
 A native [MCP](https://modelcontextprotocol.io) server for [BizHawk](https://github.com/TASEmulators/BizHawk)/EmuHawk, implemented as a **C# External Tool** that lives **inside the EmuHawk process**. It exposes the emulator to LLM agents (opencode, Claude Desktop, any MCP client) over a **Streamable HTTP** endpoint: read/write memory, drive the joypad, step frames, set breakpoints, take screenshots, manage savestates — the full ApiHawk surface plus deeper emulator internals (watchpoints, cheat engine, VDP state).
 
 Warning: This is **mostly** built with LLM agents (vibe coding — see [A note on how this is built](#a-note-on-how-this-is-built)). It is intended for **research and experimentation** with LLMs controlling emulators.
