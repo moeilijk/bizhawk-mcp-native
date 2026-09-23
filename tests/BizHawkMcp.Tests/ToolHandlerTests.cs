@@ -2177,6 +2177,25 @@ namespace BizHawkMcp.Tests
 		}
 
 		[Fact]
+		public void Frame_advance_plays_steps_in_one_call()
+		{
+			_apis.JoypadApi.Current = NesButtons;
+			_ts.Call("frame_advance", TestHelpers.Js("{\"steps\":[{\"buttons\":{\"Reset\":true},\"frames\":1},{\"frames\":2},{\"buttons\":{\"Right\":true},\"frames\":2}]}"));
+			// Reset once (no prefix), nothing for two frames, Right on the last two.
+			Assert.Equal(3, _apis.JoypadApi.Calls.Count);
+			Assert.Null(_apis.JoypadApi.Calls[0].controller);
+			Assert.True(_apis.JoypadApi.Calls[0].buttons["Reset"]);
+			Assert.True(_apis.JoypadApi.Calls[1].buttons["Right"]);
+			Assert.True(_apis.JoypadApi.Calls[2].buttons["Right"]);
+		}
+
+		[Fact]
+		public void Frame_advance_steps_are_capped_at_600_frames()
+		{
+			Assert.ThrowsAny<Exception>(() => _ts.Call("frame_advance", TestHelpers.Js("{\"steps\":[{\"frames\":400},{\"frames\":201}]}")));
+		}
+
+		[Fact]
 		public void Frame_advance_without_buttons_sets_none()
 		{
 			_ts.Call("frame_advance", TestHelpers.Js("{\"count\":3}"));

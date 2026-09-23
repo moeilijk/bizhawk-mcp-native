@@ -343,6 +343,7 @@ namespace BizHawkMcp
 				Param("count", "integer", "Frames to advance, 1..600.", 1),
 				Param("buttons", "object", "Optional map of button name -> pressed bool, held on each of the N frames (same names as press_buttons)."),
 				Param("controller", "integer", "Optional controller index (1-based) for names without a prefix.", 1),
+				Param("steps", "array", "Optional list of {buttons?, frames} played in this one call, in order, instead of count/buttons: each step's buttons are held on each of its frames. At most 600 frames in total. One call keeps the emulator running between steps, so its sound is not cut up."),
 			]),
 			Tool("pause", "Pause emulation. Returns the new paused state.", []),
 			Tool("unpause", "Unpause emulation. Returns the new paused state.", []),
@@ -2381,6 +2382,15 @@ namespace BizHawkMcp
 			return $"joypad set for next frame: {string.Join("+", map.Keys)}";
 		}
 
+		private static Dictionary<string, bool>? ReadButtons(JsonElement obj)
+		{
+			if (!obj.TryGetProperty("buttons", out var buttons)) return null;
+			if (buttons.ValueKind != JsonValueKind.Object) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "buttons must be an object {button: bool}");
+			var held = new Dictionary<string, bool>();
+			foreach (var prop in buttons.EnumerateObject()) held[prop.Name] = prop.Value.GetBoolean();
+			return held;
+		}
+
 		// A name the core lists as it is (console buttons like "Reset"/"Power", or a full "P1 A") goes to the joypad
 		// without a controller, so no "P<n> " prefix is put in front of it; every other name keeps the prefix of
 		// `controller`, as before. The prefixed call comes last: Set(map, null) unsets every button it is not given,
@@ -2402,20 +2412,31 @@ namespace BizHawkMcp
 			if (count is < 1 or > 600) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "count must be 1..600");
 			// Buttons set through the joypad API last one frame (EmuHawk clears its overrides when a frame starts), so
 			// held buttons are set again before every frame.
-			Dictionary<string, bool>? held = null;
 			int? controller = a.TryGetProperty("controller", out var c) && c.ValueKind == JsonValueKind.Number ? c.GetInt32() : 1;
-			if (a.TryGetProperty("buttons", out var buttons))
+			// The input of each frame: from `steps` (a list of {buttons?, frames}), or `buttons` held for `count` frames.
+			var plan = new List<(Dictionary<string, bool>? held, int frames)>();
+			if (a.TryGetProperty("steps", out var stepsEl))
 			{
-				if (buttons.ValueKind != JsonValueKind.Object) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "buttons must be an object {button: bool}");
-				held = new Dictionary<string, bool>();
-				foreach (var prop in buttons.EnumerateObject()) held[prop.Name] = prop.Value.GetBoolean();
+				if (stepsEl.ValueKind != JsonValueKind.Array) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "steps must be an array of {buttons?, frames}");
+				foreach (var st in stepsEl.EnumerateArray())
+				{
+					if (st.ValueKind != JsonValueKind.Object || !st.TryGetProperty("frames", out var fr) || fr.ValueKind != JsonValueKind.Number || fr.GetInt32() < 1)
+						throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "each step needs frames >= 1");
+					plan.Add((ReadButtons(st), fr.GetInt32()));
+				}
+				count = plan.Sum(p => p.frames);
+				if (count is < 1 or > 600) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "steps must add up to 1..600 frames");
 			}
+			else plan.Add((ReadButtons(a), count));
 			bool wasPaused = _tool.EmuClient!.IsPaused();
 			if (wasPaused) _tool.EmuClient!.Unpause();
-			for (var i = 0; i < count; i++)
+			foreach (var (held, frames) in plan)
 			{
-				if (held != null) ApplyButtons(held, controller);
-				AdvanceFrame();
+				for (var i = 0; i < frames; i++)
+				{
+					if (held != null) ApplyButtons(held, controller);
+					AdvanceFrame();
+				}
 			}
 			if (wasPaused) _tool.EmuClient!.Pause();
 			return wasPaused ? $"advanced {count} frame(s) (was paused; pause restored)" : $"advanced {count} frame(s)";
