@@ -150,6 +150,12 @@ on explicit request — otherwise changes accumulate under `## [Unreleased]`.
 ## [Unreleased]
 
 ### Added
+- **`frame_advance` holds buttons.** Optional `buttons` (and `controller`,
+  same names as `press_buttons`) are set before each of the N frames. EmuHawk
+  clears the joypad API's overrides when a frame starts, so holding a button
+  for N frames took N `press_buttons` + `frame_advance` round trips: 600
+  frames of a movie replay took 27.5 s that way and 11.8 s with held buttons
+  (BizHawk 2.11.1, same result frame for frame).
 - **Every file the server writes is now reachable three ways** — tools that
   produce host-side files (`screenshot`, `frame_hash`, `dump_memory`,
   `genesis_read_plane`, `cdl_export`, `start_fixture`) return `path`

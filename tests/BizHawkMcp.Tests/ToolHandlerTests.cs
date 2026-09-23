@@ -2266,6 +2266,22 @@ namespace BizHawkMcp.Tests
 		}
 
 		[Fact]
+		public void Frame_advance_holds_buttons_on_every_frame()
+		{
+			_apis.JoypadApi.Current = NesButtons;
+			_ts.Call("frame_advance", TestHelpers.Js("{\"count\":3,\"buttons\":{\"Right\":true}}"));
+			Assert.Equal(3, _apis.JoypadApi.Calls.Count);
+			Assert.All(_apis.JoypadApi.Calls, call => { Assert.True(call.buttons["Right"]); Assert.Equal(1, call.controller); });
+		}
+
+		[Fact]
+		public void Frame_advance_without_buttons_sets_none()
+		{
+			_ts.Call("frame_advance", TestHelpers.Js("{\"count\":3}"));
+			Assert.Empty(_apis.JoypadApi.Calls);
+		}
+
+		[Fact]
 		public void Save_load_state_forward()
 		{
 			_ts.Call("save_state", TestHelpers.Js("{\"path\":\"C:/x.State\"}"));

@@ -110,7 +110,7 @@ Symbols persist across restarts, scoped per ROM hash + namespace — paste Ghidr
 
 | Tool | Params | Returns |
 |---|---|---|
-| `frame_advance` | `count` (1–600) | confirmation |
+| `frame_advance` | `count` (1–600), `buttons?` (held on each frame), `controller?` | confirmation |
 | `pause` / `unpause` / `toggle_pause` | — | new paused state |
 | `speed_mode` | `percent` | confirmation |
 | `frameskip` | `count` | confirmation |

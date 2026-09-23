@@ -339,8 +339,10 @@ namespace BizHawkMcp
 				Param("buttons", "object", "Map of button name -> pressed bool, e.g. {\"A\": true, \"Right\": true} or {\"Reset\": true}."),
 				Param("controller", "integer", "Optional controller index (1-based) for names without a prefix.", 1),
 			]),
-			Tool("frame_advance", "Advance exactly N frames. If paused, temporarily unpauses and restores the pause afterwards, so frames actually run.", [
+			Tool("frame_advance", "Advance exactly N frames. If paused, temporarily unpauses and restores the pause afterwards, so frames actually run. With `buttons`, they are set before every one of the N frames (held), as press_buttons sets them for one.", [
 				Param("count", "integer", "Frames to advance, 1..600.", 1),
+				Param("buttons", "object", "Optional map of button name -> pressed bool, held on each of the N frames (same names as press_buttons)."),
+				Param("controller", "integer", "Optional controller index (1-based) for names without a prefix.", 1),
 			]),
 			Tool("pause", "Pause emulation. Returns the new paused state.", []),
 			Tool("unpause", "Unpause emulation. Returns the new paused state.", []),
@@ -2428,10 +2430,21 @@ namespace BizHawkMcp
 			var a = Required(args);
 			int count = RequireInt(a, "count", 1);
 			if (count is < 1 or > 600) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "count must be 1..600");
+			// Buttons set through the joypad API last one frame (EmuHawk clears its overrides when a frame starts), so
+			// held buttons are set again before every frame.
+			Dictionary<string, bool>? held = null;
+			int? controller = a.TryGetProperty("controller", out var c) && c.ValueKind == JsonValueKind.Number ? c.GetInt32() : 1;
+			if (a.TryGetProperty("buttons", out var buttons))
+			{
+				if (buttons.ValueKind != JsonValueKind.Object) throw new JsonRpc.Error(JsonRpc.Error.INVALID_PARAMS, "buttons must be an object {button: bool}");
+				held = new Dictionary<string, bool>();
+				foreach (var prop in buttons.EnumerateObject()) held[prop.Name] = prop.Value.GetBoolean();
+			}
 			bool wasPaused = _tool.EmuClient!.IsPaused();
 			if (wasPaused) _tool.EmuClient!.Unpause();
 			for (var i = 0; i < count; i++)
 			{
+				if (held != null) ApplyButtons(held, controller);
 				AdvanceFrame();
 			}
 			if (wasPaused) _tool.EmuClient!.Pause();
