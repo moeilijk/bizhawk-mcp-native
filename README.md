@@ -123,7 +123,7 @@ Symbols persist across restarts, scoped per ROM hash + namespace — paste Ghidr
 
 | Tool | Params | Returns |
 |---|---|---|
-| `press_buttons` | `buttons` (map), `controller?` | confirmation (for the NEXT frame) |
+| `press_buttons` | `buttons` (map; console buttons such as `Reset` as they are), `controller?` | confirmation (for the NEXT frame) |
 | `get_joypad` | `controller?` | button map (JSON) |
 | `host_input` | — | host keyboard/mouse (JSON) |
 

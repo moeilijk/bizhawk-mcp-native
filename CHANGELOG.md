@@ -172,6 +172,13 @@ on explicit request — otherwise changes accumulate under `## [Unreleased]`.
   state is reported at the end of the frame.
 
 ### Fixed
+- **`press_buttons` can press console buttons.** Every name got the
+  `P<controller> ` prefix, so `Reset` and `Power` (and a full name such as
+  `P1 A`) could not be pressed. A name the core lists as it is now goes to the
+  joypad API without a controller; every other name keeps the prefix. Found
+  replaying a TASVideos movie that presses Reset on frame 0 (Super Mario Bros.,
+  NesHawk, BizHawk 2.11.1): without that Reset the replay desynced within 240
+  frames.
 - CI: `upload-artifact`/`download-artifact` bumped to v6 (Node 24) —
   removes the Node 20 deprecation warnings on every build/release job.
 
