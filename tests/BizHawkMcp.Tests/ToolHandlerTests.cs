@@ -2137,12 +2137,50 @@ namespace BizHawkMcp.Tests
 			Assert.True(res.GetProperty("buttons").GetProperty("A").GetBoolean());
 		}
 
+		// What EmuHawk's joypad API lists for an NES: pad buttons with their controller prefix, console buttons without.
+		private static readonly Dictionary<string, object> NesButtons = new()
+		{
+			["P1 A"] = false, ["P1 Right"] = false, ["P2 A"] = false, ["P2 Right"] = false, ["Reset"] = false, ["Power"] = false,
+		};
+
 		[Fact]
 		public void Press_buttons_forwards_to_joypad()
 		{
+			_apis.JoypadApi.Current = NesButtons;
 			_ts.Call("press_buttons", TestHelpers.Js("{\"buttons\":{\"A\":true,\"Right\":true},\"controller\":2}"));
 			Assert.True(_apis.JoypadApi.LastSet!["A"]);
 			Assert.Equal(2, _apis.JoypadApi.LastController);
+		}
+
+		[Fact]
+		public void Press_buttons_sets_console_and_full_names_without_a_prefix()
+		{
+			_apis.JoypadApi.Current = NesButtons;
+			_ts.Call("press_buttons", TestHelpers.Js("{\"buttons\":{\"Reset\":true,\"P1 A\":true,\"Right\":true}}"));
+			Assert.Equal(2, _apis.JoypadApi.Calls.Count);
+			// Unprefixed first (it unsets what it is not given), the controller's own buttons last.
+			Assert.Null(_apis.JoypadApi.Calls[0].controller);
+			Assert.True(_apis.JoypadApi.Calls[0].buttons["Reset"]);
+			Assert.True(_apis.JoypadApi.Calls[0].buttons["P1 A"]);
+			Assert.Equal(1, _apis.JoypadApi.Calls[1].controller);
+			Assert.True(_apis.JoypadApi.Calls[1].buttons["Right"]);
+			Assert.False(_apis.JoypadApi.Calls[1].buttons.ContainsKey("Reset"));
+		}
+
+		[Fact]
+		public void Frame_advance_holds_buttons_on_every_frame()
+		{
+			_apis.JoypadApi.Current = NesButtons;
+			_ts.Call("frame_advance", TestHelpers.Js("{\"count\":3,\"buttons\":{\"Right\":true}}"));
+			Assert.Equal(3, _apis.JoypadApi.Calls.Count);
+			Assert.All(_apis.JoypadApi.Calls, call => { Assert.True(call.buttons["Right"]); Assert.Equal(1, call.controller); });
+		}
+
+		[Fact]
+		public void Frame_advance_without_buttons_sets_none()
+		{
+			_ts.Call("frame_advance", TestHelpers.Js("{\"count\":3}"));
+			Assert.Empty(_apis.JoypadApi.Calls);
 		}
 
 		[Fact]
