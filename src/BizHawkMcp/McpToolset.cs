@@ -2401,8 +2401,11 @@ namespace BizHawkMcp
 			var direct = new Dictionary<string, bool>();
 			var pad = new Dictionary<string, bool>();
 			foreach (var kv in map) (listed.ContainsKey(kv.Key) ? direct : pad)[kv.Key] = kv.Value;
-			if (direct.Count > 0) _tool.Joypad!.Set(direct, null);
-			if (pad.Count > 0 || direct.Count == 0) _tool.Joypad!.Set(pad, controller);
+			// Set(map, null) sets every button the core lists: the ones given, and all others released. Within one
+			// frame_advance call EmuHawk does not read its controllers again between frames, so without this release a
+			// button of the previous step (Reset included) stayed pressed.
+			_tool.Joypad!.Set(direct, null);
+			if (pad.Count > 0) _tool.Joypad!.Set(pad, controller);
 		}
 
 		private string FrameAdvance(JsonElement? args)
@@ -2430,11 +2433,14 @@ namespace BizHawkMcp
 			else plan.Add((ReadButtons(a), count));
 			bool wasPaused = _tool.EmuClient!.IsPaused();
 			if (wasPaused) _tool.EmuClient!.Unpause();
+			bool isSteps = plan.Count > 1 || a.TryGetProperty("steps", out _);
 			foreach (var (held, frames) in plan)
 			{
 				for (var i = 0; i < frames; i++)
 				{
+					// In a list of steps a step without buttons releases the previous step's.
 					if (held != null) ApplyButtons(held, controller);
+					else if (isSteps) ApplyButtons(new Dictionary<string, bool>(), controller);
 					AdvanceFrame();
 				}
 			}

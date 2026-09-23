@@ -2172,8 +2172,15 @@ namespace BizHawkMcp.Tests
 		{
 			_apis.JoypadApi.Current = NesButtons;
 			_ts.Call("frame_advance", TestHelpers.Js("{\"count\":3,\"buttons\":{\"Right\":true}}"));
-			Assert.Equal(3, _apis.JoypadApi.Calls.Count);
-			Assert.All(_apis.JoypadApi.Calls, call => { Assert.True(call.buttons["Right"]); Assert.Equal(1, call.controller); });
+			// Per frame: everything released (no controller), then Right on controller 1.
+			Assert.Equal(6, _apis.JoypadApi.Calls.Count);
+			for (var i = 0; i < 6; i += 2)
+			{
+				Assert.Null(_apis.JoypadApi.Calls[i].controller);
+				Assert.Empty(_apis.JoypadApi.Calls[i].buttons);
+				Assert.True(_apis.JoypadApi.Calls[i + 1].buttons["Right"]);
+				Assert.Equal(1, _apis.JoypadApi.Calls[i + 1].controller);
+			}
 		}
 
 		[Fact]
@@ -2181,12 +2188,20 @@ namespace BizHawkMcp.Tests
 		{
 			_apis.JoypadApi.Current = NesButtons;
 			_ts.Call("frame_advance", TestHelpers.Js("{\"steps\":[{\"buttons\":{\"Reset\":true},\"frames\":1},{\"frames\":2},{\"buttons\":{\"Right\":true},\"frames\":2}]}"));
-			// Reset once (no prefix), nothing for two frames, Right on the last two.
-			Assert.Equal(3, _apis.JoypadApi.Calls.Count);
-			Assert.Null(_apis.JoypadApi.Calls[0].controller);
-			Assert.True(_apis.JoypadApi.Calls[0].buttons["Reset"]);
-			Assert.True(_apis.JoypadApi.Calls[1].buttons["Right"]);
-			Assert.True(_apis.JoypadApi.Calls[2].buttons["Right"]);
+			// Frame 1: Reset (no prefix, everything else released). Frames 2-3: everything released, Reset included.
+			// Frames 4-5: released, then Right on controller 1.
+			var calls = _apis.JoypadApi.Calls;
+			Assert.Equal(7, calls.Count);
+			Assert.Null(calls[0].controller);
+			Assert.True(calls[0].buttons["Reset"]);
+			Assert.Null(calls[1].controller);
+			Assert.Empty(calls[1].buttons);
+			Assert.Null(calls[2].controller);
+			Assert.Empty(calls[2].buttons);
+			Assert.Empty(calls[3].buttons);
+			Assert.True(calls[4].buttons["Right"]);
+			Assert.Empty(calls[5].buttons);
+			Assert.True(calls[6].buttons["Right"]);
 		}
 
 		[Fact]

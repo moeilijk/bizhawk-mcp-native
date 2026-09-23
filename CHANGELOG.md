@@ -9,6 +9,14 @@ and uses it as the GitHub release notes; if no section exists it falls back to
 auto-generated notes. A versioned section is only created when a release is cut
 on explicit request — otherwise changes accumulate under `## [Unreleased]`.
 
+## [v0.3.2] - 2026-09-23
+
+### Fixed
+- **A step without buttons in `frame_advance` `steps` released nothing.** EmuHawk does not read its controllers again
+  between the frames of one call, so the previous step's buttons (Reset included) stayed pressed: 600 frames of
+  Super Mario Bros. played as one list of steps ended at x 84 instead of 916. Every frame of a list of steps now sets
+  the whole joypad: the step's buttons pressed, all others released.
+
 ## [v0.3.1] - 2026-09-23
 
 A release of the fork [moeilijk/bizhawk-mcp-native](https://github.com/moeilijk/bizhawk-mcp-native) for

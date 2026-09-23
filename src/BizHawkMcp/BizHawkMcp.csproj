@@ -22,7 +22,7 @@
     <RootNamespace>BizHawkMcp</RootNamespace>
     <!-- single source of truth for the version advertised in initialize /
          server/discover serverInfo (JsonRpc.ServerVersion reads it) -->
-    <Version>0.3.1</Version>
+    <Version>0.3.2</Version>
     <OutputType>Library</OutputType>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
