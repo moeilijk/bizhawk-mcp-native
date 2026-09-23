@@ -9,21 +9,13 @@ and uses it as the GitHub release notes; if no section exists it falls back to
 auto-generated notes. A versioned section is only created when a release is cut
 on explicit request — otherwise changes accumulate under `## [Unreleased]`.
 
-## [v0.3.0-aas.2] - 2026-09-23
-
-### Added
-- **`frame_advance` plays a list of steps in one call** (`steps`: `[{buttons?, frames}]`, at most 600 frames). Each
-  call leaves the emulator paused until the next one, so input sent one short step per call cut the game's sound up.
-  Measured on BizHawk 2.11.1 with `SoundThrottle` on, silences of 20 ms or more per second of Super Mario Bros. 3-1:
-  2.4 running unpaused (the music's own rests), 2.3 with 600-frame calls, 2.7 with 60-frame calls, 15.2 with 1-frame
-  calls.
-
-## [v0.3.0-aas.1] - 2026-09-23
+## [v0.3.1] - 2026-09-23
 
 A release of the fork [moeilijk/bizhawk-mcp-native](https://github.com/moeilijk/bizhawk-mcp-native) for
-[ai-assisted-speedruns](https://github.com/moeilijk/ai-assisted-speedruns): StealthC's v0.3.0 with the two changes
+[ai-assisted-speedruns](https://github.com/moeilijk/ai-assisted-speedruns): StealthC's v0.3.0 with these changes,
 offered upstream as [#1](https://github.com/StealthC/bizhawk-mcp-native/pull/1) and
-[#2](https://github.com/StealthC/bizhawk-mcp-native/pull/2).
+[#2](https://github.com/StealthC/bizhawk-mcp-native/pull/2) (the steps are not offered yet). The version number is
+this fork's own; StealthC's next release may number differently.
 
 ### Fixed
 - **`press_buttons` can press console buttons.** Every name got the `P<controller> ` prefix, so `Reset` and `Power`
@@ -32,6 +24,11 @@ offered upstream as [#1](https://github.com/StealthC/bizhawk-mcp-native/pull/1) 
 
 ### Added
 - **`frame_advance` holds buttons.** Optional `buttons` (and `controller`) are set before each of the N frames.
+- **`frame_advance` plays a list of steps in one call** (`steps`: `[{buttons?, frames}]`, at most 600 frames). Each
+  call leaves the emulator paused until the next one, so input sent one short step per call cut the game's sound up.
+  Measured on BizHawk 2.11.1 with `SoundThrottle` on, silences of 20 ms or more per second of Super Mario Bros. 3-1:
+  2.4 running unpaused (the music's own rests), 2.3 with 600-frame calls, 2.7 with 60-frame calls, 15.2 with 1-frame
+  calls.
 
 ## [v0.3.0] - 2026-08-03
 
